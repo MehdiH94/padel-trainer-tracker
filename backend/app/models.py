@@ -1,0 +1,192 @@
+from datetime import datetime, timezone
+
+from sqlalchemy import DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+
+from .db import Base
+
+
+def utcnow() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+class Coach(Base):
+    __tablename__ = "coaches"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    email: Mapped[str] = mapped_column(String(255), unique=True)
+    password_hash: Mapped[str] = mapped_column(String(255))
+    name: Mapped[str] = mapped_column(String(120))
+    # Réservation par les joueurs avec leurs crédits
+    auto_confirm: Mapped[bool] = mapped_column(default=True)
+    slot_minutes: Mapped[int] = mapped_column(Integer, default=60)
+    price_individuel: Mapped[int] = mapped_column(Integer, default=0)  # prix par joueur, en millimes
+    price_duo: Mapped[int] = mapped_column(Integer, default=0)
+    price_groupe: Mapped[int] = mapped_column(Integer, default=0)
+    cancel_hours: Mapped[int] = mapped_column(Integer, default=24)  # remboursement si annulation >= N heures avant
+
+
+class Player(Base):
+    __tablename__ = "players"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    coach_id: Mapped[int] = mapped_column(ForeignKey("coaches.id"), index=True)
+    name: Mapped[str] = mapped_column(String(120))
+    phone: Mapped[str] = mapped_column(String(20))  # +216XXXXXXXX
+    email: Mapped[str | None] = mapped_column(String(255), nullable=True, unique=True)
+    password_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)  # None = pas de compte
+    invite_token: Mapped[str | None] = mapped_column(String(40), nullable=True, unique=True)
+    gender: Mapped[str] = mapped_column(String(1), default="M")  # M / F
+    category: Mapped[str] = mapped_column(String(6), default="P100")  # P50 .. P1000
+    pref_kinds: Mapped[str] = mapped_column(String(40), default="individuel,duo,groupe")  # types de séance souhaités
+    dominant_hand: Mapped[str] = mapped_column(String(10), default="droitier")
+    side: Mapped[str] = mapped_column(String(10), default="drive")
+    goals: Mapped[str] = mapped_column(Text, default="")
+    notes: Mapped[str] = mapped_column(Text, default="")
+
+
+class SkillRating(Base):
+    """Historique des évaluations techniques (1 à 5) par coup."""
+
+    __tablename__ = "skill_ratings"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    player_id: Mapped[int] = mapped_column(ForeignKey("players.id"), index=True)
+    stroke: Mapped[str] = mapped_column(String(40))
+    score: Mapped[int] = mapped_column(Integer)
+    rated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class Attendance(Base):
+    __tablename__ = "attendances"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    session_id: Mapped[int] = mapped_column(ForeignKey("sessions.id"), index=True)
+    player_id: Mapped[int] = mapped_column(ForeignKey("players.id"), index=True)
+    # Retour du coach sur ce joueur pour cette séance
+    worked_on: Mapped[str] = mapped_column(Text, default="")  # étiquettes séparées par des virgules
+    note: Mapped[str] = mapped_column(Text, default="")
+    to_improve: Mapped[str] = mapped_column(Text, default="")
+    credit_paid_millimes: Mapped[int] = mapped_column(Integer, default=0)  # payé avec les crédits: rien à facturer
+
+
+class Club(Base):
+    __tablename__ = "clubs"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    coach_id: Mapped[int] = mapped_column(ForeignKey("coaches.id"), index=True)
+    name: Mapped[str] = mapped_column(String(120))
+    phone: Mapped[str] = mapped_column(String(20), default="")  # numéro qui reçoit les SMS de réservation
+    sms_template: Mapped[str] = mapped_column(Text, default="")  # vide = modèle par défaut
+    auto_send: Mapped[bool] = mapped_column(default=True)  # envoyer le SMS dès la création de la séance
+
+
+class TrainingSession(Base):
+    __tablename__ = "sessions"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    coach_id: Mapped[int] = mapped_column(ForeignKey("coaches.id"), index=True)
+    start: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    duration_min: Mapped[int] = mapped_column(Integer, default=60)
+    kind: Mapped[str] = mapped_column(String(10), default="individuel")  # individuel/duo/groupe
+    level: Mapped[str] = mapped_column(String(20), default="")
+    club: Mapped[str] = mapped_column(String(120), default="")
+    club_id: Mapped[int | None] = mapped_column(ForeignKey("clubs.id"), nullable=True)
+    court: Mapped[str] = mapped_column(String(60), default="")
+    status: Mapped[str] = mapped_column(String(10), default="prevue")  # prevue/effectuee/annulee
+    price_millimes: Mapped[int] = mapped_column(Integer, default=0)
+    price_mode: Mapped[str] = mapped_column(String(10), default="par_joueur")  # par_joueur / groupe
+    open: Mapped[bool] = mapped_column(default=False)  # places libres proposées aux autres joueurs
+    recurrence_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    attendances: Mapped[list[Attendance]] = relationship(cascade="all, delete-orphan")
+
+
+class CourtBooking(Base):
+    """Demande de réservation de terrain envoyée par SMS à un club."""
+
+    __tablename__ = "court_bookings"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    coach_id: Mapped[int] = mapped_column(ForeignKey("coaches.id"), index=True)
+    session_id: Mapped[int | None] = mapped_column(ForeignKey("sessions.id"), nullable=True, index=True)  # None = terrain libre
+    club_id: Mapped[int] = mapped_column(ForeignKey("clubs.id"))
+    start: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    duration_min: Mapped[int] = mapped_column(Integer, default=60)
+    court_label: Mapped[str] = mapped_column(String(60), default="")
+    source: Mapped[str] = mapped_column(String(10), default="sms")  # sms / manuel
+    status: Mapped[str] = mapped_column(String(12), default="a_envoyer")  # a_envoyer/en_attente/confirmee/refusee/annulee
+    message: Mapped[str] = mapped_column(Text, default="")
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    reply: Mapped[str] = mapped_column(Text, default="")
+    replied_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class Payment(Base):
+    __tablename__ = "payments"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    coach_id: Mapped[int] = mapped_column(ForeignKey("coaches.id"), index=True)
+    player_id: Mapped[int] = mapped_column(ForeignKey("players.id"), index=True)
+    amount_millimes: Mapped[int] = mapped_column(Integer)
+    method: Mapped[str] = mapped_column(String(10), default="especes")  # especes/virement
+    kind: Mapped[str] = mapped_column(String(10), default="seance")  # seance / credit (recharge prépayée)
+    session_id: Mapped[int | None] = mapped_column(ForeignKey("sessions.id"), nullable=True)
+    paid_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class CreditTx(Base):
+    """Mouvements du solde de crédits d'un joueur (en millimes de TND)."""
+
+    __tablename__ = "credit_tx"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    coach_id: Mapped[int] = mapped_column(ForeignKey("coaches.id"), index=True)
+    player_id: Mapped[int] = mapped_column(ForeignKey("players.id"), index=True)
+    amount_millimes: Mapped[int] = mapped_column(Integer)  # + recharge / remboursement, - réservation
+    reason: Mapped[str] = mapped_column(String(20))  # recharge / reservation / remboursement / ajustement
+    booking_id: Mapped[int | None] = mapped_column(ForeignKey("bookings.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class Availability(Base):
+    """Plage hebdomadaire pendant laquelle le coach accepte des réservations."""
+
+    __tablename__ = "availabilities"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    coach_id: Mapped[int] = mapped_column(ForeignKey("coaches.id"), index=True)
+    weekday: Mapped[int] = mapped_column(Integer)  # 0 = lundi
+    start_time: Mapped[str] = mapped_column(String(5))  # HH:MM, heure de Tunis
+    end_time: Mapped[str] = mapped_column(String(5))
+
+
+class Booking(Base):
+    """Réservation d'un joueur (payée avec ses crédits)."""
+
+    __tablename__ = "bookings"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    coach_id: Mapped[int] = mapped_column(ForeignKey("coaches.id"), index=True)
+    player_id: Mapped[int] = mapped_column(ForeignKey("players.id"), index=True)
+    kind: Mapped[str] = mapped_column(String(10), default="individuel")
+    start: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    duration_min: Mapped[int] = mapped_column(Integer, default=60)
+    # en_attente (à traiter) / acceptee (terrain à confirmer) / confirmee / refusee / annulee
+    status: Mapped[str] = mapped_column(String(12), default="en_attente")
+    notified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)  # joueur prévenu de la confirmation
+    charged_millimes: Mapped[int] = mapped_column(Integer, default=0)
+    session_id: Mapped[int | None] = mapped_column(ForeignKey("sessions.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class ReminderLog(Base):
+    """Trace des relances ouvertes par le coach (pour ne pas relancer deux fois de suite)."""
+
+    __tablename__ = "reminder_logs"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    coach_id: Mapped[int] = mapped_column(ForeignKey("coaches.id"), index=True)
+    player_id: Mapped[int] = mapped_column(ForeignKey("players.id"), index=True)
+    kind: Mapped[str] = mapped_column(String(20))  # impaye / seance / invitation / credits
+    channel: Mapped[str] = mapped_column(String(10))  # sms / whatsapp / email
+    sent_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class Proposal(Base):
+    """Le coach propose à un joueur de rejoindre une séance déjà montée; le joueur accepte ou refuse."""
+
+    __tablename__ = "proposals"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    coach_id: Mapped[int] = mapped_column(ForeignKey("coaches.id"), index=True)
+    session_id: Mapped[int] = mapped_column(ForeignKey("sessions.id"), index=True)
+    player_id: Mapped[int] = mapped_column(ForeignKey("players.id"), index=True)
+    status: Mapped[str] = mapped_column(String(10), default="proposee")  # proposee / acceptee / refusee
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

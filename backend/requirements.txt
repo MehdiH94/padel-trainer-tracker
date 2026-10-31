@@ -1,0 +1,9 @@
+fastapi
+uvicorn[standard]
+sqlalchemy
+pydantic
+pyjwt
+bcrypt
+pytest
+httpx
+tzdata
