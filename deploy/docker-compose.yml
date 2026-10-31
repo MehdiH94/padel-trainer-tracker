@@ -2,19 +2,26 @@ services:
   app:
     build: ..
     env_file: .env
+    ports:
+      - "127.0.0.1:8081:8000"   # visible seulement depuis le serveur: un proxy (Caddy, nginx) se place devant
     volumes:
-      - data:/data          # base SQLite (à sauvegarder)
+      - data:/data              # base SQLite (à sauvegarder)
     restart: unless-stopped
+
+  # Caddy intégré: à utiliser seulement si rien d'autre n'occupe les ports 80/443 du serveur
+  #   docker compose --profile caddy up -d --build
   caddy:
+    profiles: ["caddy"]
     image: caddy:2
     ports: ["80:80", "443:443"]
     environment:
       DOMAIN: ${DOMAIN:-:80}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy_data:/data   # certificats HTTPS
+      - caddy_data:/data        # certificats HTTPS
     depends_on: [app]
     restart: unless-stopped
+
 volumes:
   data:
   caddy_data:
