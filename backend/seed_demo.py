@@ -4,10 +4,14 @@ Joueur: sami@demo.tn / demo1234  (et ines@demo.tn, karim@demo.tn, rania@demo.tn)
 import random
 from datetime import datetime, timedelta, timezone
 
+import os
+
 import httpx
 
+API = os.getenv("API_URL", "http://127.0.0.1:8000")  # en production: https://<domaine>/api
+
 random.seed(7)
-c = httpx.Client(base_url="http://127.0.0.1:8000", timeout=30)
+c = httpx.Client(base_url=API, timeout=30)
 r = c.post("/auth/register", json={"email": "demo@padel.tn", "password": "demo1234", "name": "Coach Démo"})
 if r.status_code == 409:
     r = c.post("/auth/login", json={"email": "demo@padel.tn", "password": "demo1234"})
@@ -128,8 +132,8 @@ accounts = {"Sami Ben Ali": 200000, "Ines Trabelsi": 120000, "Karim Jlassi": 0, 
 pcs = {}
 for n, credit in accounts.items():
     inv = c.post(f"/players/{ids[n]}/invite").json()["token"]
-    tok = httpx.post(f"http://127.0.0.1:8000/auth/invite/{inv}", json={"email": f"{n.split()[0].lower()}@demo.tn", "password": "demo1234"}).json()["token"]
-    pcs[n] = httpx.Client(base_url="http://127.0.0.1:8000", headers={"Authorization": "Bearer " + tok})
+    tok = httpx.post(f"{API}/auth/invite/{inv}", json={"email": f"{n.split()[0].lower()}@demo.tn", "password": "demo1234"}).json()["token"]
+    pcs[n] = httpx.Client(base_url=API, headers={"Authorization": "Bearer " + tok})
     if credit:
         c.post(f"/players/{ids[n]}/credits", json={"amount_millimes": credit, "method": random.choice(["especes", "virement"])})
 

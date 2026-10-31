@@ -1,0 +1,4 @@
+# HTTPS automatique (Let's Encrypt) si DOMAIN est un nom de domaine; sinon HTTP simple sur l'IP du serveur.
+{$DOMAIN} {
+	reverse_proxy app:8000
+}
