@@ -13,6 +13,7 @@ from ..models import Availability, Booking, Club, Coach, CourtBooking, Player, P
 from ..services import booking as svc
 from ..services import courts
 from ..services.common import TUNIS, aware
+from ..services.exercises_catalog import WORK_THEMES
 from ..sms import get_sms_provider
 from ..sms.base import SmsProvider
 
@@ -35,6 +36,8 @@ class Settings(BaseModel):
     price_groupe: int
     cancel_hours: int = 24
     availability: list[Window]
+    bio: str | None = None  # page publique du coach (None = inchangé)
+    specialties: list[str] | None = None
 
 
 def settings_out(db: Session, coach: Coach) -> dict:
@@ -43,6 +46,7 @@ def settings_out(db: Session, coach: Coach) -> dict:
         "auto_confirm": coach.auto_confirm, "slot_minutes": coach.slot_minutes, "cancel_hours": coach.cancel_hours,
         "price_individuel": coach.price_individuel, "price_duo": coach.price_duo, "price_groupe": coach.price_groupe,
         "availability": [{"weekday": r.weekday, "start_time": r.start_time, "end_time": r.end_time} for r in rows],
+        "bio": coach.bio, "specialties": [x for x in coach.specialties.split(",") if x], "name": coach.name,
     }
 
 
@@ -61,6 +65,10 @@ def put_settings(body: Settings, coach: Coach = Depends(current_coach), db: Sess
             raise HTTPException(422, "Plage horaire invalide")
     coach.auto_confirm, coach.slot_minutes, coach.cancel_hours = body.auto_confirm, body.slot_minutes, body.cancel_hours
     coach.price_individuel, coach.price_duo, coach.price_groupe = prices
+    if body.bio is not None:
+        coach.bio = body.bio.strip()[:2000]
+    if body.specialties is not None:
+        coach.specialties = ",".join(t for t in body.specialties if t in WORK_THEMES)
     for old in db.scalars(select(Availability).where(Availability.coach_id == coach.id)):
         db.delete(old)
     db.add_all(Availability(coach_id=coach.id, **w.model_dump()) for w in body.availability)

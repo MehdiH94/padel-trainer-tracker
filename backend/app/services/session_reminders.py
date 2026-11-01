@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from ..models import Coach, Player, SessionReminder, TrainingSession
 from ..notify import Notifier
 from .common import TUNIS, aware
+from .accounts import contact_email
 from .courts import JOURS
 
 log = logging.getLogger("rappels")
@@ -44,11 +45,11 @@ def send_due(db: Session, notifier: Notifier, now: datetime | None = None) -> in
                 continue
             p = db.get(Player, a.player_id)
             channel = p.contact_channel or "sms"  # pas encore choisi: SMS par défaut (le numéro est toujours connu)
-            if channel == "email" and not p.email:
+            if channel == "email" and not contact_email(db, p):
                 channel = "sms"
             body = reminder_text(coach, p, s, kind, now)
             try:
-                notifier.send(p, channel, "Rappel de séance de padel", body)
+                notifier.send(p, channel, "Rappel de séance de padel", body, email=contact_email(db, p))
             except Exception:  # un envoi raté ne bloque pas les autres; on réessaiera au prochain passage
                 log.exception("Rappel non envoyé au joueur %s", p.id)
                 continue

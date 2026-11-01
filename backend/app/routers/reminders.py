@@ -13,6 +13,7 @@ from ..db import get_db
 from ..models import Coach, ReminderLog, Player, TrainingSession
 from ..services.common import TUNIS, aware
 from ..services.courts import JOURS
+from ..services.accounts import has_account
 from ..services.finance import billed_by_player, credit_balance, paid_by_player
 from .players import get_owned_player
 
@@ -65,7 +66,7 @@ def reminders(base: str = "", coach: Coach = Depends(current_coach), db: Session
 
     # 3. Invitations (joueurs sans compte)
     for p in players.values():
-        if p.password_hash:
+        if has_account(p):
             continue
         if not p.invite_token:
             p.invite_token = secrets.token_urlsafe(16)
@@ -75,7 +76,7 @@ def reminders(base: str = "", coach: Coach = Depends(current_coach), db: Session
     cheapest = min((x for x in (coach.price_individuel, coach.price_duo, coach.price_groupe) if x), default=0)
     if cheapest:
         for p in players.values():
-            if p.password_hash and credit_balance(db, p.id) < cheapest:
+            if has_account(p) and credit_balance(db, p.id) < cheapest:
                 add(p, "credits", "Recharge de crédits", f"Bonjour {p.name.split()[0]}, votre solde de crédits est de {tnd(credit_balance(db, p.id))}. Pensez à le recharger pour réserver vos prochaines séances. — {coach.name}", {"balance_millimes": credit_balance(db, p.id)})
     db.commit()
     return items

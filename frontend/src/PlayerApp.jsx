@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
-import { api, dayKey, dayLabel, hhmm, setToken, tnd, toDate } from "./api.js";
+import { useEffect, useState } from "react";
+import { api, dayLabel, hhmm, setToken, tnd, toDate } from "./api.js";
 import Icon from "./Icon.jsx";
 import { confirmDialog, Modal, toast, toastError } from "./feedback.jsx";
+import { Book, CoachPage } from "./PlayerBook.jsx";
 import { useRoute } from "./router.js";
 import { Avatar, CategoryBadge, CHANNELS, ChannelPicker, InstallCard, KIND, Loading, OfflineBar, RadarChart } from "./ui.jsx";
 
@@ -35,7 +36,7 @@ async function cancelBooking(me, b, reload) {
   if (!ok) return;
   try {
     const r = await api(`/me/bookings/${b.booking_id}/cancel`, { method: "POST" });
-    toast(r.refunded ? `Séance annulée · ${tnd(r.refunded)} remboursés` : "Séance annulée");
+    toast(r.refunded_millimes ? `Séance annulée · ${tnd(r.refunded_millimes)} remboursés` : "Séance annulée");
     reload();
   } catch (x) {
     toastError(x);
@@ -81,6 +82,9 @@ function Home({ me, sessions, progress, credits, proposals, go, reload }) {
             <div className="hero-top">Mon solde de crédits</div>
             <div className="bignum">{tnd(me.credits_millimes)}</div>
             {sessionsLeft !== null && <div className="hero-top">≈ {sessionsLeft} séance{sessionsLeft > 1 ? "s" : ""} individuelle{sessionsLeft > 1 ? "s" : ""}</div>}
+            {me.wallets.filter((w) => w.coach_id !== me.wallets[0].coach_id && w.credits_millimes).map((w) => (
+              <div key={w.coach_id} className="hero-top">+ {tnd(w.credits_millimes)} chez {w.coach_name}</div>
+            ))}
           </div>
           <CategoryBadge category={me.category} gender={me.gender} />
         </div>
@@ -103,7 +107,7 @@ function Home({ me, sessions, progress, credits, proposals, go, reload }) {
                 <DateBlock iso={p.start} />
                 <div style={{ flex: 1 }}>
                   <div className="row"><b>{hhmm(p.start)} · {p.duration_min} min</b><KindPill kind={p.kind} /></div>
-                  {p.club && <div className="mut"><Icon name="pin" size={13} /> {p.club}</div>}
+                  <div className="mut"><Icon name="user" size={13} /> {p.coach_name}{p.club && <> · <Icon name="pin" size={13} /> {p.club}</>}</div>
                   <div className="partners">
                     {p.partners.map((x) => <span key={x.name} className="partner"><Avatar name={x.name} size={22} /> {x.name.split(" ")[0]} <CategoryBadge category={x.category} /></span>)}
                   </div>
@@ -126,7 +130,7 @@ function Home({ me, sessions, progress, credits, proposals, go, reload }) {
           <div style={{ flex: 1 }}>
             <div className="time">{hhmm(next.start)} <span className="mut">· {next.duration_min} min</span></div>
             <KindPill kind={next.kind} />
-            {next.club && <div className="mut" style={{ marginTop: 4 }}><Icon name="pin" size={13} /> {next.club}</div>}
+            <div className="mut" style={{ marginTop: 4 }}><Icon name="user" size={13} /> {next.coach_name}{next.club && <> · <Icon name="pin" size={13} /> {next.club}</>}</div>
             <div className={"status-line " + next.status}>{STATUS_TXT[next.status] ?? "Confirmée"}</div>
           </div>
           {next.booking_id && <button className="small sec" onClick={() => cancelBooking(me, next, reload)}>Annuler</button>}
@@ -178,168 +182,6 @@ function Home({ me, sessions, progress, credits, proposals, go, reload }) {
   );
 }
 
-// ---------------------------------------------------------------- Réserver
-function Suggestion({ s, me, onJoined }) {
-  const [open, setOpen] = useState(false);
-  const [err, setErr] = useState("");
-  const after = me.credits_millimes - s.price_millimes;
-  const join = async () => {
-    try { onJoined(await api("/me/book", { method: "POST", body: { session_id: s.session_id } }), s); } catch (x) { setErr(x.message); }
-  };
-  return (
-    <div className="card sugg">
-      <div className="row g10" style={{ alignItems: "flex-start" }}>
-        <DateBlock iso={s.start} />
-        <div style={{ flex: 1 }}>
-          <div className="row"><b>{hhmm(s.start)} · {s.duration_min} min</b><KindPill kind={s.kind} /></div>
-          <span className={"match " + s.match}>{s.match === "ideal" ? <><Icon name="star" size={12} /> Idéal pour vous</> : "Proche de votre demande"}</span>
-          {s.club && <div className="mut"><Icon name="pin" size={13} /> {s.club}</div>}
-          <div className="partners">
-            {s.players.map((p) => <span key={p.name} className="partner"><Avatar name={p.name} size={22} /> {p.name.split(" ")[0]} <CategoryBadge category={p.category} /></span>)}
-          </div>
-          <div className="mut">{s.spots_left} place{s.spots_left > 1 ? "s" : ""} libre{s.spots_left > 1 ? "s" : ""} sur {s.capacity} · <b>{tnd(s.price_millimes)}</b></div>
-        </div>
-      </div>
-      {!open ? (
-        <div className="actions"><button onClick={() => setOpen(true)}>Rejoindre</button></div>
-      ) : (
-        <div className="confirm-box">
-          <div className="row"><span className="mut">Solde après réservation</span><b className={after < 0 ? "red" : ""}>{tnd(after)}</b></div>
-          {after < 0 && <div className="err">Crédits insuffisants : rechargez auprès de {me.coach_name}.</div>}
-          {err && <div className="err">{err}</div>}
-          <div className="actions">
-            <button disabled={after < 0} onClick={join}>Confirmer</button>
-            <button className="sec" onClick={() => setOpen(false)}>Retour</button>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function Book({ me, reload, go }) {
-  const [kinds, setKinds] = useState(me.pref_kinds);
-  const [sugg, setSugg] = useState(null);
-  const [hidden, setHidden] = useState([]);
-  const [slots, setSlots] = useState(null);
-  const [day, setDay] = useState(null);
-  const [slot, setSlot] = useState(null);
-  const [slotKind, setSlotKind] = useState(null);
-  const [err, setErr] = useState("");
-  const [done, setDone] = useState(null);
-
-  useEffect(() => { api("/me/slots").then(setSlots); }, []);
-  useEffect(() => { api(`/me/suggestions?kinds=${kinds.join(",")}`).then(setSugg); }, [kinds.join(",")]);
-  const days = useMemo(() => {
-    const m = {};
-    (slots ?? []).forEach((s) => (m[dayKey(s)] ||= []).push(s));
-    return Object.entries(m);
-  }, [slots]);
-  useEffect(() => { if (days.length && !day) setDay(days[0][0]); }, [days]);
-
-  const toggle = (k) => setKinds(kinds.includes(k) ? (kinds.length > 1 ? kinds.filter((x) => x !== k) : kinds) : [...kinds, k]);
-  const all = kinds.length === 3;
-  const kind = kinds.includes(slotKind) ? slotKind : kinds[0];
-  const price = me.prices[kind];
-  const after = me.credits_millimes - price;
-
-  async function bookNew() {
-    setErr("");
-    try {
-      setDone({ ...(await api("/me/book", { method: "POST", body: { kind, start: slot } })), start: slot, kind });
-      reload();
-    } catch (x) {
-      setErr(x.message);
-    }
-  }
-
-  if (done) {
-    const confirmed = done.status === "confirmee";
-    return (
-      <div className="card empty success">
-        <div className={"bigcheck " + (confirmed ? "ok" : "wait")}><Icon name={confirmed ? "checkCircle" : "clock"} size={44} strokeWidth={1.6} /></div>
-        <h1>{confirmed ? "Séance réservée !" : "Demande envoyée"}</h1>
-        <b style={{ textTransform: "capitalize" }}>{dayLabel(done.start)} à {hhmm(done.start)}</b>
-        <p className="mut">{confirmed ? `${me.coach_name} vous attend.` : `${me.coach_name} doit valider votre demande et confirmer le terrain. Vous serez remboursé en cas de refus.`}</p>
-        <button onClick={() => go("mine")}>Voir mes séances</button>
-      </div>
-    );
-  }
-
-  const visible = (sugg ?? []).filter((s) => !hidden.includes(s.session_id));
-  return (
-    <>
-      <h1>Réserver</h1>
-
-      <h2 className="step"><span>1</span> Quel type de séance ?</h2>
-      <div className="kindcards">
-        {Object.entries(KIND).map(([k, v]) => (
-          <button key={k} className={"kindcard" + (kinds.includes(k) ? " on" : "")} style={{ "--c": v.color }} onClick={() => toggle(k)}>
-            <span className="ki"><Icon name={v.icon} size={22} /></span>
-            <b>{v.label}</b>
-            <small>{v.short}</small>
-            <em>{tnd(me.prices[k])}</em>
-            {kinds.includes(k) && <span className="tick"><Icon name="check" size={12} strokeWidth={3} /></span>}
-          </button>
-        ))}
-      </div>
-      <button className={"chip" + (all ? " on" : "")} onClick={() => setKinds(all ? [kinds[0]] : ["individuel", "duo", "groupe"])}>
-        <Icon name="sparkles" size={14} /> Pas de préférence
-      </button>
-
-      <h2 className="step"><span>2</span> Séances déjà prévues pour vous</h2>
-      <div className="mut" style={{ marginTop: -4, marginBottom: 8 }}>Selon votre classement ({me.category}) et vos choix. Rejoindre une séance existante est souvent le plus rapide.</div>
-      {sugg === null && <div className="card mut">Recherche…</div>}
-      {sugg !== null && visible.length === 0 && <div className="card mut">Aucune séance existante ne correspond pour le moment. Créez un nouveau créneau ci-dessous.</div>}
-      {visible.map((s) => (
-        <div key={s.session_id}>
-          <Suggestion s={s} me={me} onJoined={(r, sess) => { setDone({ ...r, start: sess.start }); reload(); }} />
-          <button className="link center" onClick={() => setHidden([...hidden, s.session_id])}>Pas pour moi</button>
-        </div>
-      ))}
-
-      <h2 className="step"><span>3</span> Ou choisissez un nouveau créneau</h2>
-      {slots === null && <div className="card mut">Chargement…</div>}
-      {days.length === 0 && slots !== null && <div className="card mut">Aucun créneau disponible pour le moment.</div>}
-      {days.length > 0 && (
-        <>
-          <div className="daystrip">
-            {days.map(([k, list]) => (
-              <button key={k} className={"daypill" + (day === k ? " on" : "")} onClick={() => { setDay(k); setSlot(null); }}>
-                <span>{fmt(list[0], { weekday: "short" }).replace(".", "")}</span>
-                <b>{fmt(list[0], { day: "numeric" })}</b>
-                <small>{fmt(list[0], { month: "short" }).replace(".", "")}</small>
-              </button>
-            ))}
-          </div>
-          <div className="timegrid">
-            {(days.find(([k]) => k === day)?.[1] ?? []).map((s) => (
-              <button key={s} className={"timepill" + (slot === s ? " on" : "")} onClick={() => setSlot(s)}>{hhmm(s)}</button>
-            ))}
-          </div>
-        </>
-      )}
-      {slot && (
-        <div className="card confirm">
-          <div className="row"><b style={{ textTransform: "capitalize" }}>{dayLabel(slot)} · {hhmm(slot)}</b><span className="mut">{me.slot_minutes} min</span></div>
-          {kinds.length > 1 && (
-            <div className="seg" style={{ margin: "10px 0" }}>
-              {kinds.map((k) => <button key={k} className={kind === k ? "on" : ""} onClick={() => setSlotKind(k)}>{KIND[k].label}</button>)}
-            </div>
-          )}
-          {kind !== "individuel" && <div className="mut"><Icon name="users" size={13} /> Les autres places seront proposées à des joueurs de votre niveau.</div>}
-          <div className="row"><span className="mut">Prix</span><b>{tnd(price)}</b></div>
-          <div className="row"><span className="mut">Solde après réservation</span><b className={after < 0 ? "red" : ""}>{tnd(after)}</b></div>
-          {after < 0 && <div className="err">Crédits insuffisants : rechargez auprès de {me.coach_name}.</div>}
-          {err && <div className="err">{err}</div>}
-          <button style={{ width: "100%", marginTop: 8 }} disabled={after < 0} onClick={bookNew}>Confirmer la réservation</button>
-          <div className="mut" style={{ marginTop: 6 }}>Annulation remboursée jusqu'à {me.cancel_hours} h avant la séance.</div>
-        </div>
-      )}
-    </>
-  );
-}
-
 // ---------------------------------------------------------------- Mes séances
 function Mine({ me, sessions, reload }) {
   const [view, setView] = useState("up");
@@ -374,7 +216,7 @@ function Mine({ me, sessions, reload }) {
               <div style={{ flex: 1 }}>
                 <div className="time">{hhmm(s.start)} <span className="mut">· {s.duration_min} min</span></div>
                 <KindPill kind={s.kind} />
-                {s.club && <div className="mut" style={{ marginTop: 4 }}><Icon name="pin" size={13} /> {s.club}</div>}
+                <div className="mut" style={{ marginTop: 4 }}><Icon name="user" size={13} /> {s.coach_name}{s.club && <> · <Icon name="pin" size={13} /> {s.club}</>}</div>
                 {s.partners.length > 0 && <div className="partners">{s.partners.map((x) => <span key={x.name} className="partner"><Avatar name={x.name} size={20} /> {x.name.split(" ")[0]}</span>)}</div>}
                 <div className={"status-line " + s.status}>{STATUS_TXT[s.status] ?? "Confirmée"}</div>
               </div>
@@ -423,7 +265,7 @@ function Mine({ me, sessions, reload }) {
 }
 
 export default function PlayerApp() {
-  const [[tab = "home"], setTab] = useRoute("home");
+  const [[tab = "home", sub], setTab] = useRoute("home");
   const [data, setData] = useState(null);
   const load = () =>
     Promise.all([api("/me"), api("/me/sessions"), api("/me/progress"), api("/me/credits"), api("/me/proposals")])
@@ -437,13 +279,14 @@ export default function PlayerApp() {
       <OfflineBar />
       <main id="main">
         {tab === "home" && <Home {...props} />}
-        {tab === "book" && <Book {...props} />}
+        {tab === "book" && <Book {...props} key={sub ?? ""} coachParam={sub} />}
+        {tab === "coach" && <CoachPage id={+sub} go={setTab} onBack={() => (history.length > 1 ? history.back() : setTab("book"))} />}
         {tab === "mine" && <Mine {...props} />}
       </main>
       {!data.me.contact_channel && <ContactChoice me={data.me} reload={load} />}
       <nav>
         {TABS.map(([k, icon, label]) => (
-          <button key={k} className={tab === k ? "on" : ""} aria-current={tab === k ? "page" : undefined} onClick={() => setTab(k)}>
+          <button key={k} className={(tab === "coach" ? "book" : tab) === k ? "on" : ""} aria-current={tab === k ? "page" : undefined} onClick={() => setTab(k)}>
             <span className="navico"><Icon name={icon} size={22} strokeWidth={tab === k ? 2.3 : 1.8} />{k === "home" && data.proposals.length > 0 && <b className="navbadge">{data.proposals.length}</b>}</span>
             {label}
           </button>

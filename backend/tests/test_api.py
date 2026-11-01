@@ -174,7 +174,6 @@ def test_booking_auto_confirmed_when_a_court_is_free(client):
     p, pc = player_client(client)
     slot = pc.get("/me/slots").json()[0]
     free_court(client, slot)
-    assert pc.post("/me/book", json={"kind": "individuel", "start": slot}).status_code == 402  # pas de crédits
     client.post(f"/players/{p['id']}/credits", json={"amount_millimes": 150000, "method": "especes"})
     r = pc.post("/me/book", json={"kind": "individuel", "start": slot})
     assert r.status_code == 201 and r.json()["status"] == "confirmee" and r.json()["credits_millimes"] == 90000
@@ -334,7 +333,6 @@ def test_join_open_session(client):
     host = mkplayer(client, name="Host")
     s = open_duo(client, host)
     p, pc = player_client(client, name="Joiner", phone="20111111")
-    assert pc.post("/me/book", json={"session_id": s["id"]}).status_code == 402
     client.post(f"/players/{p['id']}/credits", json={"amount_millimes": 100000})
     r = pc.post("/me/book", json={"session_id": s["id"]})
     assert r.status_code == 201 and r.json()["status"] == "confirmee" and r.json()["credits_millimes"] == 60000
@@ -375,7 +373,6 @@ def test_coach_groups_and_proposals(client):
     assert client.post("/proposals", json={"session_id": s["id"], "player_id": p["id"]}).status_code == 409
     prop = pc.get("/me/proposals").json()
     assert len(prop) == 1 and prop[0]["partners"][0]["name"] == "Host"
-    assert pc.post(f"/me/proposals/{prop[0]['id']}/accept").status_code == 402  # pas de crédits
     client.post(f"/players/{p['id']}/credits", json={"amount_millimes": 40000})
     r = pc.post(f"/me/proposals/{prop[0]['id']}/accept")
     assert r.status_code == 200 and r.json()["status"] == "confirmee"
@@ -536,7 +533,7 @@ def test_suggestions_respect_every_player_and_gender_rule(client):
     assert [x["session_id"] for x in ok_p.get("/me/suggestions").json()] == [s["id"]]
     assert ko_high.get("/me/suggestions").json() == []
     assert ko_low.get("/me/suggestions").json() == []
-    assert ko_low.post("/me/book", json={"session_id": s["id"]}).status_code in (402, 409)
+    assert ko_low.post("/me/book", json={"session_id": s["id"]}).status_code == 409
     cands = [c["name"] for c in client.get("/groups").json()[0]["candidates"]]
     assert "Man500" in cands and "Man1000" not in cands and "Man100" not in cands
 
@@ -737,3 +734,63 @@ def test_session_plan_from_weaknesses(client):
     assert all(i["kind"] != "jeu" or "1 contre" not in i["name"] for i in p2["items"])
     assert client.put(f"/sessions/{s['id']}/plan", json=plan).json() == {"ok": True}
     assert client.get(f"/sessions/{s['id']}/plan").json()["plan"]["items"] == items
+
+
+# --- Prise de rendez-vous tous coachs, page coach ---------------------------
+
+def _day_of(iso):
+    from app.services.common import TUNIS
+    return datetime.fromisoformat(iso).astimezone(TUNIS).date().isoformat()
+
+
+def test_booking_without_credits_is_paid_on_site(client):
+    open_week(client)
+    p, pc = player_client(client)
+    slot = pc.get("/me/slots").json()[0]
+    free_court(client, slot)
+    r = pc.post("/me/book", json={"kind": "individuel", "start": slot}).json()
+    assert r["status"] == "confirmee" and r["paid_with"] == "sur_place"
+    s = client.get("/sessions").json()[0]
+    assert s["price_millimes"] == 60000
+    client.patch(f"/sessions/{s['id']}", json={"status": "effectuee"})
+    assert client.get("/dashboard").json()["unpaid"][0]["amount_millimes"] == 60000  # à régler sur place
+
+
+def test_player_books_with_another_coach_and_sees_coach_page(client):
+    open_week(client)
+    p, pc = player_client(client, name="Sami Ben", gender="M", category="P250+")
+    # un second coach, avec son club et un terrain déjà réservé
+    other = register("coach2@b.tn")
+    open_week(other)
+    other.put("/booking/settings", json={**other.get("/booking/settings").json(), "bio": "Ancien joueur pro.", "specialties": ["Smash", "Bandeja", "Inconnu"]})
+    club = other.post("/clubs", json={"name": "Club Carthage", "phone": "71 000 000"}).json()
+    slots = pc.get("/me/slots").json()
+    day = _day_of(slots[3])
+    coaches = pc.get("/me/coaches").json()
+    assert [c["mine"] for c in coaches] == [True, False] and coaches[1]["clubs"] == ["Club Carthage"]
+    page = pc.get(f"/me/coaches/{coaches[1]['id']}").json()
+    assert page["bio"] == "Ancien joueur pro." and page["specialties"] == ["Smash", "Bandeja"] and len(page["availability"]) == 7
+    assert "Club Carthage" in pc.get("/me/clubs").json()
+    # seul: d'abord les créneaux où le coach a déjà un terrain
+    target = next(x for x in slots if _day_of(x) == day and datetime.fromisoformat(x).astimezone(timezone.utc).hour >= 15)
+    other.post("/court-bookings/manual", json={"club_id": club["id"], "start": target, "duration_min": 60})
+    off = pc.get(f"/me/offers?day={day}&kind=individuel&club=club carthage").json()
+    assert [x["start"][:16] for x in off["slots_with_court"]] == [target[:16]] and off["slots_with_court"][0]["coach"]["name"] == "Coach Test"
+    assert all(x["coach"]["id"] == coaches[1]["id"] for x in off["slots_other"])  # filtre club: seul ce coach y travaille
+    assert pc.get(f"/me/offers?day={day}&kind=individuel&period=matin").json()["slots_with_court"] == []
+    # réservation chez le second coach: une fiche est créée chez lui, reliée au compte
+    r = pc.post("/me/book", json={"kind": "individuel", "start": off["slots_with_court"][0]["start"], "coach_id": coaches[1]["id"]}).json()
+    assert r["status"] == "confirmee" and r["coach_name"] == "Coach Test" and r["paid_with"] == "sur_place"
+    theirs = other.get("/players").json()
+    assert [(x["name"], x["category"], x["has_account"]) for x in theirs] == [("Sami Ben", "P250+", True)]
+    mine = pc.get("/me/sessions").json()["upcoming"]
+    assert len(mine) == 1 and mine[0]["club"] == "Club Carthage"
+    assert {w["coach_id"] for w in pc.get("/me").json()["wallets"]} == {coaches[0]["id"], coaches[1]["id"]}
+    # en groupe: le groupe déjà formé chez le second coach est proposé, avec de nouveaux créneaux
+    host = other.post("/players", json={"name": "Host", "phone": "22 999 999", "category": "P250-"}).json()
+    g_start = next(x for x in slots if _day_of(x) == day and x != target)
+    g = other.post("/sessions", json={"start": g_start, "kind": "groupe", "open": True, "player_ids": [host["id"]], "price_millimes": 30000, "club_id": club["id"]}).json()[0]
+    off = pc.get(f"/me/offers?day={day}&kind=groupe").json()
+    assert [x["session_id"] for x in off["groups"]] == [g["id"]] and off["slots_other"]
+    assert pc.post("/me/book", json={"session_id": g["id"]}).json()["status"] in ("confirmee", "acceptee")
+    assert pc.get(f"/me/offers?day={day}&kind=groupe").json()["groups"] == []  # déjà inscrit

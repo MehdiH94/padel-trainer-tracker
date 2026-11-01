@@ -37,10 +37,10 @@ class Notifier:
     def __init__(self, sms: SmsProvider):
         self.sms = sms
 
-    def send(self, player: Player, channel: str, subject: str, body: str) -> None:
+    def send(self, player: Player, channel: str, subject: str, body: str, email: str | None = None) -> None:
         if channel == "email":
-            send_email(player.email, subject, body)
-            to = player.email
+            to = email or player.email
+            send_email(to, subject, body)
         elif channel == "sms":
             self.sms.send(player.phone, body)
             to = player.phone

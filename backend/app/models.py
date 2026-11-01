@@ -23,6 +23,9 @@ class Coach(Base):
     price_duo: Mapped[int] = mapped_column(Integer, default=0)
     price_groupe: Mapped[int] = mapped_column(Integer, default=0)
     cancel_hours: Mapped[int] = mapped_column(Integer, default=24)  # remboursement si annulation >= N heures avant
+    # Page publique vue par les joueurs
+    bio: Mapped[str] = mapped_column(Text, default="")
+    specialties: Mapped[str] = mapped_column(String(255), default="")  # thèmes séparés par des virgules
 
 
 class Player(Base):
@@ -43,6 +46,9 @@ class Player(Base):
     notes: Mapped[str] = mapped_column(Text, default="")
     # Moyen choisi par le joueur pour les rappels automatiques: whatsapp / sms / email (None = pas encore choisi)
     contact_channel: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    # Un joueur peut réserver chez plusieurs coachs: une fiche par coach, reliées au compte (fiche avec mot de passe).
+    # account_id = id de la fiche « compte »; None pour le compte lui-même et pour les joueurs sans compte.
+    account_id: Mapped[int | None] = mapped_column(ForeignKey("players.id"), nullable=True, index=True)
 
 
 class SkillRating(Base):

@@ -119,10 +119,11 @@ def suggestions(db: Session, coach: Coach, player: Player, kinds: list[str]) -> 
 # --- Demandes -----------------------------------------------------------
 
 def _debit(db: Session, coach: Coach, player: Player, price: int, b: Booking) -> None:
-    if price and credit_balance(db, player.id) < price:
-        raise InsufficientCredits("Crédits insuffisants")
-    if price:
+    """Payé avec les crédits s'il y en a assez chez ce coach; sinon la séance sera réglée sur place (rien de débité)."""
+    if price and credit_balance(db, player.id) >= price:
         db.add(CreditTx(coach_id=coach.id, player_id=player.id, amount_millimes=-price, reason="reservation", booking_id=b.id))
+    else:
+        b.charged_millimes = 0
 
 
 def request_join(db: Session, coach: Coach, player: Player, s: TrainingSession, sms: SmsProvider | None = None, *, force_accept: bool = False) -> Booking:
@@ -180,7 +181,7 @@ def accept(db: Session, coach: Coach, b: Booking, sms: SmsProvider | None = None
         return
     s = TrainingSession(
         coach_id=coach.id, start=b.start, duration_min=b.duration_min, kind=b.kind, level=player.category,
-        price_millimes=b.charged_millimes, price_mode="par_joueur", open=b.kind != "individuel",
+        price_millimes=b.charged_millimes or price_for(coach, b.kind), price_mode="par_joueur", open=b.kind != "individuel",
     )
     s.attendances = [Attendance(player_id=player.id, credit_paid_millimes=b.charged_millimes)]
     db.add(s)
@@ -265,5 +266,5 @@ def candidates(db: Session, coach: Coach, s: TrainingSession) -> list[dict]:
             continue
         ok, gap = fits_session(db, p, s)
         if ok:
-            out.append({"player_id": p.id, "name": p.name, "category": p.category, "gender": p.gender, "has_account": p.password_hash is not None, "gap": round(gap, 1)})
+            out.append({"player_id": p.id, "name": p.name, "category": p.category, "gender": p.gender, "has_account": p.password_hash is not None or p.account_id is not None, "gap": round(gap, 1)})
     return sorted(out, key=lambda x: (x["gap"], not x["has_account"]))[:6]

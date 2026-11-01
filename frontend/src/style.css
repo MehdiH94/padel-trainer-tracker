@@ -414,3 +414,22 @@ button.prepare.done > .icon:first-child { color: var(--ok-txt); }
 .plan-time { width: 46px; flex: none; display: flex; flex-direction: column; font-variant-numeric: tabular-nums; }
 .plan-time b { font-family: var(--font-display); font-size: 1.4rem; line-height: 1; }
 .plan-time span { color: var(--mut); font-size: .78rem; }
+
+/* --- Réservation tous coachs, page coach --- */
+.offer { padding: 0; overflow: hidden; }
+.offer .partners, .offer .confirm-box { margin: 0 14px 12px; }
+.offer.open { border-color: var(--brand-ring); }
+.offer-head { width: 100%; justify-content: flex-start; align-items: center; gap: 12px; background: none; color: var(--txt); text-align: left; padding: 12px 14px; border-radius: 0; font-weight: 500; }
+.offer-head:hover { background: var(--brand-xl); }
+.offer-time { display: flex; flex-direction: column; width: 54px; flex: none; }
+.offer-time b { font-family: var(--font-display); font-size: 1.45rem; line-height: 1; font-variant-numeric: tabular-nums; }
+.offer-time small, .offer-main small { color: var(--mut); font-size: .8rem; }
+.offer-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.offer-coach { font-weight: 700; }
+.offer-price { font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.hoursel { width: auto; min-height: 36px; padding: 6px 10px; margin: 0; border-radius: 99px; font-size: .85rem; }
+.coach-hero { padding-top: 16px; }
+.grid.three { grid-template-columns: repeat(3, 1fr); }
+.clubline { display: flex; align-items: center; gap: 8px; padding: 4px 0; font-weight: 600; }
+.avail { padding: 6px 0; border-top: 1px solid var(--line); font-size: .92rem; }
+.avail:first-child { border-top: 0; }

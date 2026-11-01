@@ -10,6 +10,7 @@ from ..auth import current_coach
 from ..db import get_db
 from ..models import Coach, CreditTx, Payment, Player
 from ..schemas import PlayerIn, PlayerOut
+from ..services.accounts import has_account
 from ..services.finance import credit_balance
 
 router = APIRouter(prefix="/players", tags=["players"])
@@ -24,7 +25,7 @@ def get_owned_player(db: Session, coach: Coach, player_id: int) -> Player:
 
 def player_out(p: Player, credits: int = 0) -> PlayerOut:
     out = PlayerOut.model_validate(p)
-    out.has_account, out.credits_millimes = p.password_hash is not None, credits
+    out.has_account, out.credits_millimes = has_account(p), credits
     return out
 
 
@@ -66,7 +67,7 @@ def update_player(player_id: int, body: PlayerIn, coach: Coach = Depends(current
 def invite(player_id: int, coach: Coach = Depends(current_coach), db: Session = Depends(get_db)):
     """Génère (ou renvoie) le lien d'invitation permettant au joueur de créer son compte."""
     p = get_owned_player(db, coach, player_id)
-    if p.password_hash:
+    if has_account(p):
         raise HTTPException(409, "Ce joueur a déjà un compte")
     if not p.invite_token:
         p.invite_token = secrets.token_urlsafe(16)

@@ -15,7 +15,10 @@ from .sms import get_sms_provider
 Base.metadata.create_all(engine)
 
 # Petites migrations pour une base déjà en service: create_all n'ajoute pas les colonnes aux tables existantes.
-NEW_COLUMNS = [("players", "contact_channel", "VARCHAR(10)"), ("sessions", "plan", "TEXT")]
+NEW_COLUMNS = [
+    ("players", "contact_channel", "VARCHAR(10)"), ("sessions", "plan", "TEXT"), ("players", "account_id", "INTEGER"),
+    ("coaches", "bio", "TEXT DEFAULT ''"), ("coaches", "specialties", "VARCHAR(255) DEFAULT ''"),
+]
 with engine.begin() as conn:
     for table, column, ddl in NEW_COLUMNS:
         if column not in {c["name"] for c in inspect(engine).get_columns(table)}:

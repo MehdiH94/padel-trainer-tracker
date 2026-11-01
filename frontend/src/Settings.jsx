@@ -9,7 +9,8 @@ const DAYS = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"];
 export default function Settings({ onBack }) {
   const [s, setS] = useState(null);
   const [saved, setSaved] = useState(false);
-  useEffect(() => { api("/booking/settings").then(setS); }, []);
+  const [themes, setThemes] = useState([]);
+  useEffect(() => { api("/booking/settings").then(setS); api("/exercise-themes").then((t) => setThemes(t.work)); }, []);
   if (!s) return <><h1>Réglages</h1><Loading rows={3} /></>;
 
   const dayWindows = (d) => s.availability.filter((w) => w.weekday === d);
@@ -30,6 +31,22 @@ export default function Settings({ onBack }) {
       <button className="small sec" onClick={onBack}><Icon name="chevL" size={15} /> Retour</button>
       <h1 style={{ marginTop: 10 }}>Réglages de réservation</h1>
       <p className="mut" style={{ marginTop: -6 }}>Ce que vos joueurs voient dans leur application : créneaux, prix, politique d'annulation.</p>
+
+      <h2>Ma page publique</h2>
+      <div className="card">
+        <div className="mut small-p" style={{ marginBottom: 8 }}>Ce que les joueurs voient quand ils cherchent un coach.</div>
+        <label className="field"><span className="mut">Présentation</span>
+          <textarea className="msg" rows={4} value={s.bio} onChange={(e) => setS({ ...s, bio: e.target.value })} placeholder="Votre parcours, votre façon d'entraîner, les niveaux que vous accompagnez…" />
+        </label>
+        <div className="field"><span className="mut">Spécialités</span>
+          <div className="chips">
+            {themes.map((t) => {
+              const on = s.specialties.includes(t);
+              return <button type="button" key={t} className={"chip small" + (on ? " on" : "")} aria-pressed={on} onClick={() => setS({ ...s, specialties: on ? s.specialties.filter((x) => x !== t) : [...s.specialties, t] })}>{t}</button>;
+            })}
+          </div>
+        </div>
+      </div>
 
       <h2>Prix par joueur</h2>
       <div className="card">
