@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import Courts from "./Courts.jsx";
+import Exercises from "./Exercises.jsx";
 import Home from "./Home.jsx";
 import Icon from "./Icon.jsx";
 import Invite from "./Invite.jsx";
@@ -8,6 +9,7 @@ import Planning from "./Planning.jsx";
 import Players from "./Players.jsx";
 import Reminders from "./Reminders.jsx";
 import Requests from "./Requests.jsx";
+import SessionPlan from "./SessionPlan.jsx";
 import Settings from "./Settings.jsx";
 import { api, getRole, getToken, setSession, setToken } from "./api.js";
 import { FeedbackHost, Modal } from "./feedback.jsx";
@@ -81,7 +83,7 @@ const TABS = [
   ["requests", "inbox", "Demandes", Requests],
   ["reminders", "send", "Relances", Reminders],
 ];
-const PAGES = { courts: Courts, settings: Settings };
+const PAGES = { courts: Courts, settings: Settings, exercises: Exercises, session: SessionPlan };
 
 function CoachApp() {
   const [[tab = "home", sub], go] = useRoute("home");
@@ -98,12 +100,12 @@ function CoachApp() {
   const Page = PAGES[tab] ?? TABS.find((t) => t[0] === tab)?.[3] ?? Home;
   const playerId = tab === "players" && sub ? +sub : null;
   const openPlayer = (id) => go(`players/${id}`);
-  const navOn = tab === "courts" ? "planning" : tab; // les terrains s'ouvrent depuis le planning
+  const navOn = ["courts", "exercises", "session"].includes(tab) ? "planning" : tab; // pages ouvertes depuis le planning
   const alerts = summary.pending + summary.to_notify; // ce qui attend une action du coach
   return (
     <>
       <OfflineBar />
-      <main id="main"><Page key={tab + (sub ?? "")} go={go} openPlayer={openPlayer} playerId={playerId} closePlayer={() => go("players")} onBack={() => (history.length > 1 ? history.back() : go("home"))} summary={summary} refreshSummary={refresh} /></main>
+      <main id="main"><Page key={tab + (sub ?? "")} sub={sub} go={go} openPlayer={openPlayer} playerId={playerId} closePlayer={() => go("players")} onBack={() => (history.length > 1 ? history.back() : go("home"))} summary={summary} refreshSummary={refresh} /></main>
       <nav aria-label="Navigation principale">
         <span className="brandmark"><Icon name="ball" size={20} /> Padel Coach</span>
         {TABS.map(([k, icon, label]) => (

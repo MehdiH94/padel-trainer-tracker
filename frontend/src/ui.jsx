@@ -28,15 +28,20 @@ export const KIND = {
 
 export const STATUS = { prevue: "Prévue", effectuee: "Effectuée", annulee: "Annulée" };
 
-// Classement: de l'entrée de gamme (P50) au plus fort (P1000)
-export const CATEGORIES = ["P50", "P100", "P250", "P500", "P1000"];
+// Classement: tranches de l'entrée de gamme (P25) au plus fort (P1000), chacune en bas « - » / haut « + »
+export const TIERS = ["P25", "P50", "P100", "P250", "P500", "P1000"];
+export const CATEGORIES = TIERS.flatMap((t) => [t + "-", t + "+"]);
+export const tierOf = (c) => (c || "").replace(/[+-]$/, "");
+// Affichage: vrai signe moins (P500−) pour ne pas le confondre avec un tiret; libellé long pour les listes
+export const catLabel = (c) => (c || "").replace(/-$/, "−");
+export const catOption = (c) => `${catLabel(c)} · ${c.endsWith("+") ? "haut" : "bas"} de ${tierOf(c)}`;
 export const GENDERS = { M: "Hommes", F: "Dames" };
-const CAT_COLOR = { P50: "#64748b", P100: "#0284c7", P250: "#2563eb", P500: "#7c3aed", P1000: "#db2777" };
+const CAT_COLOR = { P25: "#0d9488", P50: "#64748b", P100: "#0284c7", P250: "#2563eb", P500: "#7c3aed", P1000: "#db2777" };
 
 export function CategoryBadge({ category, gender }) {
   return (
-    <span className="cat" style={{ background: CAT_COLOR[category] + "1f", color: CAT_COLOR[category] }}>
-      {category}{gender && <small> {gender === "F" ? "Dames" : "Hommes"}</small>}
+    <span className="cat" style={{ background: (CAT_COLOR[tierOf(category)] ?? "#64748b") + "1f", color: CAT_COLOR[tierOf(category)] ?? "#64748b" }}>
+      {catLabel(category)}{gender && <small> {gender === "F" ? "Dames" : "Hommes"}</small>}
     </span>
   );
 }

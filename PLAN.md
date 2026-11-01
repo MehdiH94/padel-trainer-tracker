@@ -56,3 +56,8 @@
 - **Navigation** : 5 onglets (Terrains s'ouvre depuis le Planning), adresses par écran (`#/planning`, `#/players/12`…) pour le bouton retour et les liens directs, recherche de joueur depuis tous les écrans, menu latéral sur ordinateur.
 - **Fluidité** : blocs de chargement, mode hors-ligne (service worker `public/sw.js`: dernières données consultables, bandeau « Hors connexion »), proposition d'installation sur l'écran d'accueil.
 - **Raccourcis coach** : copier une séance à la semaine suivante, ajouter un joueur à une séance depuis sa fiche, encaisser depuis « À relancer », guide « Bien démarrer » (prix, disponibilités, premier joueur).
+
+## Mise à jour (session 9) — niveaux fins, exercices, préparation de séance
+- **Classement** : 12 niveaux, de P25- à P1000+, pour les hommes comme pour les dames. Les règles de compatibilité restent sur la tranche principale (comportement inchangé); le +/- sert au classement des suggestions. Les anciens niveaux deviennent « - » (P100 → P100-).
+- **Bibliothèque d'exercices** (Planning › Exercices) : 32 exercices proposés par l'application, classés par thèmes (coups, déplacements, tactique, physique, échauffement, jeu, retour au calme); le coach ajoute, modifie et supprime les siens.
+- **Préparer la séance** (bouton sur chaque séance) : points faibles de chaque joueur (coups notés bas, notes « à retravailler »), thèmes recommandés ou choisis par le coach (3 max), puis plan minuté dessiné selon la durée et le nombre de joueurs (frise + liste d'exercices), « Autre proposition », enregistrement.

@@ -384,3 +384,33 @@ button .pillcount { margin-left: 2px; }
   .toasts { bottom: 24px; left: calc(50% + 110px); }
 }
 .offline ~ .topbtns { top: 40px; }
+
+/* --- Exercices et préparation de séance --- */
+.theme { display: inline-flex; align-items: center; font-size: .76rem; font-weight: 700; padding: 3px 10px; border-radius: 99px; background: var(--brand-l); color: var(--brand-d); }
+.theme.big-theme { font-size: .9rem; padding: 6px 14px; }
+.exo-desc { color: var(--mut); font-size: .9rem; line-height: 1.45; margin-top: 4px; }
+button.prepare { width: 100%; margin-top: 10px; justify-content: flex-start; gap: 10px; background: var(--brand-xl); color: var(--txt); border: 1px dashed var(--brand-ring); text-align: left; font-weight: 600; }
+button.prepare:hover { background: var(--brand-l); }
+button.prepare > .icon:first-child { color: var(--brand); }
+button.prepare > .icon:last-child { margin-left: auto; color: var(--mut); }
+button.prepare span { display: flex; flex-direction: column; }
+button.prepare small { color: var(--mut); font-weight: 500; font-size: .8rem; }
+button.prepare.done { border-style: solid; background: var(--green-l); border-color: transparent; }
+button.prepare.done > .icon:first-child { color: var(--ok-txt); }
+.weak-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.weak { display: inline-flex; align-items: center; gap: 6px; background: var(--red-l); color: var(--txt); border-radius: 99px; padding: 4px 10px; font-size: .85rem; font-weight: 600; }
+.mini-dots { display: inline-flex; gap: 2px; }
+.mini-dots i { width: 6px; height: 6px; border-radius: 50%; background: var(--line); }
+.mini-dots i.on.s1, .mini-dots i.on.s2 { background: var(--red); }
+.mini-dots i.on.s3 { background: var(--amber); }
+.plan-bar { display: flex; gap: 3px; height: 58px; margin-bottom: 12px; }
+.plan-seg { min-width: 0; border-radius: 10px; padding: 6px 7px; color: #fff; display: flex; flex-direction: column; justify-content: center; overflow: hidden; }
+.plan-seg b { font-family: var(--font-display); font-size: 1.05rem; line-height: 1; }
+.plan-seg span { font-size: .7rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.plan-seg.warm { background: #b45309; } .plan-seg.work { background: #c2410c; } .plan-seg.game { background: #15803d; } .plan-seg.cool { background: #475569; }
+.plan-seg.work:nth-child(odd) { background: #9a3412; }
+.plan-item { display: flex; gap: 12px; align-items: flex-start; border-left: 5px solid var(--brand); }
+.plan-item.warm { border-left-color: #b45309; } .plan-item.game { border-left-color: #15803d; } .plan-item.cool { border-left-color: #475569; }
+.plan-time { width: 46px; flex: none; display: flex; flex-direction: column; font-variant-numeric: tabular-nums; }
+.plan-time b { font-family: var(--font-display); font-size: 1.4rem; line-height: 1; }
+.plan-time span { color: var(--mut); font-size: .78rem; }

@@ -35,7 +35,7 @@ class Player(Base):
     password_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)  # None = pas de compte
     invite_token: Mapped[str | None] = mapped_column(String(40), nullable=True, unique=True)
     gender: Mapped[str] = mapped_column(String(1), default="M")  # M / F
-    category: Mapped[str] = mapped_column(String(6), default="P100")  # P50 .. P1000
+    category: Mapped[str] = mapped_column(String(6), default="P100-")  # P25- .. P1000+ (constants.CATEGORIES)
     pref_kinds: Mapped[str] = mapped_column(String(40), default="individuel,duo,groupe")  # types de séance souhaités
     dominant_hand: Mapped[str] = mapped_column(String(10), default="droitier")
     side: Mapped[str] = mapped_column(String(10), default="drive")
@@ -94,6 +94,7 @@ class TrainingSession(Base):
     price_mode: Mapped[str] = mapped_column(String(10), default="par_joueur")  # par_joueur / groupe
     open: Mapped[bool] = mapped_column(default=False)  # places libres proposées aux autres joueurs
     recurrence_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    plan: Mapped[str | None] = mapped_column(Text, nullable=True)  # plan de séance enregistré (JSON), voir services/planner.py
     attendances: Mapped[list[Attendance]] = relationship(cascade="all, delete-orphan")
 
 
@@ -207,3 +208,17 @@ class SessionReminder(Base):
     channel: Mapped[str] = mapped_column(String(10))  # whatsapp / sms / email
     message: Mapped[str] = mapped_column(Text, default="")
     sent_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class Exercise(Base):
+    """Exercice d'entraînement. coach_id None = proposé par l'application (non modifiable par le coach)."""
+
+    __tablename__ = "exercises"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    coach_id: Mapped[int | None] = mapped_column(ForeignKey("coaches.id"), nullable=True, index=True)
+    name: Mapped[str] = mapped_column(String(120))
+    description: Mapped[str] = mapped_column(Text, default="")
+    themes: Mapped[str] = mapped_column(String(255), default="")  # thèmes séparés par des virgules
+    min_players: Mapped[int] = mapped_column(Integer, default=1)
+    max_players: Mapped[int] = mapped_column(Integer, default=4)
+    duration_min: Mapped[int] = mapped_column(Integer, default=15)

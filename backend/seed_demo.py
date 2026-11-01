@@ -18,11 +18,11 @@ if r.status_code == 409:
 c.headers["Authorization"] = "Bearer " + r.json()["token"]
 
 PLAYERS = [  # (nom, genre, catégorie)
-    ("Sami Ben Ali", "M", "P250"), ("Ines Trabelsi", "F", "P50"), ("Karim Jlassi", "M", "P500"),
-    ("Yasmine Gharbi", "F", "P50"), ("Mehdi Bouazizi", "M", "P100"), ("Rania Hammami", "F", "P250"),
-    ("Aymen Chaabane", "M", "P500"), ("Salma Mejri", "F", "P100"), ("Wassim Karray", "M", "P250"),
-    ("Nour Belhadj", "F", "P100"), ("Hichem Ferchichi", "M", "P1000"), ("Amira Dridi", "F", "P250"),
-    ("Youssef Taktak", "M", "P50"), ("Lina Zouari", "F", "P100"),
+    ("Sami Ben Ali", "M", "P250+"), ("Ines Trabelsi", "F", "P50+"), ("Karim Jlassi", "M", "P500-"),
+    ("Yasmine Gharbi", "F", "P25+"), ("Mehdi Bouazizi", "M", "P100+"), ("Rania Hammami", "F", "P250-"),
+    ("Aymen Chaabane", "M", "P500+"), ("Salma Mejri", "F", "P100-"), ("Wassim Karray", "M", "P250-"),
+    ("Nour Belhadj", "F", "P100+"), ("Hichem Ferchichi", "M", "P1000-"), ("Amira Dridi", "F", "P250+"),
+    ("Youssef Taktak", "M", "P50-"), ("Lina Zouari", "F", "P100-"),
 ]
 CLUB_DEFS = [
     ("Padel Club La Marsa", "71 745 100", ""),
@@ -184,7 +184,7 @@ if len(usable) > 1:
 
 # Le coach propose une séance à Karim (il peut accepter ou refuser depuis son application)
 groups = c.get("/groups").json()
-target = next((g for g in groups if g["kind"] == "duo" and g["players"] and g["players"][0]["category"] in ("P250", "P500")), None)
+target = next((g for g in groups if g["kind"] == "duo" and g["players"] and g["players"][0]["category"].rstrip("+-") in ("P250", "P500")), None)
 if target:
     c.post("/proposals", json={"session_id": target["session_id"], "player_id": ids["Karim Jlassi"]})
 

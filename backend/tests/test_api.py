@@ -310,7 +310,7 @@ def open_duo(client, host, hours=48, **extra):
 
 def test_ranking_validation(client):
     p = client.post("/players", json={"name": "Lina", "phone": "22123456", "gender": "F", "category": "P250"}).json()
-    assert (p["gender"], p["category"]) == ("F", "P250")
+    assert (p["gender"], p["category"]) == ("F", "P250-")  # ancien code sans +/- -> bas de la tranche
     assert client.post("/players", json={"name": "X", "phone": "22123456", "category": "P999"}).status_code == 422
     assert client.post("/players", json={"name": "X", "phone": "22123456", "gender": "Z"}).status_code == 422
 
@@ -543,10 +543,10 @@ def test_suggestions_respect_every_player_and_gender_rule(client):
 
 def test_edit_player_profile(client):
     p = mkplayer(client, email="old@x.tn")
-    body = {"name": "Sami Ben Ali", "phone": "98 765 432", "email": "new@x.tn", "gender": "M", "category": "P500",
+    body = {"name": "Sami Ben Ali", "phone": "98 765 432", "email": "new@x.tn", "gender": "M", "category": "P500+",
             "dominant_hand": "gaucher", "side": "revers", "goals": "Gagner un tournoi", "notes": "Épaule fragile"}
     out = client.put(f"/players/{p['id']}", json=body).json()
-    assert (out["name"], out["phone"], out["category"], out["dominant_hand"], out["notes"]) == ("Sami Ben Ali", "+21698765432", "P500", "gaucher", "Épaule fragile")
+    assert (out["name"], out["phone"], out["category"], out["dominant_hand"], out["notes"]) == ("Sami Ben Ali", "+21698765432", "P500+", "gaucher", "Épaule fragile")
     prof = client.get(f"/players/{p['id']}/profile").json()["player"]
     assert prof["goals"] == "Gagner un tournoi" and prof["email"] == "new@x.tn"
     assert client.put(f"/players/{p['id']}", json={**body, "phone": "12"}).status_code == 422
@@ -679,3 +679,61 @@ def test_coach_adds_player_to_session(client):
     assert client.post(f"/sessions/{s['id']}/players", json={"player_id": b}).json()["player_ids"] == [a, b]
     assert client.post(f"/sessions/{s['id']}/players", json={"player_id": b}).status_code == 409  # déjà dedans
     assert client.post(f"/sessions/{s['id']}/players", json={"player_id": c}).status_code == 409  # complète
+
+
+# --- Demi-tranches, exercices et préparation de séance ----------------------
+
+@pytest.mark.parametrize("a, ga, b, gb, ok", [
+    ("P100+", "M", "P250-", "M", True), ("P100-", "M", "P250+", "M", True),  # tranches voisines: le +/- ne bloque pas
+    ("P25+", "M", "P100-", "M", False), ("P25-", "F", "P50+", "F", True),
+    ("P500-", "F", "P500+", "M", True),  # même tranche: permis même si l'homme est en haut de la tranche
+    ("P500+", "F", "P1000-", "M", False),
+])
+def test_half_tier_compatibility(a, ga, b, gb, ok):
+    from app.constants import compatible
+    assert compatible(a, ga, b, gb) is ok
+
+
+def test_half_tier_categories(client):
+    for cat in ("P25-", "P25+", "P1000+"):
+        assert mkplayer(client, name=cat, category=cat)["category"] == cat
+    assert client.post("/players", json={"name": "X", "phone": "22123456", "category": "P2000+"}).status_code == 422
+
+
+def test_exercise_library(client):
+    lib = client.get("/exercises").json()
+    assert len(lib) >= 30 and not any(e["mine"] for e in lib)  # exercices proposés par l'application
+    builtin = lib[0]["id"]
+    assert client.put(f"/exercises/{builtin}", json={"name": "x", "themes": ["Smash"]}).status_code == 404  # non modifiable
+    e = client.post("/exercises", json={"name": "Smash sur cible", "description": "Cerceau au sol", "themes": ["Smash", "Physique"], "duration_min": 20}).json()
+    assert e["mine"] and e["themes"] == ["Smash", "Physique"]
+    assert client.post("/exercises", json={"name": "Sans thème", "themes": []}).status_code == 422
+    assert client.put(f"/exercises/{e['id']}", json={"name": "Smash sur cible", "themes": ["Smash"], "max_players": 2}).json()["max_players"] == 2
+    other = register("other@b.tn")
+    assert all(not x["mine"] for x in other.get("/exercises").json())  # chacun ses exercices
+    assert other.delete(f"/exercises/{e['id']}").status_code == 404
+    assert client.delete(f"/exercises/{e['id']}").status_code == 200
+
+
+def test_session_plan_from_weaknesses(client):
+    a, b = mkplayer(client, name="Ali")["id"], mkplayer(client, phone="22 000 111", name="Bea")["id"]
+    for pid, stroke, score in ((a, "Bandeja", 1), (a, "Smash", 4), (b, "Bandeja", 2), (b, "Lob", 2), (b, "Volée", 3)):
+        client.post(f"/players/{pid}/skills", json={"stroke": stroke, "score": score})
+    s = client.post("/sessions", json={"start": "2026-03-10T17:00:00Z", "kind": "duo", "duration_min": 90, "player_ids": [a, b]}).json()[0]
+    info = client.get(f"/sessions/{s['id']}/plan").json()
+    assert info["recommended"][:2] == ["Bandeja", "Lob"] and info["plan"] is None
+    assert {p["name"]: [w["theme"] for w in p["weak"]] for p in info["players"]} == {"Ali": ["Bandeja"], "Bea": ["Bandeja", "Lob"]}
+    mine = client.post("/exercises", json={"name": "Ma bandeja", "themes": ["Bandeja"], "min_players": 2, "max_players": 2}).json()
+    plan = client.post(f"/sessions/{s['id']}/plan/generate", json={"themes": info["recommended"], "seed": 1}).json()
+    items = plan["items"]
+    assert sum(i["duration_min"] for i in items) == 90 and items[0]["kind"] == "echauffement" and items[-1]["kind"] == "retour"
+    assert [i["start_min"] for i in items] == [sum(x["duration_min"] for x in items[:k]) for k in range(len(items))]
+    assert mine["id"] in [i["exercise_id"] for i in items]  # les exercices du coach passent en premier
+    assert len({i["exercise_id"] for i in items}) == len(items)  # pas deux fois le même
+    # le coach ignore la recommandation et choisit lui-même; séance individuelle de 60 min
+    solo = client.post("/sessions", json={"start": "2026-03-11T17:00:00Z", "duration_min": 60, "player_ids": [a]}).json()[0]
+    p2 = client.post(f"/sessions/{solo['id']}/plan/generate", json={"themes": ["Service"]}).json()
+    assert sum(i["duration_min"] for i in p2["items"]) == 60 and all(i["theme"] in ("Échauffement", "Service", "Jeu") for i in p2["items"])
+    assert all(i["kind"] != "jeu" or "1 contre" not in i["name"] for i in p2["items"])
+    assert client.put(f"/sessions/{s['id']}/plan", json=plan).json() == {"ok": True}
+    assert client.get(f"/sessions/{s['id']}/plan").json()["plan"]["items"] == items

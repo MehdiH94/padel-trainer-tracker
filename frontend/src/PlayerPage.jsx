@@ -3,7 +3,7 @@ import { api, dayLabel, hhmm, shortDate, tnd } from "./api.js";
 import FeedbackEditor from "./FeedbackEditor.jsx";
 import Icon from "./Icon.jsx";
 import { Modal, toast, toastError } from "./feedback.jsx";
-import { Avatar, CATEGORIES, CategoryBadge, CHANNELS, ContactLinks, KIND, Loading, Progress, RadarChart } from "./ui.jsx";
+import { Avatar, CATEGORIES, catOption, CategoryBadge, CHANNELS, ContactLinks, KIND, Loading, Progress, RadarChart } from "./ui.jsx";
 
 function Dots({ score, onPick }) {
   return (
@@ -56,7 +56,7 @@ function EditForm({ player, onSave, onCancel }) {
         <label className="field"><span className="mut">Téléphone</span><input inputMode="tel" value={f.phone} onChange={set("phone")} required /></label>
         <label className="field"><span className="mut">E-mail{player.has_account && " (compte actif)"}</span><input type="email" value={f.email} onChange={set("email")} disabled={player.has_account} /></label>
         <label className="field"><span className="mut">Genre</span><select value={f.gender} onChange={set("gender")}><option value="M">Homme</option><option value="F">Dame</option></select></label>
-        <label className="field"><span className="mut">Classement</span><select value={f.category} onChange={set("category")}>{CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}</select></label>
+        <label className="field"><span className="mut">Classement</span><select value={f.category} onChange={set("category")}>{CATEGORIES.map((c) => <option key={c} value={c}>{catOption(c)}</option>)}</select></label>
         <label className="field"><span className="mut">Main forte</span><select value={f.dominant_hand} onChange={set("dominant_hand")}><option value="droitier">Droitier</option><option value="gaucher">Gaucher</option></select></label>
         <label className="field"><span className="mut">Rappels de séance</span><select value={f.contact_channel} onChange={set("contact_channel")}><option value="">Non choisi (SMS)</option>{Object.entries(CHANNELS).map(([k, [l]]) => <option key={k} value={k}>{l}</option>)}</select></label>
         <label className="field"><span className="mut">Côté de jeu</span><select value={f.side} onChange={set("side")}><option value="drive">Drive</option><option value="revers">Revers</option></select></label>

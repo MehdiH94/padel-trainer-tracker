@@ -2,7 +2,7 @@ import { hhmm, tnd } from "./api.js";
 import Icon from "./Icon.jsx";
 import { AvatarStack, COURT_STATUS, KIND, STATUS } from "./ui.jsx";
 
-export default function SessionCard({ s, name, onStatus, onDuplicate }) {
+export default function SessionCard({ s, name, onStatus, onDuplicate, onPrepare }) {
   const names = s.player_ids.map(name);
   const k = KIND[s.kind];
   const end = new Date(new Date(s.start.endsWith("Z") || /[+-]\d\d:\d\d$/.test(s.start) ? s.start : s.start + "Z").getTime() + s.duration_min * 60000).toISOString();
@@ -32,6 +32,13 @@ export default function SessionCard({ s, name, onStatus, onDuplicate }) {
           )}
         </div>
       </div>
+      {onPrepare && s.status !== "annulee" && (
+        <button className={"prepare" + (s.has_plan ? " done" : "")} onClick={() => onPrepare(s)}>
+          <Icon name={s.has_plan ? "checkCircle" : "sparkles"} size={16} />
+          <span>{s.has_plan ? "Plan de séance prêt" : "Préparer la séance"}<small>{s.has_plan ? "Voir les exercices" : "Points faibles et exercices"}</small></span>
+          <Icon name="chevR" size={16} />
+        </button>
+      )}
       {s.status === "prevue" && onStatus && (
         <div className="actions">
           <button className="small" onClick={() => onStatus(s.id, "effectuee")}><Icon name="check" size={15} /> Effectuée</button>

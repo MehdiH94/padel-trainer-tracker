@@ -3,6 +3,8 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, field_validator
 
+from .constants import CATEGORIES, normalize_category
+
 CHANNELS = ("whatsapp", "sms", "email")  # moyens de contact pour les rappels
 
 
@@ -28,7 +30,7 @@ class PlayerIn(BaseModel):
     phone: str
     email: str | None = None
     gender: str = "M"
-    category: str = "P100"
+    category: str = "P100-"
     pref_kinds: str = "individuel,duo,groupe"
     dominant_hand: str = "droitier"
     side: str = "drive"
@@ -58,8 +60,9 @@ class PlayerIn(BaseModel):
     @field_validator("category")
     @classmethod
     def _category(cls, v: str) -> str:
-        if v not in ("P50", "P100", "P250", "P500", "P1000"):
-            raise ValueError("Catégorie invalide")
+        v = normalize_category(v.strip().upper())
+        if v not in CATEGORIES:
+            raise ValueError("Catégorie invalide (P25- à P1000+)")
         return v
 
     @field_validator("email")
@@ -118,6 +121,7 @@ class SessionOut(BaseModel):
     court_status: str | None = None
     open: bool = False
     feedback_missing: bool = False  # séance terminée sans aucun retour du coach
+    has_plan: bool = False  # plan de séance (exercices) enregistré
     court: str
     status: str
     price_millimes: int

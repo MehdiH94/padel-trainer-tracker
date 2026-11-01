@@ -6,17 +6,26 @@ from fastapi import FastAPI
 from sqlalchemy import inspect, text
 
 from .db import Base, SessionLocal, engine
-from .routers import auth, booking, clubs, dashboard, me, payments, players, profile, reminders, sessions
+from .constants import TIERS
+from .routers import auth, booking, clubs, dashboard, exercises, me, payments, players, profile, reminders, sessions
 from .notify import Notifier
-from .services import courts, session_reminders
+from .services import courts, planner, session_reminders
 from .sms import get_sms_provider
 
 Base.metadata.create_all(engine)
 
-# Petite migration pour une base déjà en service: create_all n'ajoute pas les colonnes aux tables existantes.
-if "contact_channel" not in {c["name"] for c in inspect(engine).get_columns("players")}:
-    with engine.begin() as conn:
-        conn.execute(text("ALTER TABLE players ADD COLUMN contact_channel VARCHAR(10)"))
+# Petites migrations pour une base déjà en service: create_all n'ajoute pas les colonnes aux tables existantes.
+NEW_COLUMNS = [("players", "contact_channel", "VARCHAR(10)"), ("sessions", "plan", "TEXT")]
+with engine.begin() as conn:
+    for table, column, ddl in NEW_COLUMNS:
+        if column not in {c["name"] for c in inspect(engine).get_columns(table)}:
+            conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}"))
+    # Classement en demi-tranches: un ancien « P100 » devient « P100- » (bas de la tranche)
+    for t in TIERS:
+        conn.execute(text("UPDATE players SET category = :new WHERE category = :old"), {"new": t + "-", "old": t})
+        conn.execute(text("UPDATE sessions SET level = :new WHERE level = :old"), {"new": t + "-", "old": t})
+with SessionLocal() as _db:
+    planner.ensure_builtin(_db)  # exercices proposés par l'application
 
 
 async def _court_sender():
@@ -47,7 +56,7 @@ async def lifespan(_: FastAPI):
 
 
 app = FastAPI(title="Padel Trainer Tracker", lifespan=lifespan)
-for r in (auth, players, sessions, payments, dashboard, booking, profile, clubs, reminders, me):
+for r in (auth, players, sessions, payments, dashboard, booking, profile, clubs, reminders, me, exercises):
     app.include_router(r.router)
 
 

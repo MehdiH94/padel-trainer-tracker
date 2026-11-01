@@ -246,6 +246,7 @@ export default function Home({ go, openPlayer, summary }) {
                 <div className="mut">{KIND[s.kind]?.label}{s.club && ` · ${s.club}`}</div>
                 {s.court_status && <span className={"court-badge " + COURT_STATUS[s.court_status].cls}><Icon name="pin" size={12} /> {COURT_STATUS[s.court_status].label}</span>}
                 <div className="actions">
+                  <button className="small sec" onClick={() => go(`session/${s.id}`)}><Icon name={s.has_plan ? "checkCircle" : "sparkles"} size={15} /> {s.has_plan ? "Plan prêt" : "Préparer"}</button>
                   <button className="small" onClick={() => setStatus(s.id, "effectuee")}><Icon name="check" size={15} /> Effectuée</button>
                   <button className="small sec" onClick={() => setStatus(s.id, "annulee")}>Annuler</button>
                 </div>

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "./api.js";
 import Icon from "./Icon.jsx";
-import { CATEGORIES, KIND } from "./ui.jsx";
+import { CATEGORIES, catOption, KIND } from "./ui.jsx";
 
 const DURATIONS = [45, 60, 90, 120];
 
@@ -121,7 +121,7 @@ export default function SessionForm({ players, onDone }) {
             <Field label="Niveau visé">
               <select value={f.level} onChange={set("level")}>
                 <option value="">Tous niveaux</option>
-                {CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
+                {CATEGORIES.map((c) => <option key={c} value={c}>{catOption(c)}</option>)}
               </select>
             </Field>
           )}

@@ -50,6 +50,7 @@ export default function Planning({ go, summary }) {
       <div className="row">
         <h1 style={{ margin: 0 }}>Planning</h1>
         <div className="row" style={{ gap: 4 }}>
+          <button className="small sec" onClick={() => go("exercises")}><Icon name="ball" size={15} /> Exercices</button>
           <button className="small sec" onClick={() => go("courts")}>
             <Icon name="pin" size={15} /> Terrains{summary?.waiting_court > 0 && <b className="pillcount" aria-label={`${summary.waiting_court} en attente`}>{summary.waiting_court}</b>}
           </button>
@@ -81,7 +82,7 @@ export default function Planning({ go, summary }) {
       {adding && <SessionForm players={players} onDone={() => { setAdding(false); load(); }} />}
 
       {sessions === null && <Loading rows={2} />}
-      {active.map((s) => <SessionCard key={s.id} s={s} name={name} onStatus={setStatus} onDuplicate={duplicate} />)}
+      {active.map((s) => <SessionCard key={s.id} s={s} name={name} onStatus={setStatus} onDuplicate={duplicate} onPrepare={(x) => go(`session/${x.id}`)} />)}
 
       {done.length > 0 && (
         <>

@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { api, tnd } from "./api.js";
 import Icon from "./Icon.jsx";
 import PlayerPage from "./PlayerPage.jsx";
-import { Avatar, CATEGORIES, CategoryBadge } from "./ui.jsx";
+import { Avatar, CATEGORIES, catOption, CategoryBadge, TIERS, tierOf } from "./ui.jsx";
 
 export default function Players({ playerId, openPlayer, closePlayer }) {
   const [list, setList] = useState([]);
@@ -11,7 +11,7 @@ export default function Players({ playerId, openPlayer, closePlayer }) {
   const [cat, setCat] = useState("all");
   const [gender, setGender] = useState("all");
   const [adding, setAdding] = useState(false);
-  const [f, setF] = useState({ name: "", phone: "", gender: "M", category: "P100" });
+  const [f, setF] = useState({ name: "", phone: "", gender: "M", category: "P100-" });
   const [err, setErr] = useState("");
   const load = () => {
     api("/players").then(setList);
@@ -25,7 +25,7 @@ export default function Players({ playerId, openPlayer, closePlayer }) {
     e.preventDefault();
     try {
       await api("/players", { method: "POST", body: f });
-      setF({ name: "", phone: "", gender: "M", category: "P100" });
+      setF({ name: "", phone: "", gender: "M", category: "P100-" });
       setErr("");
       setAdding(false);
       load();
@@ -35,7 +35,7 @@ export default function Players({ playerId, openPlayer, closePlayer }) {
   }
 
   const shown = list
-    .filter((p) => p.name.toLowerCase().includes(q.toLowerCase()) && (cat === "all" || p.category === cat) && (gender === "all" || p.gender === gender))
+    .filter((p) => p.name.toLowerCase().includes(q.toLowerCase()) && (cat === "all" || tierOf(p.category) === cat) && (gender === "all" || p.gender === gender))
     .sort((a, b) => CATEGORIES.indexOf(b.category) - CATEGORIES.indexOf(a.category) || a.name.localeCompare(b.name));
   return (
     <>
@@ -43,7 +43,7 @@ export default function Players({ playerId, openPlayer, closePlayer }) {
       <div className="searchbox"><Icon name="search" size={18} /><input placeholder="Rechercher un joueur…" value={q} onChange={(e) => setQ(e.target.value)} /></div>
       <div className="chips" style={{ marginBottom: 6 }}>
         <button className={"chip small" + (cat === "all" ? " on" : "")} onClick={() => setCat("all")}>Tous</button>
-        {[...CATEGORIES].reverse().map((c) => <button key={c} className={"chip small" + (cat === c ? " on" : "")} onClick={() => setCat(c)}>{c}</button>)}
+        {[...TIERS].reverse().map((c) => <button key={c} className={"chip small" + (cat === c ? " on" : "")} onClick={() => setCat(c)}>{c}</button>)}
         <span className="vsep" />
         {[["all", "Mixte"], ["M", "Hommes"], ["F", "Dames"]].map(([k, l]) => <button key={k} className={"chip small" + (gender === k ? " on" : "")} onClick={() => setGender(k)}>{l}</button>)}
       </div>
@@ -57,7 +57,7 @@ export default function Players({ playerId, openPlayer, closePlayer }) {
               <select value={f.gender} onChange={set("gender")}><option value="M">Homme</option><option value="F">Dame</option></select>
             </label>
             <label className="field"><span className="mut">Classement</span>
-              <select value={f.category} onChange={set("category")}>{CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}</select>
+              <select value={f.category} onChange={set("category")}>{CATEGORIES.map((c) => <option key={c} value={c}>{catOption(c)}</option>)}</select>
             </label>
           </div>
           {err && <div className="err">{err}</div>}

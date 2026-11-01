@@ -25,6 +25,7 @@ def to_out(s: TrainingSession, court_status: str | None = None, paid: dict[tuple
     out = SessionOut.model_validate(s)
     out.player_ids = [a.player_id for a in s.attendances]
     out.court_status = court_status
+    out.has_plan = bool(s.plan)
     out.feedback_missing = s.status == "effectuee" and any(not (a.worked_on or a.note or a.to_improve) for a in s.attendances)
     if s.status == "effectuee":  # ce que chaque joueur a réglé pour cette séance
         paid = paid or {}
