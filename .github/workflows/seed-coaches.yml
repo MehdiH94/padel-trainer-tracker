@@ -20,4 +20,6 @@ jobs:
           install -m 700 -d ~/.ssh
           printf '%s\n' "$SSH_KEY" > ~/.ssh/deploy_key && chmod 600 ~/.ssh/deploy_key
           ssh-keyscan -H "$HOST" >> ~/.ssh/known_hosts
-          ssh -i ~/.ssh/deploy_key "$SSH_USER@$HOST" "cd ~/padel/deploy && docker compose exec -T -e API_URL=http://127.0.0.1:8000/api app python seed_more_coaches.py"
+          # La clé du serveur n'autorise que deploy/update.sh: on lui passe « seed-coaches »
+          # (elle arrive dans SSH_ORIGINAL_COMMAND; sans clé restreinte, elle est passée en argument)
+          ssh -i ~/.ssh/deploy_key "$SSH_USER@$HOST" "bash ~/padel/deploy/update.sh seed-coaches"
