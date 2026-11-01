@@ -6,6 +6,9 @@ Application de gestion pour un coach de padel indépendant (Tunisie) + espace jo
 - `backend/` : FastAPI + SQLAlchemy 2 (SQLite en dev). `app/routers` (API), `app/services` (règles métier: réservations, terrains, finances), `app/sms` (fournisseur SMS abstrait, `FakeSmsProvider` en dev).
 - `frontend/` : PWA React + Vite (`src/`). Le front appelle l'API via le préfixe `/api` (proxy Vite vers le port 8000).
 
+## Git
+- Toujours pousser directement sur `main` (sans demander, sans demande de fusion): chaque push sur `main` lance les tests puis le déploiement sur le VPS.
+
 ## Commandes
 ```bash
 # Backend (depuis backend/)
