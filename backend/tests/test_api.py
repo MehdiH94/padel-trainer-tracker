@@ -645,3 +645,18 @@ def test_payment_without_session_covers_oldest_sessions(client):
     client.post("/payments", json={"player_id": p, "amount_millimes": 80000})  # saisi depuis la fiche joueur
     paid = [s["payments"][0]["paid_millimes"] for s in client.get("/sessions").json()]
     assert paid == [60000, 20000]
+
+
+def test_index_is_never_cached(tmp_path, monkeypatch):
+    """Après un déploiement, le navigateur doit recharger index.html (sinon il garde l'ancien design)."""
+    import importlib
+    (tmp_path / "assets").mkdir()
+    (tmp_path / "index.html").write_text("<html>app</html>")
+    (tmp_path / "assets" / "a-123.js").write_text("x")
+    monkeypatch.setenv("STATIC_DIR", str(tmp_path))
+    from app import web
+    web = importlib.reload(web)
+    c = TestClient(web.web)
+    assert c.get("/").headers["cache-control"] == "no-cache"
+    assert c.get("/invite/abc").headers["cache-control"] == "no-cache"  # route du navigateur -> index.html
+    assert "immutable" in c.get("/assets/a-123.js").headers["cache-control"]

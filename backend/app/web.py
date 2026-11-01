@@ -20,11 +20,18 @@ class SinglePage(StaticFiles):
 
     async def get_response(self, path, scope):
         try:
-            return await super().get_response(path, scope)
+            resp = await super().get_response(path, scope)
         except HTTPException as e:
-            if e.status_code == 404:
-                return await super().get_response("index.html", scope)
-            raise
+            if e.status_code != 404:
+                raise
+            resp = await super().get_response("index.html", scope)
+        # index.html est toujours revérifié: après un déploiement, le téléphone charge tout de suite la nouvelle version.
+        # Les fichiers de assets/ ont un nom qui change à chaque build: ils peuvent rester en cache longtemps.
+        if path.startswith("assets/"):
+            resp.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        else:
+            resp.headers["Cache-Control"] = "no-cache"
+        return resp
 
 
 web = FastAPI(title="Padel Trainer Tracker", lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
