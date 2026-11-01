@@ -1,0 +1,35 @@
+name: Tests et déploiement
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:        # lancement manuel depuis l'onglet Actions
+
+concurrency: deploy         # un seul déploiement à la fois
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r backend/requirements.txt
+      - run: python -m pytest -q
+        working-directory: backend
+
+  deploy:
+    needs: tests            # pas de déploiement si un test échoue
+    runs-on: ubuntu-latest
+    steps:
+      - name: Déployer sur le VPS
+        env:
+          HOST: ${{ secrets.VPS_HOST }}
+          SSH_USER: ${{ secrets.VPS_USER }}
+          SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/deploy_key && chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H "$HOST" >> ~/.ssh/known_hosts
+          ssh -i ~/.ssh/deploy_key "$SSH_USER@$HOST" "bash ~/padel/deploy/update.sh"
