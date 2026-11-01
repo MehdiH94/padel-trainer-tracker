@@ -68,3 +68,8 @@
 - **Réserver** : 1. coach et/ou club (facultatifs), 2. le jour (obligatoire) + moment de la journée ou heure idéale (facultatifs), 3. seul / à deux / en groupe. À deux ou en groupe : groupes déjà formés à rejoindre, puis nouveaux créneaux à créer. Seul : d'abord les créneaux où le coach a déjà un terrain réservé, puis les autres (terrain à confirmer).
 - **Page coach** : présentation, spécialités, tarifs, clubs, disponibilités, statistiques, bouton « Réserver avec … ». Le coach la remplit dans Réglages › Ma page publique.
 - **Reste à faire** : inscription d'un joueur sans invitation (aujourd'hui il faut toujours un premier lien d'un coach).
+
+## Mise à jour (session 11) — formules, happy hours, promotions
+- **Formules multiples** : le joueur coche seul, à deux et/ou en groupe; chaque créneau propose les formules qui y tiennent (durée et prix propres), il choisit la sienne à la confirmation; le coach voit dans la demande toutes les formules acceptées.
+- **Réglages coach** : durée et prix par joueur pour chaque formule; happy hours (jour, plage horaire, remise %), affichées sur la page du coach.
+- **Promotions** : sur un terrain déjà réservé et libre (Terrains › Libres), le coach choisit une remise et un message; ses joueurs sont prévenus (WhatsApp, SMS ou e-mail selon leur choix) et la voient dans leur appli (« J'en profite »). La promotion s'arrête quand le terrain est pris ou à la demande du coach.

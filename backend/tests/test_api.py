@@ -794,3 +794,53 @@ def test_player_books_with_another_coach_and_sees_coach_page(client):
     assert [x["session_id"] for x in off["groups"]] == [g["id"]] and off["slots_other"]
     assert pc.post("/me/book", json={"session_id": g["id"]}).json()["status"] in ("confirmee", "acceptee")
     assert pc.get(f"/me/offers?day={day}&kind=groupe").json()["groups"] == []  # déjà inscrit
+
+
+# --- Formules multiples, durées par formule, happy hours, promotions ---------
+
+def test_durations_happy_hours_and_multiple_kinds(client):
+    open_week(client)
+    st = client.get("/booking/settings").json()
+    hh = [{"weekday": d, "start_time": "09:00", "end_time": "12:00", "discount_pct": 25} for d in range(7)]
+    st = client.put("/booking/settings", json={**st, "duration_groupe": 90, "happy_hours": hh}).json()
+    assert (st["duration_duo"], st["duration_groupe"], len(st["happy_hours"])) == (60, 90, 7)
+    assert client.put("/booking/settings", json={**st, "happy_hours": [{**hh[0], "discount_pct": 95}]}).status_code == 422
+    p, pc = player_client(client)
+    day = _day_of(pc.get("/me/slots").json()[-1])
+    off = pc.get(f"/me/offers?day={day}&kinds=individuel,groupe").json()
+    slots = off["slots_other"]
+    morning = next(x for x in slots if datetime.fromisoformat(x["start"].replace("Z", "+00:00")).astimezone(timezone.utc).hour == 8)  # 9h à Tunis
+    opts = {o["kind"]: o for o in morning["options"]}
+    assert opts["groupe"]["duration_min"] == 90 and opts["individuel"]["duration_min"] == 60
+    assert opts["individuel"]["price_millimes"] == 45000 and opts["individuel"]["reason"] == "happy_hour"  # 60 TND - 25 %
+    # grille commune: créneaux toutes les 30 min, mais un groupe de 90 min ne dépasse pas 21h
+    last = [x for x in slots if any(o["kind"] == "groupe" for o in x["options"])][-1]
+    assert datetime.fromisoformat(last["start"].replace("Z", "+00:00")).astimezone(timezone.utc).strftime("%H:%M") == "18:30"  # 19h30 à Tunis
+    # réservation: formule choisie + formules acceptées montrées au coach, prix happy hour retenu
+    r = pc.post("/me/book", json={"kind": "groupe", "start": morning["start"], "kinds": ["individuel", "groupe"]}).json()
+    req = client.get("/booking/requests").json()[0]
+    assert req["accepted_kinds"] == ["individuel", "groupe"] and req["duration_min"] == 90 and req["price_millimes"] == 22500
+    assert r["paid_with"] == "sur_place"
+
+
+def test_promotion_on_reserved_court_notifies_players(client):
+    from app.notify import Notifier
+    open_week(client)
+    p, pc = player_client(client, contact_channel="whatsapp")
+    mkplayer(client, phone="22 000 999", name="Sans compte")
+    slot = pc.get("/me/slots").json()[5]
+    court = free_court(client, slot, minutes=60)
+    Notifier.sent.clear()
+    assert client.get(f"/promotions/preview?court_booking_id={court['id']}&discount_pct=30").json()["recipients"] == 2
+    promo = client.post("/promotions", json={"court_booking_id": court["id"], "discount_pct": 30}).json()
+    assert promo["notified_count"] == 2 and promo["prices"]["individuel"] == 42000
+    assert sorted(ch for ch, _, _ in Notifier.sent) == ["sms", "whatsapp"] and "-30 %" in Notifier.sent[0][2]
+    assert [x["id"] for x in pc.get("/me/promotions").json()] == [promo["id"]]
+    off = pc.get(f"/me/offers?day={_day_of(slot)}&kinds=individuel").json()
+    top = off["slots_with_court"][0]
+    assert top["start"][:16] == slot[:16] and top["reason"] == "promo" and top["price_millimes"] == 42000
+    pc.post("/me/book", json={"kind": "individuel", "start": top["start"]})
+    assert pc.get("/me/promotions").json() == []  # terrain pris: la promotion s'arrête
+    assert client.get("/sessions").json()[0]["price_millimes"] == 42000
+    other = free_court(client, pc.get("/me/slots").json()[8], minutes=60)
+    assert client.post("/promotions", json={"court_booking_id": other["id"], "discount_pct": 2}).status_code == 422

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { api, dayLabel, hhmm } from "./api.js";
 import Icon from "./Icon.jsx";
-import { confirmDialog, toast, toastError } from "./feedback.jsx";
+import { confirmDialog, Modal, toast, toastError } from "./feedback.jsx";
 import { COURT_STATUS, Loading } from "./ui.jsx";
 
 const PLACEHOLDERS = "{date} {debut} {fin} {duree} {joueurs} {coach} {club}";
@@ -118,6 +118,40 @@ function CourtCard({ cb, reload }) {
   );
 }
 
+// Promotion sur un terrain libre: remise, message, envoi à tous les joueurs du coach
+function PromoForm({ cb, onClose, onDone }) {
+  const [pct, setPct] = useState(20);
+  const [preview, setPreview] = useState(null);
+  const [message, setMessage] = useState("");
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    api(`/promotions/preview?court_booking_id=${cb.id}&discount_pct=${pct}`).then((p) => { setPreview(p); setMessage(p.message); }).catch(toastError);
+  }, [pct]);
+  const send = async () => {
+    setBusy(true);
+    try {
+      const r = await api("/promotions", { method: "POST", body: { court_booking_id: cb.id, discount_pct: pct, message } });
+      toast(`Promotion envoyée à ${r.notified_count} joueur${r.notified_count > 1 ? "s" : ""}`);
+      onDone();
+    } catch (x) {
+      toastError(x);
+      setBusy(false);
+    }
+  };
+  return (
+    <Modal onClose={onClose} label="Proposer une promotion">
+      <b className="sheet-title">Proposer une promotion</b>
+      <p className="mut" style={{ textTransform: "capitalize" }}>{dayLabel(cb.start)} · {hhmm(cb.start)}–{endTime(cb)} · {cb.club_name}</p>
+      <div className="field"><span className="mut">Remise sur le prix par joueur</span>
+        <div className="chips">{[10, 15, 20, 30, 40, 50].map((v) => <button key={v} type="button" className={"chip" + (pct === v ? " on" : "")} aria-pressed={pct === v} onClick={() => setPct(v)}>−{v} %</button>)}</div>
+      </div>
+      <label className="field"><span className="mut">Message envoyé aux joueurs</span><textarea className="msg" rows={4} value={message} onChange={(e) => setMessage(e.target.value)} /></label>
+      <div className="mut small-p"><Icon name="send" size={13} /> {preview ? `${preview.recipients} joueur${preview.recipients > 1 ? "s" : ""} prévenu${preview.recipients > 1 ? "s" : ""} par WhatsApp, SMS ou e-mail selon leur choix. La promotion apparaît aussi dans leur appli.` : "…"}</div>
+      <div className="actions"><button className="sec" onClick={onClose}>Annuler</button><button disabled={busy || !preview} onClick={send}>{busy ? "Envoi…" : "Envoyer la promotion"}</button></div>
+    </Modal>
+  );
+}
+
 export default function Courts({ onBack }) {
   const [list, setList] = useState(null);
   const [clubs, setClubs] = useState([]);
@@ -125,10 +159,14 @@ export default function Courts({ onBack }) {
   const [filter, setFilter] = useState("todo");
   const [adding, setAdding] = useState(false);
   const [msg, setMsg] = useState("");
+  const [promos, setPromos] = useState([]);
+  const [promoFor, setPromoFor] = useState(null);
   const load = () => {
     api("/court-bookings").then(setList);
     api("/clubs").then(setClubs);
+    api("/promotions").then((r) => setPromos(r.items)).catch(() => {});
   };
+  const stopPromo = (p) => api(`/promotions/${p.id}`, { method: "DELETE" }).then(() => { toast("Promotion arrêtée"); load(); }).catch(toastError);
   useEffect(load, []);
   if (!list) return <><h1>Terrains</h1><Loading rows={3} /></>;
 
@@ -172,15 +210,30 @@ export default function Courts({ onBack }) {
         <>
           <p className="mut">Terrains réservés par vos soins, pas encore attribués à une séance.</p>
           {free.length === 0 && !adding && <div className="card mut">Aucun terrain libre.</div>}
-          {free.map((cb) => (
-            <div className="card row" key={cb.id}>
-              <div>
-                <b style={{ textTransform: "capitalize" }}>{dayLabel(cb.start)} · {hhmm(cb.start)}–{endTime(cb)}</b>
-                <div className="mut">{cb.club_name}{cb.court_label && ` · ${cb.court_label}`}</div>
+          {free.map((cb) => {
+            const promo = promos.find((p) => p.court_booking_id === cb.id && p.active);
+            return (
+              <div className="card" key={cb.id}>
+                <div className="row">
+                  <div>
+                    <b style={{ textTransform: "capitalize" }}>{dayLabel(cb.start)} · {hhmm(cb.start)}–{endTime(cb)}</b>
+                    <div className="mut">{cb.club_name}{cb.court_label && ` · ${cb.court_label}`}</div>
+                  </div>
+                  <button className="small sec iconbtn" title="Supprimer" aria-label="Supprimer" onClick={() => remove(cb)}><Icon name="trash" size={15} /></button>
+                </div>
+                {promo ? (
+                  <div className="promo-on">
+                    <span className="promo-tag">−{promo.discount_pct} %</span>
+                    <span>Promotion en cours · {promo.notified_count} joueur{promo.notified_count > 1 ? "s" : ""} prévenu{promo.notified_count > 1 ? "s" : ""}</span>
+                    <button className="small sec" onClick={() => stopPromo(promo)}>Arrêter</button>
+                  </div>
+                ) : (
+                  <button className="small sec" style={{ marginTop: 10 }} onClick={() => setPromoFor(cb)}><Icon name="sparkles" size={15} /> Proposer une promotion</button>
+                )}
               </div>
-              <button className="small sec iconbtn" title="Supprimer" aria-label="Supprimer" onClick={() => remove(cb)}><Icon name="trash" size={15} /></button>
-            </div>
-          ))}
+            );
+          })}
+          {promoFor && <PromoForm cb={promoFor} onClose={() => setPromoFor(null)} onDone={() => { setPromoFor(null); load(); }} />}
           {adding ? <ManualForm clubs={clubs} onDone={() => { setAdding(false); load(); }} /> : <button className="small" onClick={() => setAdding(true)}><Icon name="plus" size={15} /> Saisir un terrain réservé</button>}
         </>
       ) : (

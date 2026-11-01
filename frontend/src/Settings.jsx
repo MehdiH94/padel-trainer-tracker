@@ -5,6 +5,7 @@ import { toast, toastError } from "./feedback.jsx";
 import { KIND, Loading } from "./ui.jsx";
 
 const DAYS = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"];
+const DUR = { individuel: "slot_minutes", duo: "duration_duo", groupe: "duration_groupe" }; // champ de durée par formule
 
 export default function Settings({ onBack }) {
   const [s, setS] = useState(null);
@@ -13,6 +14,7 @@ export default function Settings({ onBack }) {
   useEffect(() => { api("/booking/settings").then(setS); api("/exercise-themes").then((t) => setThemes(t.work)); }, []);
   if (!s) return <><h1>Réglages</h1><Loading rows={3} /></>;
 
+  const setHappy = (i, patch) => setS({ ...s, happy_hours: s.happy_hours.map((h, j) => (j === i ? { ...h, ...patch } : h)) });
   const dayWindows = (d) => s.availability.filter((w) => w.weekday === d);
   const setDay = (d, windows) => setS({ ...s, availability: [...s.availability.filter((w) => w.weekday !== d), ...windows.map((w) => ({ ...w, weekday: d }))] });
   async function save() {
@@ -48,14 +50,33 @@ export default function Settings({ onBack }) {
         </div>
       </div>
 
-      <h2>Prix par joueur</h2>
+      <h2>Formules : durée et prix par joueur</h2>
       <div className="card">
         {Object.entries(KIND).map(([k, v]) => (
-          <label className="field price-row" key={k}>
-            <span><Icon name={v.icon} size={16} /> <b>{v.label}</b> <span className="mut">· {v.short}</span></span>
-            <span className="inputunit"><input type="number" step="0.001" min="0" value={s["price_" + k] / 1000} onChange={(e) => setS({ ...s, ["price_" + k]: Math.round(e.target.value * 1000) })} /><em>TND</em></span>
-          </label>
+          <div className="formula" key={k}>
+            <span className="formula-name"><Icon name={v.icon} size={16} /> <b>{v.label}</b> <span className="mut">· {v.short}</span></span>
+            <select aria-label={`Durée ${v.label}`} value={s[DUR[k]]} onChange={(e) => setS({ ...s, [DUR[k]]: +e.target.value })}>
+              {[45, 60, 75, 90, 120].map((m) => <option key={m} value={m}>{m} min</option>)}
+            </select>
+            <span className="inputunit"><input type="number" step="0.001" min="0" aria-label={`Prix ${v.label}`} value={s["price_" + k] / 1000} onChange={(e) => setS({ ...s, ["price_" + k]: Math.round(e.target.value * 1000) })} /><em>TND</em></span>
+          </div>
         ))}
+      </div>
+
+      <h2>Happy hours</h2>
+      <div className="card">
+        <div className="mut small-p" style={{ marginBottom: 8 }}>Remise automatique sur les nouvelles séances qui commencent dans ces plages (toutes formules).</div>
+        {s.happy_hours.map((h, i) => (
+          <div className="happy" key={i}>
+            <select aria-label="Jour" value={h.weekday} onChange={(e) => setHappy(i, { weekday: +e.target.value })}>{DAYS.map((d, j) => <option key={j} value={j}>{d}</option>)}</select>
+            <input type="time" aria-label="Début" value={h.start_time} onChange={(e) => setHappy(i, { start_time: e.target.value })} />
+            <input type="time" aria-label="Fin" value={h.end_time} onChange={(e) => setHappy(i, { end_time: e.target.value })} />
+            <span className="inputunit pct"><input type="number" min="1" max="90" aria-label="Remise" value={h.discount_pct} onChange={(e) => setHappy(i, { discount_pct: +e.target.value })} /><em>%</em></span>
+            <button className="small sec iconbtn" aria-label="Supprimer la happy hour" onClick={() => setS({ ...s, happy_hours: s.happy_hours.filter((_, j) => j !== i) })}><Icon name="trash" size={14} /></button>
+          </div>
+        ))}
+        {!s.happy_hours.length && <div className="mut">Aucune happy hour.</div>}
+        <button className="small sec" style={{ marginTop: 8 }} onClick={() => setS({ ...s, happy_hours: [...s.happy_hours, { weekday: 0, start_time: "10:00", end_time: "12:00", discount_pct: 20 }] })}><Icon name="plus" size={15} /> Ajouter une happy hour</button>
       </div>
 
       <h2>Validation et annulation</h2>
@@ -68,11 +89,6 @@ export default function Settings({ onBack }) {
           {s.auto_confirm ? "Si un terrain que vous avez réservé couvre le créneau, la réservation est confirmée sans votre intervention." : "Vous validez chaque demande depuis l'onglet Demandes."}
         </div>
         <div className="grid">
-          <label className="field"><span className="mut">Durée d'une séance</span>
-            <select value={s.slot_minutes} onChange={(e) => setS({ ...s, slot_minutes: +e.target.value })}>
-              {[45, 60, 90, 120].map((m) => <option key={m} value={m}>{m} min</option>)}
-            </select>
-          </label>
           <label className="field"><span className="mut">Annulation remboursée jusqu'à</span>
             <select value={s.cancel_hours} onChange={(e) => setS({ ...s, cancel_hours: +e.target.value })}>
               {[[0, "À tout moment"], [2, "2 h avant"], [12, "12 h avant"], [24, "24 h avant"], [48, "48 h avant"]].map(([h, l]) => <option key={h} value={h}>{l}</option>)}

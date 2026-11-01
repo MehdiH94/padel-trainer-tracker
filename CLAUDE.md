@@ -17,7 +17,7 @@ Application de gestion pour un coach de padel indépendant (Tunisie) + espace jo
 # Backend (depuis backend/)
 python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
-python -m pytest -q                                  # 73 tests, doivent rester verts
+python -m pytest -q                                  # 75 tests, doivent rester verts
 uvicorn app.main:app --port 8000
 python seed_demo.py                                  # données de démo (base vide): coach demo@padel.tn / demo1234, joueur sami@demo.tn / demo1234
 # Frontend (depuis frontend/)
@@ -31,6 +31,8 @@ Le schéma est créé par `create_all`: après un changement de modèle, supprim
 - Exercices: ceux de l'application (`services/exercises_catalog.py`, `coach_id` nul, non modifiables) + ceux du coach. Préparation de séance (`services/planner.py`): thèmes recommandés d'après les coups notés ≤ 2 (ou 3) et les notes « à retravailler », plan minuté échauffement → exercices → jeu → retour au calme selon la durée et le nombre de joueurs, enregistré dans `TrainingSession.plan` (JSON).
 - Multi-coachs: un joueur voit tous les coachs et réserve chez n'importe lequel. Une fiche `Player` par coach; les fiches chez d'autres coachs sont reliées au compte par `Player.account_id` (`services/accounts.py`: `linked`, `row_for_coach`). Les routes `/me` regroupent toutes les fiches du compte. Crédits propres à chaque coach.
 - Réservation joueur: crédits débités s'il y en a assez chez ce coach, sinon séance due et réglée sur place (`Booking.charged_millimes = 0`, la séance garde le prix du coach). Recherche par jour (`services/marketplace.offers`): groupes à rejoindre, puis créneaux avec terrain déjà réservé, puis les autres.
+- Formules: durée par formule (`slot_minutes` = individuel, `duration_duo`, `duration_groupe`; grille des débuts = PGCD des durées) et prix par joueur. Prix d'une nouvelle séance = `services/pricing.quote`: la plus forte remise entre happy hour (`HappyHour`) et promotion (`Promotion` sur un terrain réservé libre) s'applique; prix convenu gardé dans `Booking.price_millimes`. Le joueur coche une ou plusieurs formules: `Booking.accepted_kinds` est montré au coach.
+- Promotion: notifie une fois chaque compte joueur du coach (moyen de contact choisi), s'arrête quand le terrain est pris.
 - Séance payée avec des crédits = `Attendance.credit_paid_millimes > 0`: jamais facturée une seconde fois.
 - Recharge de crédits = `Payment(kind="credit")` + `CreditTx`; elle compte dans l'encaissé mais pas dans les paiements de séances.
 - Les relances manuelles du coach sont des liens `sms:` / `wa.me` / `mailto:` pré-remplis.

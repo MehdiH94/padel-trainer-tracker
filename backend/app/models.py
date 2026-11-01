@@ -18,7 +18,9 @@ class Coach(Base):
     name: Mapped[str] = mapped_column(String(120))
     # Réservation par les joueurs avec leurs crédits
     auto_confirm: Mapped[bool] = mapped_column(default=True)
-    slot_minutes: Mapped[int] = mapped_column(Integer, default=60)
+    slot_minutes: Mapped[int] = mapped_column(Integer, default=60)  # durée d'une séance individuelle
+    duration_duo: Mapped[int | None] = mapped_column(Integer, nullable=True)  # None = comme slot_minutes
+    duration_groupe: Mapped[int | None] = mapped_column(Integer, nullable=True)
     price_individuel: Mapped[int] = mapped_column(Integer, default=0)  # prix par joueur, en millimes
     price_duo: Mapped[int] = mapped_column(Integer, default=0)
     price_groupe: Mapped[int] = mapped_column(Integer, default=0)
@@ -167,12 +169,14 @@ class Booking(Base):
     coach_id: Mapped[int] = mapped_column(ForeignKey("coaches.id"), index=True)
     player_id: Mapped[int] = mapped_column(ForeignKey("players.id"), index=True)
     kind: Mapped[str] = mapped_column(String(10), default="individuel")
+    accepted_kinds: Mapped[str] = mapped_column(String(40), default="")  # formules acceptées par le joueur (affichées au coach)
     start: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     duration_min: Mapped[int] = mapped_column(Integer, default=60)
     # en_attente (à traiter) / acceptee (terrain à confirmer) / confirmee / refusee / annulee
     status: Mapped[str] = mapped_column(String(12), default="en_attente")
     notified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)  # joueur prévenu de la confirmation
-    charged_millimes: Mapped[int] = mapped_column(Integer, default=0)
+    charged_millimes: Mapped[int] = mapped_column(Integer, default=0)  # débité des crédits (0 = à régler sur place)
+    price_millimes: Mapped[int] = mapped_column(Integer, default=0)  # prix convenu (happy hour / promotion comprises)
     session_id: Mapped[int | None] = mapped_column(ForeignKey("sessions.id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
@@ -228,3 +232,29 @@ class Exercise(Base):
     min_players: Mapped[int] = mapped_column(Integer, default=1)
     max_players: Mapped[int] = mapped_column(Integer, default=4)
     duration_min: Mapped[int] = mapped_column(Integer, default=15)
+
+
+class HappyHour(Base):
+    """Plage horaire hebdomadaire à prix réduit (nouvelles séances qui commencent dans la plage)."""
+
+    __tablename__ = "happy_hours"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    coach_id: Mapped[int] = mapped_column(ForeignKey("coaches.id"), index=True)
+    weekday: Mapped[int] = mapped_column(Integer)  # 0 = lundi
+    start_time: Mapped[str] = mapped_column(String(5))  # HH:MM, heure de Tunis
+    end_time: Mapped[str] = mapped_column(String(5))
+    discount_pct: Mapped[int] = mapped_column(Integer)
+
+
+class Promotion(Base):
+    """Promotion sur un terrain déjà réservé et encore libre; les joueurs du coach sont prévenus."""
+
+    __tablename__ = "promotions"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    coach_id: Mapped[int] = mapped_column(ForeignKey("coaches.id"), index=True)
+    court_booking_id: Mapped[int] = mapped_column(ForeignKey("court_bookings.id"), index=True)
+    discount_pct: Mapped[int] = mapped_column(Integer)
+    message: Mapped[str] = mapped_column(Text, default="")
+    notified_count: Mapped[int] = mapped_column(Integer, default=0)
+    active: Mapped[bool] = mapped_column(default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

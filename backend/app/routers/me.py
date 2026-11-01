@@ -73,6 +73,7 @@ class BookIn(BaseModel):
     kind: str | None = None
     start: datetime | None = None  # nouveau créneau
     coach_id: int | None = None  # coach du nouveau créneau (par défaut: le coach qui a invité le joueur)
+    kinds: list[str] = []  # toutes les formules acceptées par le joueur (montrées au coach)
     session_id: int | None = None  # ou rejoindre une séance existante
 
 
@@ -87,7 +88,7 @@ def book(body: BookIn, player: Player = Depends(current_player), db: Session = D
         if s:
             b = svc.request_join(db, coach, row, s, sms)
         elif body.start and body.kind:
-            b = svc.request_new(db, coach, row, body.kind, body.start, sms)
+            b = svc.request_new(db, coach, row, body.kind, body.start, sms, accepted_kinds=body.kinds)
         else:
             raise HTTPException(422, "Choisissez une séance ou un créneau")
     except svc.BookingError as e:
@@ -232,9 +233,13 @@ def clubs(player: Player = Depends(current_player), db: Session = Depends(get_db
 
 
 @router.get("/offers")
-def offers(day: date, kind: str = "groupe", coach_id: int | None = None, club: str | None = None, period: str | None = None,
+def offers(day: date, kinds: str = "", kind: str = "", coach_id: int | None = None, club: str | None = None, period: str | None = None,
            hour: int | None = None, player: Player = Depends(current_player), db: Session = Depends(get_db)):
-    """Pour le jour choisi: groupes à rejoindre et créneaux à créer, selon le coach, le club et la façon de jouer."""
-    if kind not in CAPACITY:
+    """Pour le jour choisi: groupes à rejoindre et créneaux à créer, selon le coach, le club et les formules acceptées
+    (kinds=individuel,duo: plusieurs choix possibles)."""
+    wanted = [k for k in (kinds or kind or "groupe").split(",") if k]
+    if any(k not in CAPACITY for k in wanted):
         raise HTTPException(422, "Type de séance invalide")
-    return marketplace.offers(db, player, day, kind, coach_id, club or None, period or None, hour)
+    player.pref_kinds = ",".join(wanted)  # préférences retenues (groupes proposés par le coach)
+    db.commit()
+    return marketplace.offers(db, player, day, wanted, coach_id, club or None, period or None, hour)

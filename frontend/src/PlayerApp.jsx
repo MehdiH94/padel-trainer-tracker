@@ -64,7 +64,15 @@ function ContactChoice({ me, reload, onClose }) {
 }
 
 // ---------------------------------------------------------------- Accueil
-function Home({ me, sessions, progress, credits, proposals, go, reload }) {
+// Promotion d'un coach: ouvre la réservation sur ce coach et ce jour
+function bookPromo(p, go) {
+  try {
+    sessionStorage.setItem("book-filters", JSON.stringify({ coachId: p.coach_id, day: toDate(p.start).toLocaleDateString("fr-CA", { timeZone: TZ }), kinds: ["individuel", "duo", "groupe"], period: "", hour: "", club: "" }));
+  } catch { /* stockage indisponible */ }
+  go("book");
+}
+
+function Home({ me, sessions, progress, credits, proposals, promos, go, reload }) {
   const [contact, setContact] = useState(false);
   const next = sessions.upcoming[0];
   const sessionsLeft = me.prices.individuel ? Math.floor(me.credits_millimes / me.prices.individuel) : null;
@@ -118,6 +126,25 @@ function Home({ me, sessions, progress, credits, proposals, go, reload }) {
                 <button onClick={() => answer(p, "accept")}><Icon name="check" size={16} /> Accepter</button>
                 <button className="sec" onClick={() => answer(p, "decline")}>Refuser</button>
               </div>
+            </div>
+          ))}
+        </>
+      )}
+
+      {promos.length > 0 && (
+        <>
+          <h2 className="accent-h"><Icon name="sparkles" size={16} /> Promotions</h2>
+          {promos.map((p) => (
+            <div className="card promo-card" key={p.id}>
+              <div className="row g10" style={{ alignItems: "flex-start" }}>
+                <DateBlock iso={p.start} />
+                <div style={{ flex: 1 }}>
+                  <div className="row"><b>{hhmm(p.start)} · {p.club}</b><span className="promo-tag">−{p.discount_pct} %</span></div>
+                  <div className="mut"><Icon name="user" size={13} /> {p.coach_name} · terrain déjà réservé</div>
+                  <div className="mut small-p">Seul {tnd(p.prices.individuel)} · à deux {tnd(p.prices.duo)} · en groupe {tnd(p.prices.groupe)} par joueur</div>
+                </div>
+              </div>
+              <button style={{ width: "100%", marginTop: 10 }} onClick={() => bookPromo(p, go)}>J'en profite</button>
             </div>
           ))}
         </>
@@ -268,8 +295,8 @@ export default function PlayerApp() {
   const [[tab = "home", sub], setTab] = useRoute("home");
   const [data, setData] = useState(null);
   const load = () =>
-    Promise.all([api("/me"), api("/me/sessions"), api("/me/progress"), api("/me/credits"), api("/me/proposals")])
-      .then(([me, sessions, progress, credits, proposals]) => setData({ me, sessions, progress, credits, proposals }));
+    Promise.all([api("/me"), api("/me/sessions"), api("/me/progress"), api("/me/credits"), api("/me/proposals"), api("/me/promotions").catch(() => [])])
+      .then(([me, sessions, progress, credits, proposals, promos]) => setData({ me, sessions, progress, credits, proposals, promos }));
   useEffect(() => { load(); }, []);
   if (!data) return <main><Loading hero rows={3} /></main>;
   const props = { ...data, go: setTab, reload: load };

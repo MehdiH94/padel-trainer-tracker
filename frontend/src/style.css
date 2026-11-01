@@ -426,10 +426,29 @@ button.prepare.done > .icon:first-child { color: var(--ok-txt); }
 .offer-time small, .offer-main small { color: var(--mut); font-size: .8rem; }
 .offer-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .offer-coach { font-weight: 700; }
-.offer-price { font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.offer-price { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .hoursel { width: auto; min-height: 36px; padding: 6px 10px; margin: 0; border-radius: 99px; font-size: .85rem; }
 .coach-hero { padding-top: 16px; }
 .grid.three { grid-template-columns: repeat(3, 1fr); }
 .clubline { display: flex; align-items: center; gap: 8px; padding: 4px 0; font-weight: 600; }
 .avail { padding: 6px 0; border-top: 1px solid var(--line); font-size: .92rem; }
 .avail:first-child { border-top: 0; }
+
+/* --- Formules, happy hours, promotions --- */
+.formula { display: grid; grid-template-columns: 1fr auto auto; gap: 8px; align-items: center; padding: 8px 0; border-top: 1px solid var(--line); }
+.formula:first-child { border-top: 0; }
+.formula select { width: auto; margin: 0; }
+.formula .inputunit { max-width: 130px; }
+@media (max-width: 420px) { .formula { grid-template-columns: 1fr 1fr; } .formula-name { grid-column: 1 / -1; } }
+.happy { display: grid; grid-template-columns: 1fr 1fr 1fr auto auto; gap: 6px; align-items: center; margin-bottom: 6px; }
+.happy select, .happy input { margin: 0; padding: 8px 6px; }
+.inputunit.pct { max-width: 80px; }
+@media (max-width: 420px) { .happy { grid-template-columns: 1fr 1fr 1fr; } }
+.promo-tag { display: inline-flex; align-items: center; background: #15803d; color: #fff; font-weight: 800; font-size: .76rem; padding: 2px 8px; border-radius: 99px; font-variant-numeric: tabular-nums; }
+.promo-on { display: flex; align-items: center; gap: 8px; margin-top: 10px; padding: 8px 10px; background: var(--green-l); color: var(--ok-txt); border-radius: 12px; font-size: .88rem; font-weight: 600; }
+.promo-on > span:nth-child(2) { flex: 1; }
+.accepts { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 4px 0 8px; }
+.old-price { text-decoration: line-through; color: var(--mut); font-weight: 500; font-size: .8rem; display: block; text-align: right; }
+.promo-card { border: 2px solid var(--green); background: linear-gradient(180deg, var(--green-l), var(--card)); }
+.seg-sub { display: block; font-size: .72rem; font-weight: 500; opacity: .85; }
+.seg button { flex-direction: column; gap: 0; }

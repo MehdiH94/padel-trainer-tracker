@@ -7,7 +7,7 @@ from sqlalchemy import inspect, text
 
 from .db import Base, SessionLocal, engine
 from .constants import TIERS
-from .routers import auth, booking, clubs, dashboard, exercises, me, payments, players, profile, reminders, sessions
+from .routers import auth, booking, clubs, dashboard, exercises, me, payments, players, profile, promotions, reminders, sessions
 from .notify import Notifier
 from .services import courts, planner, session_reminders
 from .sms import get_sms_provider
@@ -18,6 +18,8 @@ Base.metadata.create_all(engine)
 NEW_COLUMNS = [
     ("players", "contact_channel", "VARCHAR(10)"), ("sessions", "plan", "TEXT"), ("players", "account_id", "INTEGER"),
     ("coaches", "bio", "TEXT DEFAULT ''"), ("coaches", "specialties", "VARCHAR(255) DEFAULT ''"),
+    ("coaches", "duration_duo", "INTEGER"), ("coaches", "duration_groupe", "INTEGER"), ("bookings", "accepted_kinds", "VARCHAR(40) DEFAULT ''"),
+    ("bookings", "price_millimes", "INTEGER DEFAULT 0"),
 ]
 with engine.begin() as conn:
     for table, column, ddl in NEW_COLUMNS:
@@ -59,7 +61,7 @@ async def lifespan(_: FastAPI):
 
 
 app = FastAPI(title="Padel Trainer Tracker", lifespan=lifespan)
-for r in (auth, players, sessions, payments, dashboard, booking, profile, clubs, reminders, me, exercises):
+for r in (auth, players, sessions, payments, dashboard, booking, profile, clubs, reminders, promotions, me, exercises):
     app.include_router(r.router)
 
 

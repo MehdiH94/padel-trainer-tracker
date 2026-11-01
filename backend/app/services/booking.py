@@ -1,5 +1,6 @@
 """Réservations des joueurs payées avec leurs crédits: créneaux libres, suggestions de groupes, demandes."""
 from datetime import datetime, time, timedelta, timezone
+from math import gcd
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -10,6 +11,7 @@ from ..sms.base import SmsProvider
 from . import courts
 from .common import TUNIS, aware
 from .finance import credit_balance
+from .pricing import duration_for, quote
 
 HORIZON_DAYS = 14
 MIN_NOTICE_H = 2
@@ -42,8 +44,9 @@ def spots_left(db: Session, s: TrainingSession) -> int:
 
 # --- Créneaux libres ----------------------------------------------------
 
-def free_slots(db: Session, coach: Coach, now: datetime | None = None) -> list[datetime]:
-    """Créneaux libres (UTC), triés, sur les HORIZON_DAYS prochains jours."""
+def free_slots(db: Session, coach: Coach, now: datetime | None = None, minutes: int | None = None) -> list[datetime]:
+    """Créneaux libres (UTC), triés, sur les HORIZON_DAYS prochains jours, pour une séance de `minutes` (défaut: individuelle).
+    Les débuts possibles suivent une grille commune à toutes les formules (ex. 60 et 90 min -> toutes les 30 min)."""
     now = now or datetime.now(timezone.utc)
     earliest = now + timedelta(hours=MIN_NOTICE_H)
     windows = db.scalars(select(Availability).where(Availability.coach_id == coach.id)).all()
@@ -55,7 +58,9 @@ def free_slots(db: Session, coach: Coach, now: datetime | None = None) -> list[d
     for b in db.scalars(select(Booking).where(Booking.coach_id == coach.id, Booking.status == "en_attente", Booking.session_id.is_(None))):
         busy.append((aware(b.start), aware(b.start) + timedelta(minutes=b.duration_min)))
 
-    step = timedelta(minutes=coach.slot_minutes)
+    durations = [duration_for(coach, k) for k in CAPACITY]
+    step = timedelta(minutes=gcd(*durations))
+    length = timedelta(minutes=minutes or coach.slot_minutes)
     out = []
     today = now.astimezone(TUNIS).date()
     for off in range(HORIZON_DAYS + 1):
@@ -63,8 +68,8 @@ def free_slots(db: Session, coach: Coach, now: datetime | None = None) -> list[d
         for w in (w for w in windows if w.weekday == day.weekday()):
             cur = datetime.combine(day, time.fromisoformat(w.start_time), TUNIS).astimezone(timezone.utc)
             end = datetime.combine(day, time.fromisoformat(w.end_time), TUNIS).astimezone(timezone.utc)
-            while cur + step <= end:
-                if cur >= earliest and not any(cur < b_end and cur + step > b_start for b_start, b_end in busy):
+            while cur + length <= end:
+                if cur >= earliest and not any(cur < b_end and cur + length > b_start for b_start, b_end in busy):
                     out.append(cur)
                 cur += step
     return sorted(set(out))
@@ -137,7 +142,8 @@ def request_join(db: Session, coach: Coach, player: Player, s: TrainingSession, 
     if not force_accept and not fits_session(db, player, s)[0]:
         raise BookingError("Votre classement n'est pas compatible avec les joueurs de cette séance")
     price = s.price_millimes or price_for(coach, s.kind)
-    b = Booking(coach_id=coach.id, player_id=player.id, kind=s.kind, start=s.start, duration_min=s.duration_min, session_id=s.id, charged_millimes=price)
+    b = Booking(coach_id=coach.id, player_id=player.id, kind=s.kind, start=s.start, duration_min=s.duration_min, session_id=s.id, charged_millimes=price,
+                price_millimes=price, accepted_kinds=s.kind)
     db.add(b)
     db.flush()
     _debit(db, coach, player, price, b)
@@ -147,14 +153,19 @@ def request_join(db: Session, coach: Coach, player: Player, s: TrainingSession, 
     return b
 
 
-def request_new(db: Session, coach: Coach, player: Player, kind: str, start: datetime, sms: SmsProvider | None = None) -> Booking:
-    """Le joueur demande un nouveau créneau (séance de ce type, ouverte aux autres joueurs si duo/groupe)."""
+def request_new(db: Session, coach: Coach, player: Player, kind: str, start: datetime, sms: SmsProvider | None = None,
+                accepted_kinds: list[str] | None = None) -> Booking:
+    """Le joueur demande un nouveau créneau (séance de ce type, ouverte aux autres joueurs si duo/groupe).
+    accepted_kinds: toutes les formules qu'il accepte (seul, duo, groupe), montrées au coach."""
     if kind not in CAPACITY:
         raise BookingError("Type de séance invalide")
-    if aware(start) not in free_slots(db, coach):
+    q = quote(db, coach, kind, start)  # durée de la formule, prix avec happy hour / promotion
+    if aware(start) not in free_slots(db, coach, minutes=q["duration_min"]):
         raise BookingError("Ce créneau n'est plus disponible")
-    price = price_for(coach, kind)
-    b = Booking(coach_id=coach.id, player_id=player.id, kind=kind, start=aware(start), duration_min=coach.slot_minutes, charged_millimes=price)
+    price = q["price_millimes"]
+    accepted = [k for k in CAPACITY if k in (accepted_kinds or []) or k == kind]
+    b = Booking(coach_id=coach.id, player_id=player.id, kind=kind, start=aware(start), duration_min=q["duration_min"], charged_millimes=price,
+                accepted_kinds=",".join(accepted), price_millimes=price)
     db.add(b)
     db.flush()
     _debit(db, coach, player, price, b)
@@ -181,7 +192,7 @@ def accept(db: Session, coach: Coach, b: Booking, sms: SmsProvider | None = None
         return
     s = TrainingSession(
         coach_id=coach.id, start=b.start, duration_min=b.duration_min, kind=b.kind, level=player.category,
-        price_millimes=b.charged_millimes or price_for(coach, b.kind), price_mode="par_joueur", open=b.kind != "individuel",
+        price_millimes=b.price_millimes or b.charged_millimes or price_for(coach, b.kind), price_mode="par_joueur", open=b.kind != "individuel",
     )
     s.attendances = [Attendance(player_id=player.id, credit_paid_millimes=b.charged_millimes)]
     db.add(s)

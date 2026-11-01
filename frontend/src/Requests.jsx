@@ -23,8 +23,16 @@ function Head({ r }) {
       <div className="when">
         <Icon name="calendar" size={16} /> <b style={{ textTransform: "capitalize" }}>{dayLabel(r.start)}</b>
         <span className="sep" /> <Icon name="clock" size={16} /> {hm(r.start, r.duration_min)}
-        <span className="sep" /> <Icon name="wallet" size={16} /> {tnd(r.charged_millimes)}
+        <span className="sep" /> <Icon name="wallet" size={16} /> {tnd(r.price_millimes ?? r.charged_millimes)}
+        {r.price_millimes < r.base_millimes && <span className="promo-tag">−{Math.round(100 - (r.price_millimes * 100) / r.base_millimes)} %</span>}
+        <span className="mut small-p">{r.charged_millimes ? "payé en crédits" : "à régler sur place"}</span>
       </div>
+      {r.accepted_kinds?.length > 1 && (
+        <div className="accepts">
+          <span className="mut small-p">Le joueur accepte aussi :</span>
+          {r.accepted_kinds.filter((k) => k !== r.kind).map((k) => <span key={k} className="kind-pill" style={{ background: KIND[k].color + "1a", color: KIND[k].color }}><Icon name={KIND[k].icon} size={13} /> {KIND[k].label}</span>)}
+        </div>
+      )}
       {r.join && <div className="mut">Rejoint une séance existante{r.partners.length ? ` avec ${r.partners.join(", ")}` : ""}</div>}
     </>
   );

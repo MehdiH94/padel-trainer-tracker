@@ -9,11 +9,12 @@ from sqlalchemy.orm import Session
 from ..auth import current_coach
 from ..constants import CAPACITY
 from ..db import get_db
-from ..models import Availability, Booking, Club, Coach, CourtBooking, Player, Proposal, TrainingSession
+from ..models import Availability, Booking, Club, Coach, CourtBooking, HappyHour, Player, Proposal, TrainingSession
 from ..services import booking as svc
 from ..services import courts
 from ..services.common import TUNIS, aware
 from ..services.exercises_catalog import WORK_THEMES
+from ..services.pricing import base_price, duration_for
 from ..sms import get_sms_provider
 from ..sms.base import SmsProvider
 
@@ -28,6 +29,13 @@ class Window(BaseModel):
     end_time: str
 
 
+class HappyIn(BaseModel):
+    weekday: int
+    start_time: str
+    end_time: str
+    discount_pct: int
+
+
 class Settings(BaseModel):
     auto_confirm: bool
     slot_minutes: int
@@ -36,6 +44,9 @@ class Settings(BaseModel):
     price_groupe: int
     cancel_hours: int = 24
     availability: list[Window]
+    duration_duo: int | None = None  # durée par formule (None = comme la séance individuelle)
+    duration_groupe: int | None = None
+    happy_hours: list[HappyIn] | None = None  # None = inchangé
     bio: str | None = None  # page publique du coach (None = inchangé)
     specialties: list[str] | None = None
 
@@ -47,6 +58,9 @@ def settings_out(db: Session, coach: Coach) -> dict:
         "price_individuel": coach.price_individuel, "price_duo": coach.price_duo, "price_groupe": coach.price_groupe,
         "availability": [{"weekday": r.weekday, "start_time": r.start_time, "end_time": r.end_time} for r in rows],
         "bio": coach.bio, "specialties": [x for x in coach.specialties.split(",") if x], "name": coach.name,
+        "duration_duo": duration_for(coach, "duo"), "duration_groupe": duration_for(coach, "groupe"),
+        "happy_hours": [{"weekday": h.weekday, "start_time": h.start_time, "end_time": h.end_time, "discount_pct": h.discount_pct}
+                        for h in db.scalars(select(HappyHour).where(HappyHour.coach_id == coach.id).order_by(HappyHour.weekday, HappyHour.start_time))],
     }
 
 
@@ -60,9 +74,18 @@ def put_settings(body: Settings, coach: Coach = Depends(current_coach), db: Sess
     prices = (body.price_individuel, body.price_duo, body.price_groupe)
     if not 15 <= body.slot_minutes <= 240 or min(prices) < 0 or not 0 <= body.cancel_hours <= 168:
         raise HTTPException(422, "Réglages invalides")
-    for w in body.availability:
+    for w in [*body.availability, *(body.happy_hours or [])]:
         if not (0 <= w.weekday <= 6 and w.start_time < w.end_time):
             raise HTTPException(422, "Plage horaire invalide")
+    if any(not 1 <= h.discount_pct <= 90 for h in body.happy_hours or []):
+        raise HTTPException(422, "La remise d'une happy hour doit être entre 1 et 90 %")
+    if any(d is not None and not 15 <= d <= 240 for d in (body.duration_duo, body.duration_groupe)):
+        raise HTTPException(422, "Durée invalide")
+    coach.duration_duo, coach.duration_groupe = body.duration_duo, body.duration_groupe
+    if body.happy_hours is not None:
+        for old in db.scalars(select(HappyHour).where(HappyHour.coach_id == coach.id)):
+            db.delete(old)
+        db.add_all(HappyHour(coach_id=coach.id, **h.model_dump()) for h in body.happy_hours)
     coach.auto_confirm, coach.slot_minutes, coach.cancel_hours = body.auto_confirm, body.slot_minutes, body.cancel_hours
     coach.price_individuel, coach.price_duo, coach.price_groupe = prices
     if body.bio is not None:
@@ -94,6 +117,10 @@ def booking_out(db: Session, coach: Coach, b: Booking) -> dict:
         "session_id": b.session_id, "join": s is not None and b.status == "en_attente", "notified_at": b.notified_at,
         "partners": [x.name for x in (db.get(Player, i) for i in svc.attendee_ids(s)) if x.id != p.id] if s else [],
         "club": s.club if s else "", "court_state": svc.court_state(db, s) if s else None,
+        "accepted_kinds": [k for k in (b.accepted_kinds or b.kind).split(",") if k],  # formules acceptées par le joueur
+        # prix convenu; les réservations d'avant les remises n'en ont pas: prix de la séance ou tarif du coach
+        "price_millimes": b.price_millimes or b.charged_millimes or (s.price_millimes if s else 0) or base_price(coach, b.kind),
+        "base_millimes": base_price(coach, b.kind),
     }
     if b.status == "en_attente":
         # y a-t-il un terrain pour ce créneau ?

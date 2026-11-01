@@ -17,6 +17,21 @@ const payment = (me, coachId, price) => {
   return w && w.credits_millimes >= price ? `Payé avec vos crédits chez ce coach (solde ${tnd(w.credits_millimes)})` : "À régler sur place auprès du coach";
 };
 
+// Prix affiché: la formule choisie une fois la carte ouverte, sinon la moins chère (« dès »)
+function Price({ o, open }) {
+  const opts = o.options ?? [];
+  const cheapest = opts.length ? opts.reduce((a, x) => (x.price_millimes < a.price_millimes ? x : a)) : o;
+  const opt = open && o.chosen ? o.chosen : cheapest;
+  const base = opt.base_millimes;
+  return (
+    <span className="offer-price">
+      {opt.discount_pct > 0 && <span className="promo-tag">{opt.reason === "promo" ? "Promo" : "Happy hour"} −{opt.discount_pct} %</span>}
+      <span>{!open && opts.length > 1 && <small className="mut">dès </small>}{tnd(opt.price_millimes)}</span>
+      {opt.discount_pct > 0 && base > opt.price_millimes && <span className="old-price">{tnd(base)}</span>}
+    </span>
+  );
+}
+
 function CourtTag({ court }) {
   return court === "reserve"
     ? <span className="court-badge ok"><Icon name="pin" size={12} /> Terrain réservé</span>
@@ -24,13 +39,17 @@ function CourtTag({ court }) {
 }
 
 // Une proposition (groupe à rejoindre ou créneau à créer), avec confirmation sur place
-function Offer({ o, me, onBooked, openCoach }) {
+function Offer({ o, me, kinds, onBooked, openCoach }) {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
+  const options = o.options ?? [];
+  const [pick, setPick] = useState(options[0]?.kind ?? o.kind);
+  const chosen = options.find((x) => x.kind === pick) ?? options[0];
+  const shown = o.type === "slot" ? { ...o, chosen } : o;
   const book = async () => {
     setBusy(true);
     try {
-      const body = o.type === "group" ? { session_id: o.session_id } : { kind: o.kind, start: o.start, coach_id: o.coach.id };
+      const body = o.type === "group" ? { session_id: o.session_id } : { kind: pick, start: o.start, coach_id: o.coach.id, kinds };
       onBooked({ ...(await api("/me/book", { method: "POST", body })), start: o.start });
     } catch (x) {
       toastError(x);
@@ -40,13 +59,13 @@ function Offer({ o, me, onBooked, openCoach }) {
   return (
     <div className={"card offer" + (open ? " open" : "")}>
       <button className="offer-head" aria-expanded={open} onClick={() => setOpen(!open)}>
-        <span className="offer-time"><b>{hhmm(o.start)}</b><small>{o.duration_min} min</small></span>
+        <span className="offer-time"><b>{hhmm(o.start)}</b><small>{(chosen ?? o).duration_min} min</small></span>
         <span className="offer-main">
           <span className="offer-coach">{o.coach.name}</span>
           <small>{o.club || "Club à confirmer"}</small>
           <span><CourtTag court={o.court} />{o.type === "group" && <span className="court-badge idle"><Icon name="users" size={12} /> {o.spots_left} place{o.spots_left > 1 ? "s" : ""}</span>}</span>
         </span>
-        <span className="offer-price">{tnd(o.price_millimes)}</span>
+        <Price o={shown} open={open} />
       </button>
       {o.type === "group" && (
         <div className="partners">
@@ -55,8 +74,18 @@ function Offer({ o, me, onBooked, openCoach }) {
       )}
       {open && (
         <div className="confirm-box">
-          <div className="mut small-p"><Icon name="wallet" size={13} /> {payment(me, o.coach.id, o.price_millimes)}</div>
-          {o.type === "slot" && o.kind !== "individuel" && <div className="mut small-p"><Icon name="users" size={13} /> Les autres places seront proposées à des joueurs de votre niveau.</div>}
+          {options.length > 1 && (
+            <div className="seg" style={{ marginBottom: 8 }} role="group" aria-label="Formule">
+              {options.map((x) => (
+                <button key={x.kind} className={pick === x.kind ? "on" : ""} aria-pressed={pick === x.kind} onClick={() => setPick(x.kind)}>
+                  {HOW[x.kind]}<small className="seg-sub">{x.duration_min} min · {tnd(x.price_millimes)}</small>
+                </button>
+              ))}
+            </div>
+          )}
+          <div className="mut small-p"><Icon name="wallet" size={13} /> {payment(me, o.coach.id, (chosen ?? o).price_millimes)}</div>
+          {o.type === "slot" && pick !== "individuel" && <div className="mut small-p"><Icon name="users" size={13} /> Les autres places seront proposées à des joueurs de votre niveau.</div>}
+          {o.type === "slot" && kinds.length > 1 && <div className="mut small-p"><Icon name="check" size={13} /> Le coach verra que vous acceptez aussi : {kinds.filter((k) => k !== pick).map((k) => HOW[k].toLowerCase()).join(", ")}.</div>}
           <div className="actions">
             <button className="sec" onClick={() => openCoach(o.coach.id)}>Voir le coach</button>
             <button disabled={busy} onClick={book}>{busy ? "Réservation…" : o.type === "group" ? "Rejoindre ce groupe" : "Réserver ce créneau"}</button>
@@ -80,21 +109,23 @@ export function Book({ me, reload, go, coachParam }) {
   const [day, setDay] = useState(k0.day && k0.day >= ymd(new Date()) ? k0.day : null);
   const [period, setPeriod] = useState(k0.period ?? "");
   const [hour, setHour] = useState(k0.hour ?? "");
-  const [kind, setKind] = useState(k0.kind ?? (me.pref_kinds.length === 1 ? me.pref_kinds[0] : "groupe"));
+  const [kinds, setKinds] = useState(k0.kinds ?? me.pref_kinds);
+  const toggleKind = (k) => setKinds(kinds.includes(k) ? (kinds.length > 1 ? kinds.filter((x) => x !== k) : kinds) : ["individuel", "duo", "groupe"].filter((x) => x === k || kinds.includes(x)));
+  const solo = kinds.length === 1 && kinds[0] === "individuel";
   const [more, setMore] = useState(false);
   useEffect(() => {
-    try { sessionStorage.setItem(KEEP, JSON.stringify({ coachId, club, day, period, hour, kind })); } catch { /* stockage indisponible */ }
+    try { sessionStorage.setItem(KEEP, JSON.stringify({ coachId, club, day, period, hour, kinds })); } catch { /* stockage indisponible */ }
     setMore(false);
-  }, [coachId, club, day, period, hour, kind]);
+  }, [coachId, club, day, period, hour, kinds.join(",")]);
   const [offers, setOffers] = useState(null);
   const [done, setDone] = useState(null);
   useEffect(() => { api("/me/coaches").then(setCoaches); api("/me/clubs").then(setClubs); }, []);
   useEffect(() => {
     if (!day) return;
     setOffers(null);
-    const q = new URLSearchParams({ day, kind, ...(coachId && { coach_id: coachId }), ...(club && { club }), ...(period && { period }), ...(hour !== "" && { hour }) });
+    const q = new URLSearchParams({ day, kinds: kinds.join(","), ...(coachId && { coach_id: coachId }), ...(club && { club }), ...(period && { period }), ...(hour !== "" && { hour }) });
     api("/me/offers?" + q).then(setOffers).catch(toastError);
-  }, [day, kind, coachId, club, period, hour]);
+  }, [day, kinds.join(","), coachId, club, period, hour]);
 
   const days = Array.from({ length: 14 }, (_, i) => new Date(Date.now() + i * 86400000));
   const openCoach = (id) => go(`coach/${id}`);
@@ -118,7 +149,7 @@ export function Book({ me, reload, go, coachParam }) {
   }
 
   const nothing = offers && !offers.groups.length && !offers.slots_with_court.length && !offers.slots_other.length;
-  const list = (items) => items.map((o) => <Offer key={(o.session_id ?? "") + o.coach.id + o.start} o={o} me={me} onBooked={booked} openCoach={openCoach} />);
+  const list = (items) => items.map((o) => <Offer key={(o.session_id ?? "") + o.coach.id + o.start} o={o} me={me} kinds={kinds} onBooked={booked} openCoach={openCoach} />);
   return (
     <>
       <h1>Réserver</h1>
@@ -162,20 +193,21 @@ export function Book({ me, reload, go, coachParam }) {
       </div>
 
       <h2 className="step"><span>3</span> Comment voulez-vous jouer ?</h2>
+      <div className="mut small-p" style={{ marginTop: -4, marginBottom: 8 }}>Plusieurs choix possibles : vous verrez plus de propositions.</div>
       <div className="kindcards">
         {Object.entries(KIND).map(([k, v]) => (
-          <button key={k} className={"kindcard" + (kind === k ? " on" : "")} aria-pressed={kind === k} style={{ "--c": v.color }} onClick={() => setKind(k)}>
+          <button key={k} className={"kindcard" + (kinds.includes(k) ? " on" : "")} aria-pressed={kinds.includes(k)} style={{ "--c": v.color }} onClick={() => toggleKind(k)}>
             <span className="ki"><Icon name={v.icon} size={22} /></span>
             <b>{HOW[k]}</b>
             <small>{v.short}</small>
-            {kind === k && <span className="tick"><Icon name="check" size={12} strokeWidth={3} /></span>}
+            {kinds.includes(k) && <span className="tick"><Icon name="check" size={12} strokeWidth={3} /></span>}
           </button>
         ))}
       </div>
 
       {!day && <div className="card empty"><Icon name="calendar" size={26} /><b>Choisissez un jour</b><div>L'heure est facultative : on vous montre tout ce qui est possible ce jour-là.</div></div>}
       {day && offers === null && <Loading rows={2} />}
-      {offers && kind !== "individuel" && (
+      {offers && !solo && (
         <>
           <h2 className="accent-h"><Icon name="users" size={16} /> Rejoindre un groupe déjà formé</h2>
           {offers.groups.length ? list(offers.groups) : <div className="card mut">Aucun groupe de votre niveau ce jour-là.</div>}
@@ -187,7 +219,7 @@ export function Book({ me, reload, go, coachParam }) {
           {!offers.slots_with_court.length && !offers.slots_other.length && <div className="card mut">Aucun créneau libre ce jour-là.</div>}
         </>
       )}
-      {offers && kind === "individuel" && (
+      {offers && solo && (
         <>
           <h2 className="accent-h"><Icon name="pin" size={16} /> Créneaux avec un terrain déjà réservé</h2>
           {offers.slots_with_court.length ? list(offers.slots_with_court) : <div className="card mut">Aucun terrain déjà réservé ce jour-là.</div>}
@@ -241,8 +273,16 @@ export function CoachPage({ id, go, onBack }) {
         {byDay.map(([d, ws]) => (
           <div key={d} className="row avail"><span>{d}</span><span className={ws.length ? "" : "mut"}>{ws.length ? ws.map((w) => `${w.start_time}–${w.end_time}`).join(" · ") : "Fermé"}</span></div>
         ))}
-        <div className="mut small-p" style={{ marginTop: 8 }}>Séances de {c.slot_minutes} min · annulation remboursée jusqu'à {c.cancel_hours} h avant.</div>
+        <div className="mut small-p" style={{ marginTop: 8 }}>Durées : seul {c.durations.individuel} min · à deux {c.durations.duo} min · en groupe {c.durations.groupe} min · annulation remboursée jusqu'à {c.cancel_hours} h avant.</div>
       </div>
+      {c.happy_hours.length > 0 && (
+        <>
+          <h2>Happy hours</h2>
+          <div className="card">
+            {c.happy_hours.map((h, i) => <div key={i} className="row avail"><span>{DAYS[h.weekday]} · {h.start_time}–{h.end_time}</span><span className="promo-tag">−{h.discount_pct} %</span></div>)}
+          </div>
+        </>
+      )}
     </>
   );
 }
