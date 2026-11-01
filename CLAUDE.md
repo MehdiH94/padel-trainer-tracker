@@ -17,9 +17,10 @@ Application de gestion pour un coach de padel indépendant (Tunisie) + espace jo
 # Backend (depuis backend/)
 python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
-python -m pytest -q                                  # 75 tests, doivent rester verts
+python -m pytest -q                                  # 76 tests, doivent rester verts
 uvicorn app.main:app --port 8000
 python seed_demo.py                                  # données de démo (base vide): coach demo@padel.tn / demo1234, joueur sami@demo.tn / demo1234
+python seed_more_coaches.py                          # + 2 coachs fictifs (coach.youssef@demo.tn, coach.meriem@demo.tn / demo1234), sans effet s'ils existent
 # Frontend (depuis frontend/)
 npm install && npm run dev                           # http://localhost:5173
 npm run build
@@ -33,6 +34,7 @@ Le schéma est créé par `create_all`: après un changement de modèle, supprim
 - Réservation joueur: crédits débités s'il y en a assez chez ce coach, sinon séance due et réglée sur place (`Booking.charged_millimes = 0`, la séance garde le prix du coach). Recherche par jour (`services/marketplace.offers`): groupes à rejoindre, puis créneaux avec terrain déjà réservé, puis les autres.
 - Formules: durée par formule (`slot_minutes` = individuel, `duration_duo`, `duration_groupe`; grille des débuts = PGCD des durées) et prix par joueur. Prix d'une nouvelle séance = `services/pricing.quote`: la plus forte remise entre happy hour (`HappyHour`) et promotion (`Promotion` sur un terrain réservé libre) s'applique; prix convenu gardé dans `Booking.price_millimes`. Le joueur coche une ou plusieurs formules: `Booking.accepted_kinds` est montré au coach.
 - Promotion: notifie une fois chaque compte joueur du coach (moyen de contact choisi), s'arrête quand le terrain est pris.
+- Clubs du coach: `Club.active` (Réglages › Mes clubs, `PUT /clubs/selection`); un club quitté reste en base (historique, terrains) mais n'est plus proposé. Les clubs sont partagés par leur nom entre coachs (filtre joueur).
 - Séance payée avec des crédits = `Attendance.credit_paid_millimes > 0`: jamais facturée une seconde fois.
 - Recharge de crédits = `Payment(kind="credit")` + `CreditTx`; elle compte dans l'encaissé mais pas dans les paiements de séances.
 - Les relances manuelles du coach sont des liens `sms:` / `wa.me` / `mailto:` pré-remplis.

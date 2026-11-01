@@ -33,7 +33,12 @@ class ClubIn(BaseModel):
 
 
 def club_out(c: Club) -> dict:
-    return {"id": c.id, "name": c.name, "phone": c.phone, "sms_template": c.sms_template, "auto_send": c.auto_send, "default_template": courts.DEFAULT_TEMPLATE}
+    return {"id": c.id, "name": c.name, "phone": c.phone, "sms_template": c.sms_template, "auto_send": c.auto_send, "active": c.active,
+            "default_template": courts.DEFAULT_TEMPLATE}
+
+
+def _key(name: str) -> str:
+    return " ".join(name.lower().split())
 
 
 def owned_club(db: Session, coach: Coach, club_id: int) -> Club:
@@ -44,8 +49,56 @@ def owned_club(db: Session, coach: Coach, club_id: int) -> Club:
 
 
 @router.get("/clubs")
-def list_clubs(coach: Coach = Depends(current_coach), db: Session = Depends(get_db)):
-    return [club_out(c) for c in db.scalars(select(Club).where(Club.coach_id == coach.id).order_by(Club.name))]
+def list_clubs(all: bool = False, coach: Coach = Depends(current_coach), db: Session = Depends(get_db)):
+    """Clubs où le coach entraîne (all=true: y compris ceux qu'il a retirés)."""
+    q = select(Club).where(Club.coach_id == coach.id).order_by(Club.name)
+    return [club_out(c) for c in db.scalars(q if all else q.where(Club.active.is_(True)))]
+
+
+@router.get("/clubs/catalog")
+def clubs_catalog(coach: Coach = Depends(current_coach), db: Session = Depends(get_db)):
+    """Clubs connus dans l'application (ceux de tous les coachs), et ceux où ce coach entraîne."""
+    mine = sorted((c.name for c in db.scalars(select(Club).where(Club.coach_id == coach.id, Club.active.is_(True)))), key=_key)
+    known: dict[str, dict] = {}
+    for c in db.scalars(select(Club).order_by(Club.name)):
+        if _key(c.name) not in known and _key(c.name) not in {_key(m) for m in mine}:
+            known[_key(c.name)] = {"name": c.name.strip(), "phone": c.phone}
+    return {"mine": mine, "known": sorted(known.values(), key=lambda x: x["name"])}
+
+
+class NewClub(BaseModel):
+    name: str
+    phone: str = ""
+
+    @field_validator("phone")
+    @classmethod
+    def _phone(cls, v: str) -> str:
+        return normalize_tn_phone(v) if v.strip() else ""
+
+
+class SelectionIn(BaseModel):
+    names: list[str]  # clubs (connus) où le coach entraîne
+    new: list[NewClub] = []  # clubs ajoutés à la main
+
+
+@router.put("/clubs/selection")
+def select_clubs(body: SelectionIn, coach: Coach = Depends(current_coach), db: Session = Depends(get_db)):
+    """Le coach choisit ses clubs: ceux qu'il quitte restent en base (historique, terrains) mais ne sont plus proposés."""
+    known = {_key(c.name): c for c in db.scalars(select(Club))}  # nom et téléphone de référence
+    wanted = {_key(n): n.strip() for n in body.names if n.strip()}
+    extra = {_key(c.name): c for c in body.new if c.name.strip()}
+    own = {_key(c.name): c for c in db.scalars(select(Club).where(Club.coach_id == coach.id))}
+    for k, c in own.items():
+        c.active = k in wanted or k in extra
+    for k in set(wanted) | set(extra):
+        if k not in own:
+            name = known[k].name.strip() if k in known else extra[k].name.strip() if k in extra else wanted[k]
+            phone = (extra[k].phone if k in extra else "") or (known[k].phone if k in known else "")
+            db.add(Club(coach_id=coach.id, name=name, phone=phone))
+        elif k in extra and extra[k].phone and not own[k].phone:
+            own[k].phone = extra[k].phone
+    db.commit()
+    return clubs_catalog(coach, db)
 
 
 @router.post("/clubs", status_code=201)

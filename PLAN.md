@@ -73,3 +73,7 @@
 - **Formules multiples** : le joueur coche seul, à deux et/ou en groupe; chaque créneau propose les formules qui y tiennent (durée et prix propres), il choisit la sienne à la confirmation; le coach voit dans la demande toutes les formules acceptées.
 - **Réglages coach** : durée et prix par joueur pour chaque formule; happy hours (jour, plage horaire, remise %), affichées sur la page du coach.
 - **Promotions** : sur un terrain déjà réservé et libre (Terrains › Libres), le coach choisit une remise et un message; ses joueurs sont prévenus (WhatsApp, SMS ou e-mail selon leur choix) et la voient dans leur appli (« J'en profite »). La promotion s'arrête quand le terrain est pris ou à la demande du coach.
+
+## Mise à jour (session 12)
+- **Mes clubs** (Réglages) : le coach coche les clubs où il entraîne parmi ceux connus dans l'application, ou en ajoute un (nom + téléphone). Seuls ces clubs sont proposés aux joueurs (filtre par club, page du coach).
+- **Coachs de démo** : `seed_more_coaches.py` crée Youssef Mansouri (compétition, Lac / Tunis) et Meriem Ayari (initiation, La Marsa / Hammamet) avec joueurs, séances passées et à venir, terrains libres, happy hours, promotion et exercice. Sur le serveur : workflow manuel « Ajouter les coachs de démo ».

@@ -11,6 +11,18 @@ export default function Settings({ onBack }) {
   const [s, setS] = useState(null);
   const [saved, setSaved] = useState(false);
   const [themes, setThemes] = useState([]);
+  const [cat, setCat] = useState(null); // clubs connus + les miens
+  const [sel, setSel] = useState([]);
+  const [newClubs, setNewClubs] = useState([]);
+  const [nc, setNc] = useState({ name: "", phone: "" });
+  const loadClubs = () => api("/clubs/catalog").then((c) => { setCat(c); setSel(c.mine); setNewClubs([]); });
+  useEffect(() => { loadClubs(); }, []);
+  const toggleClub = (n) => setSel(sel.includes(n) ? sel.filter((x) => x !== n) : [...sel, n]);
+  const addClub = () => {
+    if (!nc.name.trim()) return;
+    setNewClubs([...newClubs, { ...nc, name: nc.name.trim() }]);
+    setNc({ name: "", phone: "" });
+  };
   useEffect(() => { api("/booking/settings").then(setS); api("/exercise-themes").then((t) => setThemes(t.work)); }, []);
   if (!s) return <><h1>Réglages</h1><Loading rows={3} /></>;
 
@@ -20,6 +32,7 @@ export default function Settings({ onBack }) {
   async function save() {
     try {
       await api("/booking/settings", { method: "PUT", body: s });
+      if (cat) await api("/clubs/selection", { method: "PUT", body: { names: sel, new: newClubs } }).then(loadClubs);
     } catch (x) {
       return toastError(x);
     }
@@ -48,6 +61,28 @@ export default function Settings({ onBack }) {
             })}
           </div>
         </div>
+      </div>
+
+      <h2>Mes clubs</h2>
+      <div className="card">
+        <div className="mut small-p" style={{ marginBottom: 8 }}>Les clubs où vous entraînez : les joueurs vous trouvent en filtrant par club, et vos terrains y sont réservés.</div>
+        {cat === null ? <div className="skel" style={{ height: 40 }} /> : (
+          <div className="chips">
+            {[...cat.mine, ...cat.known.map((k) => k.name)].map((n) => {
+              const on = sel.includes(n);
+              return <button type="button" key={n} className={"chip small" + (on ? " on" : "")} aria-pressed={on} onClick={() => toggleClub(n)}>{on && <Icon name="check" size={13} />} {n}</button>;
+            })}
+            {newClubs.map((c, i) => (
+              <button type="button" key={"new" + i} className="chip small on" aria-label={`Retirer ${c.name}`} onClick={() => setNewClubs(newClubs.filter((_, j) => j !== i))}><Icon name="plus" size={13} /> {c.name}</button>
+            ))}
+          </div>
+        )}
+        <div className="newclub">
+          <input placeholder="Autre club…" aria-label="Nom du club" value={nc.name} onChange={(e) => setNc({ ...nc, name: e.target.value })} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addClub(); } }} />
+          <input placeholder="Téléphone (facultatif)" aria-label="Téléphone du club" inputMode="tel" value={nc.phone} onChange={(e) => setNc({ ...nc, phone: e.target.value })} />
+          <button type="button" className="small sec" onClick={addClub}><Icon name="plus" size={15} /> Ajouter</button>
+        </div>
+        <div className="mut small-p" style={{ marginTop: 6 }}>Pensez à enregistrer en bas de la page.</div>
       </div>
 
       <h2>Formules : durée et prix par joueur</h2>

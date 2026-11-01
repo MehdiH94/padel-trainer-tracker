@@ -844,3 +844,21 @@ def test_promotion_on_reserved_court_notifies_players(client):
     assert client.get("/sessions").json()[0]["price_millimes"] == 42000
     other = free_court(client, pc.get("/me/slots").json()[8], minutes=60)
     assert client.post("/promotions", json={"court_booking_id": other["id"], "discount_pct": 2}).status_code == 422
+
+
+def test_coach_chooses_clubs(client):
+    mkclub(client)  # Padel Club La Marsa
+    other = register("coach2@b.tn")
+    other.post("/clubs", json={"name": "Club Carthage", "phone": "71 000 000"})
+    cat = client.get("/clubs/catalog").json()
+    assert cat["mine"] == ["Padel Club La Marsa"] and [k["name"] for k in cat["known"]] == ["Club Carthage"]
+    # il rejoint un club connu (téléphone repris), en ajoute un nouveau et quitte La Marsa
+    cat = client.put("/clubs/selection", json={"names": ["club carthage"], "new": [{"name": "Hammamet Padel", "phone": "72 111 222"}]}).json()
+    assert cat["mine"] == ["Club Carthage", "Hammamet Padel"] and cat["known"] == [{"name": "Padel Club La Marsa", "phone": "+21671123456"}]
+    assert [(c["name"], c["phone"]) for c in client.get("/clubs").json()] == [("Club Carthage", "+21671000000"), ("Hammamet Padel", "+21672111222")]
+    assert len(client.get("/clubs?all=true").json()) == 3  # La Marsa reste en base (historique)
+    _, pc = player_client(client)
+    me_coach = next(c for c in pc.get("/me/coaches").json() if c["mine"])
+    assert me_coach["clubs"] == ["Club Carthage", "Hammamet Padel"]
+    client.put("/clubs/selection", json={"names": ["Padel Club La Marsa", "Club Carthage", "Hammamet Padel"]})
+    assert len(client.get("/clubs").json()) == 3  # réactivé, pas dupliqué

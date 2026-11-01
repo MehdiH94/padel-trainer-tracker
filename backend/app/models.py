@@ -84,6 +84,7 @@ class Club(Base):
     phone: Mapped[str] = mapped_column(String(20), default="")  # numéro qui reçoit les SMS de réservation
     sms_template: Mapped[str] = mapped_column(Text, default="")  # vide = modèle par défaut
     auto_send: Mapped[bool] = mapped_column(default=True)  # envoyer le SMS dès la création de la séance
+    active: Mapped[bool] = mapped_column(default=True)  # le coach entraîne dans ce club (Réglages › Mes clubs)
 
 
 class TrainingSession(Base):

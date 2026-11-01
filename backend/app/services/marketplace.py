@@ -24,11 +24,9 @@ def same_club(a: str | None, b: str | None) -> bool:
 
 
 def coach_clubs(db: Session, coach: Coach) -> list[str]:
-    """Clubs où le coach travaille: ses clubs enregistrés et ceux de ses séances."""
-    names = list(db.scalars(select(Club.name).where(Club.coach_id == coach.id)))
-    names += [c for c in db.scalars(select(TrainingSession.club).where(TrainingSession.coach_id == coach.id).distinct()) if c]
+    """Clubs où le coach entraîne (choisis dans Réglages › Mes clubs)."""
     out: list[str] = []
-    for n in names:
+    for n in db.scalars(select(Club.name).where(Club.coach_id == coach.id, Club.active.is_(True))):
         if not any(same_club(n, o) for o in out):
             out.append(n.strip())
     return sorted(out)

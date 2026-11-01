@@ -195,3 +195,9 @@ c.post("/sessions", json={"start": (today + timedelta(days=1, hours=21)).isoform
                           "price_millimes": 80000, "price_mode": "groupe", "repeat_weeks": 6,
                           "player_ids": [ids["Sami Ben Ali"], ids["Karim Jlassi"]]})
 print("OK", len(plan), "séances")
+
+# Deux autres coachs fictifs (visibles par les joueurs dans « Réserver »)
+import seed_more_coaches  # noqa: E402
+
+seed_more_coaches.API = API
+seed_more_coaches.main()
