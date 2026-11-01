@@ -32,8 +32,8 @@ function Login() {
         <h1>Padel Coach</h1>
         <p className="mut">{mode === "login" ? "Connectez-vous à votre espace" : "Créez votre espace coach"}</p>
         {mode === "register" && <input placeholder="Votre nom de coach" value={f.name} onChange={set("name")} />}
-        <input type="email" placeholder="E-mail" value={f.email} onChange={set("email")} required />
-        <input type="password" placeholder="Mot de passe" value={f.password} onChange={set("password")} required />
+        <input type="email" placeholder="E-mail" aria-label="E-mail" autoComplete="email" value={f.email} onChange={set("email")} required />
+        <input type="password" placeholder="Mot de passe" aria-label="Mot de passe" autoComplete={mode === "login" ? "current-password" : "new-password"} value={f.password} onChange={set("password")} required />
         {err && <div className="err">{err}</div>}
         <button style={{ width: "100%" }}>{mode === "login" ? "Se connecter" : "Créer mon compte coach"}</button>
         <p className="mut center link-p" onClick={() => setMode(mode === "login" ? "register" : "login")}>
@@ -84,8 +84,8 @@ function CoachApp() {
         ))}
       </nav>
       <div className="topbtns">
-        <button onClick={() => setTab("settings")} title="Réglages"><Icon name="sliders" size={17} /></button>
-        <button onClick={() => { setToken(null); location.reload(); }} title="Se déconnecter"><Icon name="logout" size={17} /></button>
+        <button onClick={() => setTab("settings")} title="Réglages" aria-label="Réglages"><Icon name="sliders" size={17} /></button>
+        <button onClick={() => { setToken(null); location.reload(); }} title="Se déconnecter" aria-label="Se déconnecter"><Icon name="logout" size={17} /></button>
       </div>
     </>
   );

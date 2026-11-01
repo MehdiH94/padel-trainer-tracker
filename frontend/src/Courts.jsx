@@ -173,7 +173,7 @@ export default function Courts() {
                 <b style={{ textTransform: "capitalize" }}>{dayLabel(cb.start)} · {hhmm(cb.start)}–{endTime(cb)}</b>
                 <div className="mut">{cb.club_name}{cb.court_label && ` · ${cb.court_label}`}</div>
               </div>
-              <button className="small sec iconbtn" title="Supprimer" onClick={() => remove(cb)}><Icon name="trash" size={15} /></button>
+              <button className="small sec iconbtn" title="Supprimer" aria-label="Supprimer" onClick={() => remove(cb)}><Icon name="trash" size={15} /></button>
             </div>
           ))}
           {adding ? <ManualForm clubs={clubs} onDone={() => { setAdding(false); load(); }} /> : <button className="small" onClick={() => setAdding(true)}><Icon name="plus" size={15} /> Saisir un terrain réservé</button>}

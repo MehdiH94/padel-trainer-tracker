@@ -48,7 +48,7 @@ export const COURT_STATUS = {
 };
 
 // Histogramme SVG simple: data = [{label, value}]
-export function BarChart({ data, format = (v) => v, color = "#2563eb" }) {
+export function BarChart({ data, format = (v) => v, color = "var(--brand)" }) {
   const max = Math.max(...data.map((d) => d.value), 1);
   const W = 320, H = 130, bw = W / data.length;
   return (
@@ -59,8 +59,8 @@ export function BarChart({ data, format = (v) => v, color = "#2563eb" }) {
         return (
           <g key={i}>
             <rect x={i * bw + bw * 0.18} y={H - h + 16} width={bw * 0.64} height={h} rx="5" fill={color} opacity={last ? 1 : 0.35} />
-            {d.value > 0 && <text x={i * bw + bw / 2} y={H - h + 10} textAnchor="middle" fontSize="10" fill="#0f172a">{format(d.value)}</text>}
-            <text x={i * bw + bw / 2} y={H + 30} textAnchor="middle" fontSize="10" fill="#64748b">{d.label}</text>
+            {d.value > 0 && <text x={i * bw + bw / 2} y={H - h + 10} textAnchor="middle" fontSize="11" style={{ fill: "var(--txt)" }}>{format(d.value)}</text>}
+            <text x={i * bw + bw / 2} y={H + 30} textAnchor="middle" fontSize="11" style={{ fill: "var(--mut)" }}>{d.label}</text>
           </g>
         );
       })}
@@ -82,20 +82,20 @@ export function RadarChart({ skills, size = 320 }) {
   return (
     <svg viewBox={`0 0 ${size} ${size}`} width="100%" role="img" aria-label="Évaluation technique" className="radar">
       {[1, 2, 3, 4, 5].map((lv) => (
-        <polygon key={lv} points={items.map((_, i) => pt(i, lv).join(",")).join(" ")} fill={lv % 2 ? "#f1f5f9" : "none"} stroke="#e2e8f0" strokeWidth="1" />
+        <polygon key={lv} points={items.map((_, i) => pt(i, lv).join(",")).join(" ")} style={{ fill: lv % 2 ? "var(--soft)" : "none", stroke: "var(--line)" }} strokeWidth="1" />
       ))}
-      {items.map((_, i) => <line key={i} x1={c} y1={c} x2={pt(i, 5)[0]} y2={pt(i, 5)[1]} stroke="#e2e8f0" />)}
+      {items.map((_, i) => <line key={i} x1={c} y1={c} x2={pt(i, 5)[0]} y2={pt(i, 5)[1]} style={{ stroke: "var(--line)" }} />)}
       {hasPrev && <polygon points={poly(items.map((s) => s.previous ?? s.score))} fill="#94a3b822" stroke="#94a3b8" strokeWidth="1.5" strokeDasharray="4 3" />}
-      <polygon points={poly(items.map((s) => s.score))} fill="#2563eb33" stroke="#2563eb" strokeWidth="2.5" strokeLinejoin="round" />
+      <polygon points={poly(items.map((s) => s.score))} fill="#f9731633" stroke="#f97316" strokeWidth="2.5" strokeLinejoin="round" />
       {items.map((s, i) => {
         if (s.score == null) return null;
         const [x, y] = pt(i, s.score);
-        return <circle key={i} cx={x} cy={y} r="4" fill="#2563eb" stroke="#fff" strokeWidth="1.5" />;
+        return <circle key={i} cx={x} cy={y} r="4" fill="#f97316" style={{ stroke: "var(--card)" }} strokeWidth="1.5" />;
       })}
       {items.map((s, i) => {
         const [x, y] = pt(i, 5.95);
         const anchor = x < c - 8 ? "end" : x > c + 8 ? "start" : "middle";
-        return <text key={s.stroke} x={x} y={y + 3} textAnchor={anchor} fontSize="11" fontWeight="600" fill="#334155">{s.label}</text>;
+        return <text key={s.stroke} x={x} y={y + 3} textAnchor={anchor} fontSize="11" fontWeight="600" style={{ fill: "var(--txt)" }}>{s.label}</text>;
       })}
     </svg>
   );
@@ -103,7 +103,7 @@ export function RadarChart({ skills, size = 320 }) {
 
 export function Progress({ value, max, danger }) {
   return (
-    <div className="bar"><div style={{ width: `${Math.min(100, (value / max) * 100)}%`, background: danger ? "#dc2626" : "#2563eb" }} /></div>
+    <div className="bar"><div style={{ width: `${Math.min(100, (value / max) * 100)}%`, background: danger ? "var(--red)" : "var(--brand)" }} /></div>
   );
 }
 

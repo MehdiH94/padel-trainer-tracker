@@ -160,7 +160,7 @@ export default function PlayerPage({ id, onBack }) {
           <div className="card">
             <div className="row"><b>Évaluation technique</b><span className="mut">Moyenne {avg}/5</span></div>
             {ratedCount > 0 ? <RadarChart skills={skills} /> : <div className="mut">Notez les coups ci-dessous pour voir le graphique.</div>}
-            <div className="legend" style={{ justifyContent: "center" }}><span><i style={{ background: "#2563eb" }} />Niveau actuel</span><span><i style={{ background: "#94a3b8" }} />Évaluation précédente</span></div>
+            <div className="legend" style={{ justifyContent: "center" }}><span><i style={{ background: "#f97316" }} />Niveau actuel</span><span><i style={{ background: "#94a3b8" }} />Évaluation précédente</span></div>
             <div className="mut" style={{ margin: "6px 0" }}>Touchez les points pour noter de 1 à 5</div>
             {skills.map((s) => (
               <div className="row skill" key={s.stroke}>
@@ -181,7 +181,7 @@ export default function PlayerPage({ id, onBack }) {
         <>
           <div className="grid kpis">
             <div className="kpi"><div className="mut">Facturé</div><div className="big sm">{tnd(fin.billed_millimes)}</div></div>
-            <div className="kpi"><div className="mut">Payé</div><div className="big sm" style={{ color: "#2563eb" }}>{tnd(fin.paid_millimes)}</div></div>
+            <div className="kpi"><div className="mut">Payé</div><div className="big sm" style={{ color: "var(--brand)" }}>{tnd(fin.paid_millimes)}</div></div>
           </div>
           <div className={"card " + (fin.due_millimes > 0 ? "bad" : "good")}>
             <div className="row">

@@ -48,9 +48,9 @@ export default function Planning() {
       <div className="row">
         <h1 style={{ margin: 0 }}>Planning</h1>
         <div className="row" style={{ gap: 4 }}>
-          <button className="small sec iconbtn" onClick={() => shift(-1)}><Icon name="chevL" size={16} /></button>
+          <button className="small sec iconbtn" aria-label="Semaine précédente" onClick={() => shift(-1)}><Icon name="chevL" size={16} /></button>
           <button className="small sec" onClick={() => { setMonday(mondayOf(new Date())); setSel(today); }}>Aujourd'hui</button>
-          <button className="small sec iconbtn" onClick={() => shift(1)}><Icon name="chevR" size={16} /></button>
+          <button className="small sec iconbtn" aria-label="Semaine suivante" onClick={() => shift(1)}><Icon name="chevR" size={16} /></button>
         </div>
       </div>
       <p className="mut" style={{ textTransform: "capitalize", margin: "6px 0 10px" }}>{monthLabel}</p>
@@ -83,7 +83,7 @@ export default function Planning() {
           <div className="donelist">
             {done.map((s) => (
               <div key={s.id} className={"donerow" + (openDone === s.id ? " on" : "")}>
-                <button className="donerow-head" onClick={() => setOpenDone(openDone === s.id ? null : s.id)}>
+                <button className="donerow-head" aria-expanded={openDone === s.id} onClick={() => setOpenDone(openDone === s.id ? null : s.id)}>
                   <i style={{ background: KIND[s.kind]?.color }} />
                   <b>{hhmm(s.start)}</b>
                   <span className="donerow-names">{s.player_ids.map(name).join(", ") || "Sans joueur"}</span>

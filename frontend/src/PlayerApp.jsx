@@ -133,7 +133,7 @@ function Home({ me, sessions, progress, credits, proposals, go, reload }) {
             <div className="card">
               <b>Mon niveau technique</b>
               <RadarChart skills={progress.skills} />
-              <div className="legend" style={{ justifyContent: "center" }}><span><i style={{ background: "#2563eb" }} />Actuel</span><span><i style={{ background: "#94a3b8" }} />Évaluation précédente</span></div>
+              <div className="legend" style={{ justifyContent: "center" }}><span><i style={{ background: "#f97316" }} />Actuel</span><span><i style={{ background: "#94a3b8" }} />Évaluation précédente</span></div>
             </div>
           )}
           <div className="grid">
@@ -158,7 +158,7 @@ function Home({ me, sessions, progress, credits, proposals, go, reload }) {
             <span className={"txico " + (t.amount_millimes > 0 ? "plus" : "minus")}><Icon name={t.amount_millimes > 0 ? "plus" : "arrowR"} size={14} /></span>
             <div><b>{REASONS[t.reason] ?? t.reason}</b><div className="mut">{fmt(t.created_at, { day: "numeric", month: "short" })}</div></div>
           </div>
-          <b style={{ color: t.amount_millimes > 0 ? "#16a34a" : "#dc2626" }}>{t.amount_millimes > 0 ? "+" : ""}{tnd(t.amount_millimes)}</b>
+          <b style={{ color: t.amount_millimes > 0 ? "var(--ok-txt)" : "var(--red)" }}>{t.amount_millimes > 0 ? "+" : ""}{tnd(t.amount_millimes)}</b>
         </div>
       ))}
       {!credits.length && <div className="card mut">Aucun mouvement. Demandez une recharge à votre coach.</div>}
@@ -436,7 +436,7 @@ export default function PlayerApp() {
           </button>
         ))}
       </nav>
-      <div className="topbtns"><button onClick={() => { setToken(null); location.reload(); }} title="Se déconnecter"><Icon name="logout" size={17} /></button></div>
+      <div className="topbtns"><button onClick={() => { setToken(null); location.reload(); }} title="Se déconnecter" aria-label="Se déconnecter"><Icon name="logout" size={17} /></button></div>
     </>
   );
 }

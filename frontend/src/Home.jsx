@@ -35,7 +35,7 @@ function DonePanel({ s, name, strokes, onSaved, onClose }) {
     <div className="card donepanel">
       <div className="row">
         <b style={{ textTransform: "capitalize" }}>{shortDate(s.start)} · {hhmm(s.start)} · {KIND[s.kind].label}</b>
-        <button className="small sec iconbtn" onClick={onClose}><Icon name="x" size={15} /></button>
+        <button className="small sec iconbtn" aria-label="Fermer" onClick={onClose}><Icon name="x" size={15} /></button>
       </div>
       {s.payments?.length > 0 && (
         <>
@@ -221,7 +221,7 @@ export default function Home({ go, openPlayer, summary }) {
           </div>
         </div>
         <div className="mut">8 dernières semaines</div>
-        <BarChart data={chart} format={(v) => (metric === "hours" ? `${Math.round(v * 10) / 10}h` : Math.round(v))} color={metric === "hours" ? "#2563eb" : "#0891b2"} />
+        <BarChart data={chart} format={(v) => (metric === "hours" ? `${Math.round(v * 10) / 10}h` : Math.round(v))} color={metric === "hours" ? "var(--brand)" : "var(--green)"} />
       </div>
 
       {d.unpaid.length > 0 && <h2>À relancer</h2>}

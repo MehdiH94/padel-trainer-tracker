@@ -51,7 +51,7 @@ export default function SessionPayments({ s, name, onPaid }) {
                 <span className="inputunit"><input inputMode="decimal" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} required /><em>TND</em></span>
                 <select value={form.method} onChange={(e) => setForm({ ...form, method: e.target.value })}><option value="especes">Espèces</option><option value="virement">Virement</option></select>
                 <button className="small">OK</button>
-                <button type="button" className="small sec iconbtn" onClick={() => setForm(null)}><Icon name="x" size={14} /></button>
+                <button type="button" className="small sec iconbtn" aria-label="Annuler" onClick={() => setForm(null)}><Icon name="x" size={14} /></button>
               </form>
             )}
           </div>
