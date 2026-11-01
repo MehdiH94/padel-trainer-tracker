@@ -44,3 +44,9 @@
 - **Règle de niveau** (`constants.compatible`) : au plus un cran d'écart (P250 avec P100 ou P500), avec chaque joueur de la séance. Une joueuse ne joue pas avec un homme de catégorie supérieure à la sienne (P1000 dame avec P500 homme: oui; P500 dame avec P1000 homme: non). Appliquée aux suggestions des joueurs, aux candidats proposés par le coach et au refus d'une inscription incompatible.
 - **Fiches joueurs modifiables** (nom, téléphone, e-mail, genre, classement, main, côté, objectifs, notes privées).
 - **Accueil en agenda** : bande de 14 jours à faire défiler, séances à venir seulement (terminées et annulées masquées), note du coach modifiable sur chaque séance (aussi visible dans le planning).
+
+## Mise à jour (session 7)
+- **Règlements par séance** : chaque séance effectuée montre, par joueur, la part due, ce qui a été réglé (paiements rattachés à la séance, ou paiements libres imputés aux plus anciennes séances) ou « payé en crédits », avec un bouton « Encaisser » pour le reste (planning et accueil).
+- **Planning** : les séances effectuées du jour sont regroupées dans une liste compacte qui défile (une ligne par séance, dépliable).
+- **Rappels automatiques** : 24 h et 2 h avant chaque séance prévue, par le moyen choisi par le joueur (WhatsApp / SMS / e-mail), demandé à la création du compte et, pour les comptes existants, à la première connexion (modifiable ensuite par le joueur ou par le coach sur la fiche). Tâche de fond toutes les 5 min, chaque rappel n'est envoyé qu'une fois (`session_reminders`).
+- **Reste à brancher** : passerelle SMS réelle, passerelle WhatsApp (API WhatsApp Business), réglages SMTP sur le VPS pour les e-mails.

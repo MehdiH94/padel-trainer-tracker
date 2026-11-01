@@ -11,7 +11,7 @@ Application de gestion pour un coach de padel indépendant (Tunisie) + espace jo
 # Backend (depuis backend/)
 python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
-python -m pytest -q                                  # 54 tests, doivent rester verts
+python -m pytest -q                                  # 59 tests, doivent rester verts
 uvicorn app.main:app --port 8000
 python seed_demo.py                                  # données de démo (base vide): coach demo@padel.tn / demo1234, joueur sami@demo.tn / demo1234
 # Frontend (depuis frontend/)
@@ -24,5 +24,7 @@ Le schéma est créé par `create_all`: après un changement de modèle, supprim
 - Catégories P50 < P100 < P250 < P500 < P1000. Deux joueurs sont compatibles à un cran d'écart au plus; une joueuse ne joue pas avec un homme de catégorie supérieure (`constants.compatible`).
 - Séance payée avec des crédits = `Attendance.credit_paid_millimes > 0`: jamais facturée une seconde fois.
 - Recharge de crédits = `Payment(kind="credit")` + `CreditTx`; elle compte dans l'encaissé mais pas dans les paiements de séances.
-- Aucun SMS/e-mail n'est réellement envoyé: les relances sont des liens `sms:` / `wa.me` / `mailto:` pré-remplis.
+- Les relances manuelles du coach sont des liens `sms:` / `wa.me` / `mailto:` pré-remplis.
+- Seule exception: les rappels automatiques de séance (24 h et 2 h avant, `services/session_reminders.py`, une fois chacun) partent par le moyen choisi par le joueur (`Player.contact_channel`) via `app/notify.py`: SMS par `SmsProvider` (fake = journal), e-mail par SMTP si `SMTP_HOST` est réglé, WhatsApp journalisé tant qu'aucune passerelle n'est branchée.
+- Paiement de séance: `Payment.session_id` le rattache à une séance; sans séance, il couvre les plus anciennes séances effectuées encore dues.
 - Garder le code simple, commentaires en français, pas de dépendances inutiles.

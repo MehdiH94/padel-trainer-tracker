@@ -130,3 +130,16 @@ export function ago(iso) {
   if (days <= 0) return "aujourd'hui";
   return days === 1 ? "hier" : `il y a ${days} j`;
 }
+
+// Moyens de contact pour les rappels automatiques de séance (24 h et 2 h avant)
+export const CHANNELS = { whatsapp: ["WhatsApp", "whatsapp"], sms: ["SMS", "message"], email: ["E-mail", "mail"] };
+
+export function ChannelPicker({ value, onChange }) {
+  return (
+    <div className="channels">
+      {Object.entries(CHANNELS).map(([k, [label, icon]]) => (
+        <button type="button" key={k} className={value === k ? "on" : ""} onClick={() => onChange(k)}><Icon name={icon} size={17} /> {label}</button>
+      ))}
+    </div>
+  );
+}

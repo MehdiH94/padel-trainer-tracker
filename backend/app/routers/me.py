@@ -15,6 +15,7 @@ from ..services.common import aware
 from ..services.finance import credit_balance
 from ..sms import get_sms_provider
 from ..sms.base import SmsProvider
+from ..schemas import CHANNELS
 from .profile import build_profile
 
 router = APIRouter(prefix="/me", tags=["joueur"])
@@ -30,8 +31,23 @@ def me(player: Player = Depends(current_player), db: Session = Depends(get_db)):
     return {
         "name": player.name, "phone": player.phone, "email": player.email, "category": player.category, "gender": player.gender,
         "pref_kinds": player.pref_kinds.split(","), "coach_name": coach.name, "credits_millimes": credit_balance(db, player.id),
+        "contact_channel": player.contact_channel,
         "slot_minutes": coach.slot_minutes, "prices": _prices(coach), "auto_confirm": coach.auto_confirm, "cancel_hours": coach.cancel_hours,
     }
+
+
+class ContactIn(BaseModel):
+    contact_channel: str
+
+
+@router.put("/contact")
+def set_contact(body: ContactIn, player: Player = Depends(current_player), db: Session = Depends(get_db)):
+    """Le joueur choisit comment recevoir ses rappels de séance: WhatsApp, SMS ou e-mail."""
+    if body.contact_channel not in CHANNELS:
+        raise HTTPException(422, "Moyen de contact invalide")
+    player.contact_channel = body.contact_channel
+    db.commit()
+    return {"contact_channel": player.contact_channel}
 
 
 @router.get("/slots")

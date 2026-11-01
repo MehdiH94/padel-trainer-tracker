@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
-import { api, dayKey } from "./api.js";
+import { api, dayKey, hhmm } from "./api.js";
 import Icon from "./Icon.jsx";
 import SessionCard from "./SessionCard.jsx";
 import SessionForm from "./SessionForm.jsx";
+import SessionPayments, { PaySummary } from "./SessionPayments.jsx";
 import { KIND } from "./ui.jsx";
 
 const TZ = "Africa/Tunis";
@@ -16,6 +17,7 @@ export default function Planning() {
   const [adding, setAdding] = useState(false);
   const [monday, setMonday] = useState(mondayOf(new Date()));
   const [sel, setSel] = useState(ymd(new Date()));
+  const [openDone, setOpenDone] = useState(null);
   const load = () => {
     api("/sessions").then(setSessions);
     api("/players").then(setPlayers);
@@ -31,6 +33,8 @@ export default function Planning() {
   const week = Array.from({ length: 7 }, (_, i) => addDays(monday, i));
   const today = ymd(new Date());
   const list = byDay[sel] || [];
+  const active = list.filter((s) => s.status !== "effectuee");
+  const done = list.filter((s) => s.status === "effectuee"); // affichées en liste compacte
   const setStatus = (id, status) => api(`/sessions/${id}`, { method: "PATCH", body: { status } }).then(load);
   const shift = (n) => {
     const m = addDays(monday, n * 7);
@@ -71,7 +75,27 @@ export default function Planning() {
 
       {adding && <SessionForm players={players} onDone={() => { setAdding(false); load(); }} />}
 
-      {list.map((s) => <SessionCard key={s.id} s={s} name={name} onStatus={setStatus} />)}
+      {active.map((s) => <SessionCard key={s.id} s={s} name={name} onStatus={setStatus} />)}
+
+      {done.length > 0 && (
+        <>
+          <h2>Séances effectuées ({done.length})</h2>
+          <div className="donelist">
+            {done.map((s) => (
+              <div key={s.id} className={"donerow" + (openDone === s.id ? " on" : "")}>
+                <button className="donerow-head" onClick={() => setOpenDone(openDone === s.id ? null : s.id)}>
+                  <i style={{ background: KIND[s.kind]?.color }} />
+                  <b>{hhmm(s.start)}</b>
+                  <span className="donerow-names">{s.player_ids.map(name).join(", ") || "Sans joueur"}</span>
+                  <PaySummary s={s} />
+                  <Icon name={openDone === s.id ? "chevD" : "chevR"} size={15} />
+                </button>
+                {openDone === s.id && <SessionPayments s={s} name={name} onPaid={load} />}
+              </div>
+            ))}
+          </div>
+        </>
+      )}
       {list.length === 0 && !adding && (
         <div className="card empty">
           <Icon name="sun" size={32} />

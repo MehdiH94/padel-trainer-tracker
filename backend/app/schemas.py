@@ -3,6 +3,8 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, field_validator
 
+CHANNELS = ("whatsapp", "sms", "email")  # moyens de contact pour les rappels
+
 
 def normalize_tn_phone(raw: str) -> str:
     digits = re.sub(r"[\s.\-()]", "", raw)
@@ -32,6 +34,14 @@ class PlayerIn(BaseModel):
     side: str = "drive"
     goals: str = ""
     notes: str = ""
+    contact_channel: str | None = None  # whatsapp / sms / email
+
+    @field_validator("contact_channel")
+    @classmethod
+    def _channel(cls, v: str | None) -> str | None:
+        if v and v not in CHANNELS:
+            raise ValueError("Moyen de contact invalide")
+        return v or None
 
     @field_validator("phone")
     @classmethod
@@ -89,6 +99,13 @@ class SessionPatch(BaseModel):
     status: str | None = None  # prevue / effectuee / annulee
 
 
+class PlayerPaymentOut(BaseModel):
+    player_id: int
+    due_millimes: int  # part due pour cette séance (0 si payée avec les crédits)
+    credit_millimes: int  # payé avec les crédits
+    paid_millimes: int  # paiements enregistrés pour cette séance
+
+
 class SessionOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: int
@@ -107,6 +124,7 @@ class SessionOut(BaseModel):
     price_mode: str
     recurrence_id: str | None
     player_ids: list[int] = []
+    payments: list[PlayerPaymentOut] = []  # séance effectuée: ce que chaque joueur a réglé
 
 
 class PaymentIn(BaseModel):

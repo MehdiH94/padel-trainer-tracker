@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from ..auth import create_token, hash_password, verify_password
 from ..db import get_db
 from ..models import Coach, Player
-from ..schemas import Creds
+from ..schemas import CHANNELS, Creds
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -43,6 +43,7 @@ def login(c: Creds, db: Session = Depends(get_db)):
 class InviteAccept(BaseModel):
     email: str
     password: str
+    contact_channel: str | None = None  # whatsapp / sms / email: moyen choisi pour les rappels de séance
 
 
 def _by_token(db: Session, token: str) -> Player:
@@ -68,6 +69,9 @@ def invite_accept(token: str, body: InviteAccept, db: Session = Depends(get_db))
     taken = db.scalar(select(Coach).where(Coach.email == email)) or db.scalar(select(Player).where(Player.email == email, Player.id != p.id))
     if taken:
         raise HTTPException(409, "Email déjà utilisé")
+    if body.contact_channel is not None and body.contact_channel not in CHANNELS:
+        raise HTTPException(422, "Moyen de contact invalide")
     p.email, p.password_hash, p.invite_token = email, hash_password(body.password), None
+    p.contact_channel = body.contact_channel or p.contact_channel
     db.commit()
     return session_for(p.id, "player")

@@ -274,3 +274,27 @@ nav button.on { color: var(--brand); }
 .donechip small { color: var(--mut); font-size: .74rem; text-transform: capitalize; }
 .donechip .todo { position: absolute; top: 8px; right: 8px; width: 9px; height: 9px; border-radius: 50%; background: var(--red); }
 .donepanel { border: 2px solid #93c5fd; }
+
+/* --- Séances effectuées: liste compacte qui défile + règlements par joueur --- */
+.donelist { max-height: 260px; overflow-y: auto; background: var(--card); border: 1px solid var(--line); border-radius: 16px; box-shadow: var(--shadow); margin-bottom: 10px; }
+.donerow + .donerow { border-top: 1px solid var(--line); }
+.donerow.on { background: var(--brand-xl); }
+.donerow-head { width: 100%; background: none; color: var(--txt); border-radius: 0; padding: 9px 12px; justify-content: flex-start; gap: 8px; font-weight: 500; font-size: .88rem; text-align: left; }
+.donerow-head:hover { background: var(--brand-xl); }
+.donerow-head > i { flex: none; width: 8px; height: 8px; border-radius: 50%; }
+.donerow-names { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.paytag { display: inline-flex; align-items: center; gap: 3px; flex: none; font-size: .72rem; padding: 2px 8px; border-radius: 99px; font-weight: 600; white-space: nowrap; }
+.paytag.ok { background: var(--green-l); color: #15803d; }
+.paytag.ko { background: var(--amber-l); color: #b45309; }
+.paylist { padding: 4px 12px 10px; }
+.payrow { display: flex; align-items: center; gap: 8px; padding: 5px 0; font-size: .88rem; }
+.payrow > b { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.payform { display: flex; align-items: center; gap: 6px; padding-bottom: 6px; }
+.payform input, .payform select { margin: 0; padding: 8px; }
+.payform select { width: auto; }
+/* --- Choix du moyen de contact --- */
+.overlay { position: fixed; inset: 0; background: #0f172a99; display: grid; place-items: center; padding: 16px; z-index: 20; }
+.overlay .card { max-width: 380px; width: 100%; }
+.channels { display: grid; gap: 8px; margin: 10px 0; }
+.channels button { justify-content: flex-start; background: #fff; color: var(--txt); border: 1px solid var(--line); }
+.channels button.on { background: var(--brand); color: #fff; border-color: var(--brand); }

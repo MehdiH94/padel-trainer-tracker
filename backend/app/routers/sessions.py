@@ -8,10 +8,11 @@ from sqlalchemy.orm import Session
 from ..auth import current_coach
 from ..db import get_db
 from ..constants import CAPACITY
-from ..models import Attendance, Club, Coach, CourtBooking, TrainingSession
-from ..schemas import SessionIn, SessionOut, SessionPatch
+from ..models import Attendance, Club, Coach, CourtBooking, Payment, TrainingSession
+from ..schemas import PlayerPaymentOut, SessionIn, SessionOut, SessionPatch
 from ..services import booking as booking_svc
 from ..services import courts
+from ..services.finance import share
 from ..sms import get_sms_provider
 from ..sms.base import SmsProvider
 from .players import get_owned_player
@@ -19,11 +20,42 @@ from .players import get_owned_player
 router = APIRouter(prefix="/sessions", tags=["sessions"])
 
 
-def to_out(s: TrainingSession, court_status: str | None = None) -> SessionOut:
+def to_out(s: TrainingSession, court_status: str | None = None, paid: dict[tuple[int, int], int] | None = None) -> SessionOut:
     out = SessionOut.model_validate(s)
     out.player_ids = [a.player_id for a in s.attendances]
     out.court_status = court_status
     out.feedback_missing = s.status == "effectuee" and any(not (a.worked_on or a.note or a.to_improve) for a in s.attendances)
+    if s.status == "effectuee":  # ce que chaque joueur a réglé pour cette séance
+        paid = paid or {}
+        out.payments = [
+            PlayerPaymentOut(
+                player_id=a.player_id, due_millimes=share(s, i), credit_millimes=a.credit_paid_millimes,
+                paid_millimes=paid.get((s.id, a.player_id), 0),
+            )
+            for i, a in enumerate(s.attendances)
+        ]
+    return out
+
+
+def session_payments(db: Session, coach_id: int) -> dict[tuple[int, int], int]:
+    """Montant réglé par (séance, joueur). Un paiement rattaché à une séance compte pour elle; un paiement
+    saisi sans séance (depuis la fiche joueur) couvre les plus anciennes séances effectuées encore dues."""
+    out: dict[tuple[int, int], int] = {}
+    loose: dict[int, int] = {}  # paiements sans séance, par joueur
+    for p in db.scalars(select(Payment).where(Payment.coach_id == coach_id, Payment.kind == "seance")):
+        if p.session_id is None:
+            loose[p.player_id] = loose.get(p.player_id, 0) + p.amount_millimes
+        else:
+            out[(p.session_id, p.player_id)] = out.get((p.session_id, p.player_id), 0) + p.amount_millimes
+    if loose:
+        q = select(TrainingSession).where(TrainingSession.coach_id == coach_id, TrainingSession.status == "effectuee")
+        for s in db.scalars(q.order_by(TrainingSession.start)):
+            for i, a in enumerate(s.attendances):
+                left = share(s, i) - out.get((s.id, a.player_id), 0)
+                use = min(left, loose.get(a.player_id, 0))
+                if use > 0:
+                    out[(s.id, a.player_id)] = out.get((s.id, a.player_id), 0) + use
+                    loose[a.player_id] -= use
     return out
 
 
@@ -47,7 +79,8 @@ def list_sessions(
     if end:
         q = q.where(TrainingSession.start < end)
     court = {cb.session_id: cb.status for cb in db.scalars(select(CourtBooking).where(CourtBooking.coach_id == coach.id))}
-    return [to_out(s, court.get(s.id)) for s in db.scalars(q.order_by(TrainingSession.start))]
+    paid = session_payments(db, coach.id)
+    return [to_out(s, court.get(s.id), paid) for s in db.scalars(q.order_by(TrainingSession.start))]
 
 
 @router.post("", response_model=list[SessionOut], status_code=201)
@@ -112,4 +145,4 @@ def patch_session(
         s.start = body.start
     db.commit()
     cb = db.scalar(select(CourtBooking).where(CourtBooking.session_id == s.id))
-    return to_out(s, cb.status if cb else None)
+    return to_out(s, cb.status if cb else None, session_payments(db, coach.id))

@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 
 from ..auth import current_coach
 from ..db import get_db
-from ..models import Coach, Payment
+from ..models import Coach, Payment, TrainingSession
 from ..schemas import PaymentIn, PaymentOut
 from .players import get_owned_player
 
@@ -16,6 +16,10 @@ def create_payment(body: PaymentIn, coach: Coach = Depends(current_coach), db: S
     get_owned_player(db, coach, body.player_id)
     if body.amount_millimes <= 0 or body.method not in ("especes", "virement"):
         raise HTTPException(422, "Paiement invalide")
+    if body.session_id is not None:
+        s = db.get(TrainingSession, body.session_id)
+        if not s or s.coach_id != coach.id or body.player_id not in [a.player_id for a in s.attendances]:
+            raise HTTPException(404, "Ce joueur n'a pas participé à cette séance")
     p = Payment(coach_id=coach.id, **body.model_dump(exclude_none=True))
     db.add(p)
     db.commit()

@@ -563,3 +563,85 @@ def test_session_feedback_listing(client):
     fb = client.get(f"/sessions/{s['id']}/feedback").json()[0]
     assert (fb["name"], fb["worked_on"], fb["note"]) == ("Sami", ["Lob"], "Top")
     assert register("z@z.tn").get(f"/sessions/{s['id']}/feedback").status_code == 404
+
+
+# --- Paiement par joueur et rappels automatiques -------------------------
+
+def test_completed_session_shows_what_each_player_paid(client):
+    a, b = mkplayer(client, name="Ali")["id"], mkplayer(client, phone="22 000 111", name="Bea")["id"]
+    s = client.post("/sessions", json={"start": "2026-01-05T10:00:00Z", "kind": "duo", "player_ids": [a, b], "price_millimes": 40000}).json()[0]
+    assert client.get("/sessions").json()[0]["payments"] == []  # pas encore effectuée
+    client.patch(f"/sessions/{s['id']}", json={"status": "effectuee"})
+    client.post("/payments", json={"player_id": a, "amount_millimes": 25000, "session_id": s["id"]})
+    client.post("/payments", json={"player_id": a, "amount_millimes": 15000, "session_id": s["id"]})
+    pay = {x["player_id"]: x for x in client.get("/sessions").json()[0]["payments"]}
+    assert pay[a] == {"player_id": a, "due_millimes": 40000, "credit_millimes": 0, "paid_millimes": 40000}
+    assert pay[b]["paid_millimes"] == 0 and pay[b]["due_millimes"] == 40000
+    other = mkplayer(client, phone="22 000 222", name="Cyr")["id"]  # pas dans la séance
+    assert client.post("/payments", json={"player_id": other, "amount_millimes": 1000, "session_id": s["id"]}).status_code == 404
+
+
+def test_contact_channel_at_signup_and_first_login(client):
+    p = mkplayer(client)
+    token = client.post(f"/players/{p['id']}/invite").json()["token"]
+    anon = TestClient(app)
+    assert anon.post(f"/auth/invite/{token}", json={"email": "s@x.tn", "password": "secret1", "contact_channel": "pigeon"}).status_code == 422
+    r = anon.post(f"/auth/invite/{token}", json={"email": "s@x.tn", "password": "secret1", "contact_channel": "whatsapp"}).json()
+    pc = login_as(TestClient(app), r["token"])
+    assert pc.get("/me").json()["contact_channel"] == "whatsapp"
+    assert pc.put("/me/contact", json={"contact_channel": "email"}).json()["contact_channel"] == "email"
+    assert pc.put("/me/contact", json={"contact_channel": "fax"}).status_code == 422
+    # joueur sans choix: la question lui est posée à la première connexion
+    q = mkplayer(client, phone="22 999 888", name="Nour")
+    t2 = client.post(f"/players/{q['id']}/invite").json()["token"]
+    r2 = TestClient(app).post(f"/auth/invite/{t2}", json={"email": "n@x.tn", "password": "secret1"}).json()
+    assert login_as(TestClient(app), r2["token"]).get("/me").json()["contact_channel"] is None
+
+
+def test_automatic_reminders_24h_and_2h(client):
+    from app.models import SessionReminder
+    from app.notify import Notifier
+    from app.services.session_reminders import send_due
+
+    Notifier.sent.clear()
+    wa = mkplayer(client, name="Sami Ben", contact_channel="whatsapp")["id"]
+    mail = mkplayer(client, phone="22 000 333", name="Lina", email="lina@x.tn", contact_channel="email")["id"]
+    nochoice = mkplayer(client, phone="22 000 444", name="Omar")["id"]
+    start = datetime(2026, 3, 10, 17, 0, tzinfo=timezone.utc)  # 18h00 à Tunis
+    client.post("/sessions", json={"start": start.isoformat(), "kind": "groupe", "club": "Club X", "player_ids": [wa, mail, nochoice]})
+    db = TestSession()
+    notifier = Notifier(FakeSmsProvider())
+    assert send_due(db, notifier, now=start - timedelta(hours=30)) == 0  # trop tôt
+    assert send_due(db, notifier, now=start - timedelta(hours=23)) == 3  # rappel de la veille
+    assert send_due(db, notifier, now=start - timedelta(hours=20)) == 0  # pas deux fois
+    assert sorted(ch for ch, _, _ in Notifier.sent) == ["email", "sms", "whatsapp"]  # sans choix: SMS
+    assert any(to == "lina@x.tn" and "demain (mardi 10/03) à 18h00 (Club X)" in body for _, to, body in Notifier.sent)
+    assert send_due(db, notifier, now=start - timedelta(minutes=110)) == 3  # 2 h avant
+    assert "aujourd'hui à 18h00" in Notifier.sent[-1][2]
+    assert send_due(db, notifier, now=start - timedelta(minutes=30)) == 0
+    assert send_due(db, notifier, now=start + timedelta(minutes=5)) == 0  # séance commencée
+    assert sorted(r.kind for r in db.query(SessionReminder)) == ["24h"] * 3 + ["2h"] * 3
+    db.close()
+
+
+def test_no_reminder_for_cancelled_session(client):
+    from app.notify import Notifier
+    from app.services.session_reminders import send_due
+
+    p = mkplayer(client)["id"]
+    start = datetime(2026, 3, 10, 17, 0, tzinfo=timezone.utc)
+    s = client.post("/sessions", json={"start": start.isoformat(), "player_ids": [p]}).json()[0]
+    client.patch(f"/sessions/{s['id']}", json={"status": "annulee"})
+    db = TestSession()
+    assert send_due(db, Notifier(FakeSmsProvider()), now=start - timedelta(hours=3)) == 0
+    db.close()
+
+
+def test_payment_without_session_covers_oldest_sessions(client):
+    p = mkplayer(client)["id"]
+    ids = [client.post("/sessions", json={"start": f"2026-01-0{d}T10:00:00Z", "player_ids": [p], "price_millimes": 60000}).json()[0]["id"] for d in (5, 6)]
+    for i in ids:
+        client.patch(f"/sessions/{i}", json={"status": "effectuee"})
+    client.post("/payments", json={"player_id": p, "amount_millimes": 80000})  # saisi depuis la fiche joueur
+    paid = [s["payments"][0]["paid_millimes"] for s in client.get("/sessions").json()]
+    assert paid == [60000, 20000]

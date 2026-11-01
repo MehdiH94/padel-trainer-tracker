@@ -1,0 +1,58 @@
+"""Rappels automatiques de séance: 24 h avant puis 2 h avant, par le moyen choisi par le joueur."""
+import logging
+from datetime import datetime, timedelta, timezone
+
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from ..models import Coach, Player, SessionReminder, TrainingSession
+from ..notify import Notifier
+from .common import TUNIS, aware
+from .courts import JOURS
+
+log = logging.getLogger("rappels")
+
+# (type de rappel, délai avant la séance). Une séance créée à moins de 2 h ne reçoit que le rappel « 2h ».
+STEPS = [("2h", timedelta(hours=2)), ("24h", timedelta(hours=24))]
+
+
+def reminder_text(coach: Coach, player: Player, s: TrainingSession, kind: str, now: datetime) -> str:
+    t = aware(s.start).astimezone(TUNIS)
+    where = f" ({s.club})" if s.club else ""
+    first = player.name.split()[0]
+    if kind == "2h":
+        return f"Bonjour {first}, votre séance de padel commence bientôt : aujourd'hui à {t:%H}h{t:%M}{where}. À tout à l'heure ! — {coach.name}"
+    day = "demain" if t.date() == (now.astimezone(TUNIS) + timedelta(days=1)).date() else "aujourd'hui" if t.date() == now.astimezone(TUNIS).date() else ""
+    when = f"{day} ({JOURS[t.weekday()]} {t:%d/%m})" if day else f"le {JOURS[t.weekday()]} {t:%d/%m}"
+    return f"Bonjour {first}, rappel : séance de padel {when} à {t:%H}h{t:%M}{where}. Prévenez-moi en cas d'empêchement. — {coach.name}"
+
+
+def send_due(db: Session, notifier: Notifier, now: datetime | None = None) -> int:
+    """Envoie les rappels arrivés à échéance (séances prévues dans les 24 h). Retourne le nombre envoyé."""
+    now = now or datetime.now(timezone.utc)
+    done = {(r.session_id, r.player_id, r.kind) for r in db.scalars(select(SessionReminder).where(SessionReminder.sent_at >= now - timedelta(days=2)))}
+    q = select(TrainingSession).where(
+        TrainingSession.status == "prevue", TrainingSession.start > now, TrainingSession.start <= now + timedelta(hours=24)
+    )
+    count = 0
+    for s in db.scalars(q):
+        left = aware(s.start) - now
+        kind = next(k for k, delay in STEPS if left <= delay)  # rappel le plus proche de l'échéance
+        coach = db.get(Coach, s.coach_id)
+        for a in s.attendances:
+            if (s.id, a.player_id, kind) in done:
+                continue
+            p = db.get(Player, a.player_id)
+            channel = p.contact_channel or "sms"  # pas encore choisi: SMS par défaut (le numéro est toujours connu)
+            if channel == "email" and not p.email:
+                channel = "sms"
+            body = reminder_text(coach, p, s, kind, now)
+            try:
+                notifier.send(p, channel, "Rappel de séance de padel", body)
+            except Exception:  # un envoi raté ne bloque pas les autres; on réessaiera au prochain passage
+                log.exception("Rappel non envoyé au joueur %s", p.id)
+                continue
+            db.add(SessionReminder(coach_id=s.coach_id, session_id=s.id, player_id=p.id, kind=kind, channel=channel, message=body))
+            count += 1
+    db.commit()
+    return count

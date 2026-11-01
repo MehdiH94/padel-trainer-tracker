@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { api, dayKey, dayLabel, hhmm, setToken, tnd, toDate } from "./api.js";
 import Icon from "./Icon.jsx";
-import { Avatar, CategoryBadge, KIND, RadarChart } from "./ui.jsx";
+import { Avatar, CategoryBadge, CHANNELS, ChannelPicker, KIND, RadarChart } from "./ui.jsx";
 
 const TZ = "Africa/Tunis";
 const REASONS = { recharge: "Recharge", reservation: "Réservation", remboursement: "Remboursement", ajustement: "Ajustement" };
@@ -31,8 +31,31 @@ function cancelBooking(me, b, reload) {
   if (ok) return api(`/me/bookings/${b.booking_id}/cancel`, { method: "POST" }).then(reload);
 }
 
+// Choix du moyen de contact pour les rappels: imposé à la première connexion, modifiable ensuite
+function ContactChoice({ me, reload, onClose }) {
+  const [ch, setCh] = useState(me.contact_channel ?? "");
+  const [err, setErr] = useState("");
+  const save = () => api("/me/contact", { method: "PUT", body: { contact_channel: ch } }).then(() => { reload(); onClose?.(); }).catch((x) => setErr(x.message));
+  return (
+    <div className="overlay">
+      <div className="card">
+        <b>{me.contact_channel ? "Mes rappels de séance" : `Bienvenue ${me.name.split(" ")[0]} !`}</b>
+        <p className="mut">Vous recevrez un rappel automatique 24 h puis 2 h avant chaque séance. Comment voulez-vous être contacté ?</p>
+        <ChannelPicker value={ch} onChange={setCh} />
+        {ch === "email" && !me.email && <div className="err">Aucun e-mail sur votre compte : les rappels partiront par SMS.</div>}
+        {err && <div className="err">{err}</div>}
+        <div className="actions">
+          <button disabled={!ch} onClick={save}>Valider</button>
+          {onClose && <button className="sec" onClick={onClose}>Annuler</button>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------- Accueil
 function Home({ me, sessions, progress, credits, proposals, go, reload }) {
+  const [contact, setContact] = useState(false);
   const next = sessions.upcoming[0];
   const sessionsLeft = me.prices.individuel ? Math.floor(me.credits_millimes / me.prices.individuel) : null;
   const answer = (p, what) => api(`/me/proposals/${p.id}/${what}`, { method: "POST" }).then(reload).catch((x) => window.alert(x.message));
@@ -51,6 +74,11 @@ function Home({ me, sessions, progress, credits, proposals, go, reload }) {
           <CategoryBadge category={me.category} gender={me.gender} />
         </div>
       </div>
+
+      {contact && <ContactChoice me={me} reload={reload} onClose={() => setContact(false)} />}
+      {me.contact_channel && (
+        <button className="link" onClick={() => setContact(true)}><Icon name="bell" size={14} /> Rappels de séance par {CHANNELS[me.contact_channel][0]} · modifier</button>
+      )}
 
       <button className="cta" onClick={() => go("book")}><Icon name="calendar" size={20} /> Réserver une séance <Icon name="chevR" size={18} /></button>
 
@@ -399,6 +427,7 @@ export default function PlayerApp() {
         {tab === "book" && <Book {...props} />}
         {tab === "mine" && <Mine {...props} />}
       </main>
+      {!data.me.contact_channel && <ContactChoice me={data.me} reload={load} />}
       <nav>
         {TABS.map(([k, icon, label]) => (
           <button key={k} className={tab === k ? "on" : ""} onClick={() => setTab(k)}>

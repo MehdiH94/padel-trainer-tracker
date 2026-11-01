@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api, dayKey, dayLabel, hhmm, shortDate, tnd, toDate } from "./api.js";
 import FeedbackEditor from "./FeedbackEditor.jsx";
+import SessionPayments from "./SessionPayments.jsx";
 import Icon from "./Icon.jsx";
 import { Avatar, AvatarStack, BarChart, COURT_STATUS, KIND } from "./ui.jsx";
 
@@ -23,7 +24,7 @@ function phase(s, now) {
 }
 
 // Panneau d'une séance terminée: un retour par joueur
-function DonePanel({ s, strokes, onSaved, onClose }) {
+function DonePanel({ s, name, strokes, onSaved, onClose }) {
   const [list, setList] = useState(null);
   const [who, setWho] = useState(null);
   const load = () => api(`/sessions/${s.id}/feedback`).then((l) => { setList(l); setWho((w) => w ?? l[0]?.player_id); });
@@ -36,6 +37,12 @@ function DonePanel({ s, strokes, onSaved, onClose }) {
         <b style={{ textTransform: "capitalize" }}>{shortDate(s.start)} · {hhmm(s.start)} · {KIND[s.kind].label}</b>
         <button className="small sec iconbtn" onClick={onClose}><Icon name="x" size={15} /></button>
       </div>
+      {s.payments?.length > 0 && (
+        <>
+          <div className="mut" style={{ marginTop: 8 }}>Règlements</div>
+          <SessionPayments s={s} name={name} onPaid={onSaved} />
+        </>
+      )}
       {list.length > 1 && (
         <div className="chips" style={{ margin: "8px 0" }}>
           {list.map((x) => {
@@ -192,7 +199,7 @@ export default function Home({ go, openPlayer, summary }) {
             ))}
           </div>
           {openDone && finished.find((s) => s.id === openDone) && (
-            <DonePanel s={finished.find((s) => s.id === openDone)} strokes={strokes} onSaved={load} onClose={() => setOpenDone(null)} />
+            <DonePanel s={finished.find((s) => s.id === openDone)} name={name} strokes={strokes} onSaved={load} onClose={() => setOpenDone(null)} />
           )}
         </>
       )}

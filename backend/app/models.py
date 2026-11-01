@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .db import Base
@@ -41,6 +41,8 @@ class Player(Base):
     side: Mapped[str] = mapped_column(String(10), default="drive")
     goals: Mapped[str] = mapped_column(Text, default="")
     notes: Mapped[str] = mapped_column(Text, default="")
+    # Moyen choisi par le joueur pour les rappels automatiques: whatsapp / sms / email (None = pas encore choisi)
+    contact_channel: Mapped[str | None] = mapped_column(String(10), nullable=True)
 
 
 class SkillRating(Base):
@@ -190,3 +192,18 @@ class Proposal(Base):
     player_id: Mapped[int] = mapped_column(ForeignKey("players.id"), index=True)
     status: Mapped[str] = mapped_column(String(10), default="proposee")  # proposee / acceptee / refusee
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class SessionReminder(Base):
+    """Rappel automatique envoyé à un joueur avant sa séance (24 h et 2 h avant), une seule fois chacun."""
+
+    __tablename__ = "session_reminders"
+    __table_args__ = (UniqueConstraint("session_id", "player_id", "kind"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    coach_id: Mapped[int] = mapped_column(ForeignKey("coaches.id"), index=True)
+    session_id: Mapped[int] = mapped_column(ForeignKey("sessions.id"), index=True)
+    player_id: Mapped[int] = mapped_column(ForeignKey("players.id"), index=True)
+    kind: Mapped[str] = mapped_column(String(4))  # 24h / 2h
+    channel: Mapped[str] = mapped_column(String(10))  # whatsapp / sms / email
+    message: Mapped[str] = mapped_column(Text, default="")
+    sent_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
