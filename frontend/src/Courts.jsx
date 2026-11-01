@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { api, dayLabel, hhmm } from "./api.js";
 import Icon from "./Icon.jsx";
-import { COURT_STATUS } from "./ui.jsx";
+import { confirmDialog, toast, toastError } from "./feedback.jsx";
+import { COURT_STATUS, Loading } from "./ui.jsx";
 
 const PLACEHOLDERS = "{date} {debut} {fin} {duree} {joueurs} {coach} {club}";
 const toDate = (iso) => new Date(iso + (iso.endsWith("Z") || /[+-]\d\d:\d\d$/.test(iso) ? "" : "Z"));
@@ -117,7 +118,7 @@ function CourtCard({ cb, reload }) {
   );
 }
 
-export default function Courts() {
+export default function Courts({ onBack }) {
   const [list, setList] = useState(null);
   const [clubs, setClubs] = useState([]);
   const [editing, setEditing] = useState(null); // club, "new" ou null
@@ -129,7 +130,7 @@ export default function Courts() {
     api("/clubs").then(setClubs);
   };
   useEffect(load, []);
-  if (!list) return null;
+  if (!list) return <><h1>Terrains</h1><Loading rows={3} /></>;
 
   const now = Date.now();
   const upcoming = list.filter((cb) => toDate(cb.start).getTime() + cb.duration_min * 60000 >= now);
@@ -142,11 +143,15 @@ export default function Courts() {
     setMsg(r.sent ? `${r.sent} SMS envoyé${r.sent > 1 ? "s" : ""}` : "Rien à envoyer pour le moment (les demandes partent 7 jours avant la séance).");
     load();
   };
-  const remove = (cb) => api(`/court-bookings/${cb.id}`, { method: "DELETE" }).then(load);
+  const remove = async (cb) => {
+    if (!(await confirmDialog({ title: "Supprimer ce terrain ?", message: "Il ne sera plus proposé pour les réservations.", confirm: "Supprimer", danger: true }))) return;
+    api(`/court-bookings/${cb.id}`, { method: "DELETE" }).then(() => { load(); toast("Terrain supprimé"); }).catch(toastError);
+  };
 
   return (
     <>
-      <h1>Terrains</h1>
+      <button className="small sec" onClick={onBack}><Icon name="chevL" size={15} /> Planning</button>
+      <h1 style={{ marginTop: 10 }}>Terrains</h1>
       <div className="grid kpis">
         <div className="kpi"><span className="ico ok"><Icon name="checkCircle" size={18} /></span><div className="big">{count(["confirmee"])}</div><div className="mut">Confirmés</div></div>
         <div className="kpi"><span className="ico warn"><Icon name="clock" size={18} /></span><div className="big">{count(["a_envoyer", "en_attente"])}</div><div className="mut">En attente</div></div>

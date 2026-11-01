@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { api, dayKey, dayLabel, hhmm, setToken, tnd, toDate } from "./api.js";
 import Icon from "./Icon.jsx";
-import { Avatar, CategoryBadge, CHANNELS, ChannelPicker, KIND, RadarChart } from "./ui.jsx";
+import { confirmDialog, Modal, toast, toastError } from "./feedback.jsx";
+import { useRoute } from "./router.js";
+import { Avatar, CategoryBadge, CHANNELS, ChannelPicker, InstallCard, KIND, Loading, OfflineBar, RadarChart } from "./ui.jsx";
 
 const TZ = "Africa/Tunis";
 const REASONS = { recharge: "Recharge", reservation: "Réservation", remboursement: "Remboursement", ajustement: "Ajustement" };
@@ -23,23 +25,31 @@ function KindPill({ kind }) {
   return <span className="kind-pill" style={{ background: k.color + "1a", color: k.color }}><Icon name={k.icon} size={13} /> {k.label}</span>;
 }
 
-function cancelBooking(me, b, reload) {
-  const soon = toDate(b.start) - Date.now() < me.cancel_hours * 3600000;
-  const ok = window.confirm(soon && b.status !== "en_attente"
-    ? `Annulation à moins de ${me.cancel_hours} h de la séance : vos crédits ne seront PAS remboursés. Annuler quand même ?`
-    : "Annuler cette séance ? Vos crédits seront remboursés.");
-  if (ok) return api(`/me/bookings/${b.booking_id}/cancel`, { method: "POST" }).then(reload);
+async function cancelBooking(me, b, reload) {
+  const late = toDate(b.start) - Date.now() < me.cancel_hours * 3600000 && b.status !== "en_attente";
+  const ok = await confirmDialog({
+    title: "Annuler cette séance ?",
+    message: late ? `Vous êtes à moins de ${me.cancel_hours} h de la séance : vos crédits ne seront pas remboursés.` : "Vos crédits vous seront remboursés.",
+    confirm: "Annuler la séance", cancel: "Garder ma séance", danger: late,
+  });
+  if (!ok) return;
+  try {
+    const r = await api(`/me/bookings/${b.booking_id}/cancel`, { method: "POST" });
+    toast(r.refunded ? `Séance annulée · ${tnd(r.refunded)} remboursés` : "Séance annulée");
+    reload();
+  } catch (x) {
+    toastError(x);
+  }
 }
 
 // Choix du moyen de contact pour les rappels: imposé à la première connexion, modifiable ensuite
 function ContactChoice({ me, reload, onClose }) {
   const [ch, setCh] = useState(me.contact_channel ?? "");
   const [err, setErr] = useState("");
-  const save = () => api("/me/contact", { method: "PUT", body: { contact_channel: ch } }).then(() => { reload(); onClose?.(); }).catch((x) => setErr(x.message));
+  const save = () => api("/me/contact", { method: "PUT", body: { contact_channel: ch } }).then(() => { toast("Préférence enregistrée"); reload(); onClose?.(); }).catch((x) => setErr(x.message));
   return (
-    <div className="overlay">
-      <div className="card">
-        <b>{me.contact_channel ? "Mes rappels de séance" : `Bienvenue ${me.name.split(" ")[0]} !`}</b>
+    <Modal onClose={onClose} label="Rappels de séance">
+        <b className="sheet-title">{me.contact_channel ? "Mes rappels de séance" : `Bienvenue ${me.name.split(" ")[0]} !`}</b>
         <p className="mut">Vous recevrez un rappel automatique 24 h puis 2 h avant chaque séance. Comment voulez-vous être contacté ?</p>
         <ChannelPicker value={ch} onChange={setCh} />
         {ch === "email" && !me.email && <div className="err">Aucun e-mail sur votre compte : les rappels partiront par SMS.</div>}
@@ -48,8 +58,7 @@ function ContactChoice({ me, reload, onClose }) {
           <button disabled={!ch} onClick={save}>Valider</button>
           {onClose && <button className="sec" onClick={onClose}>Annuler</button>}
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -58,7 +67,9 @@ function Home({ me, sessions, progress, credits, proposals, go, reload }) {
   const [contact, setContact] = useState(false);
   const next = sessions.upcoming[0];
   const sessionsLeft = me.prices.individuel ? Math.floor(me.credits_millimes / me.prices.individuel) : null;
-  const answer = (p, what) => api(`/me/proposals/${p.id}/${what}`, { method: "POST" }).then(reload).catch((x) => window.alert(x.message));
+  const answer = (p, what) => api(`/me/proposals/${p.id}/${what}`, { method: "POST" })
+    .then(() => { toast(what === "accept" ? "C'est noté, vous êtes inscrit !" : "Proposition refusée"); reload(); })
+    .catch(toastError);
   const rated = progress?.skills.filter((s) => s.score != null).length ?? 0;
   return (
     <>
@@ -80,6 +91,7 @@ function Home({ me, sessions, progress, credits, proposals, go, reload }) {
         <button className="link" onClick={() => setContact(true)}><Icon name="bell" size={14} /> Rappels de séance par {CHANNELS[me.contact_channel][0]} · modifier</button>
       )}
 
+      <InstallCard />
       <button className="cta" onClick={() => go("book")}><Icon name="calendar" size={20} /> Réserver une séance <Icon name="chevR" size={18} /></button>
 
       {proposals.length > 0 && (
@@ -411,18 +423,19 @@ function Mine({ me, sessions, reload }) {
 }
 
 export default function PlayerApp() {
-  const [tab, setTab] = useState("home");
+  const [[tab = "home"], setTab] = useRoute("home");
   const [data, setData] = useState(null);
   const load = () =>
     Promise.all([api("/me"), api("/me/sessions"), api("/me/progress"), api("/me/credits"), api("/me/proposals")])
       .then(([me, sessions, progress, credits, proposals]) => setData({ me, sessions, progress, credits, proposals }));
   useEffect(() => { load(); }, []);
-  if (!data) return null;
+  if (!data) return <main><Loading hero rows={3} /></main>;
   const props = { ...data, go: setTab, reload: load };
   const TABS = [["home", "home", "Accueil"], ["book", "calendar", "Réserver"], ["mine", "ball", "Mes séances"]];
   return (
     <>
-      <main>
+      <OfflineBar />
+      <main id="main">
         {tab === "home" && <Home {...props} />}
         {tab === "book" && <Book {...props} />}
         {tab === "mine" && <Mine {...props} />}
@@ -430,7 +443,7 @@ export default function PlayerApp() {
       {!data.me.contact_channel && <ContactChoice me={data.me} reload={load} />}
       <nav>
         {TABS.map(([k, icon, label]) => (
-          <button key={k} className={tab === k ? "on" : ""} onClick={() => setTab(k)}>
+          <button key={k} className={tab === k ? "on" : ""} aria-current={tab === k ? "page" : undefined} onClick={() => setTab(k)}>
             <span className="navico"><Icon name={icon} size={22} strokeWidth={tab === k ? 2.3 : 1.8} />{k === "home" && data.proposals.length > 0 && <b className="navbadge">{data.proposals.length}</b>}</span>
             {label}
           </button>

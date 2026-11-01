@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import Icon from "./Icon.jsx";
 
 const COLORS = ["#2563eb", "#7c3aed", "#0891b2", "#db2777", "#ea580c", "#0d9488", "#4f46e5", "#be123c"];
@@ -142,4 +143,54 @@ export function ChannelPicker({ value, onChange }) {
       ))}
     </div>
   );
+}
+
+// Blocs gris pendant le chargement (au lieu d'un écran blanc)
+export function Loading({ rows = 3, hero = false }) {
+  return (
+    <div aria-busy="true" aria-label="Chargement">
+      {hero && <div className="skel skel-hero" />}
+      {Array.from({ length: rows }, (_, i) => <div key={i} className="skel" style={{ height: i ? 76 : 110 }} />)}
+    </div>
+  );
+}
+
+// Proposition d'installer l'application sur l'écran d'accueil (Android: bouton; iPhone: explication)
+export function InstallCard() {
+  const [evt, setEvt] = useState(window.__installEvt ?? null);
+  const [hidden, setHidden] = useState(() => { try { return localStorage.getItem("install-dismissed") === "1"; } catch { return false; } });
+  useEffect(() => {
+    const f = () => setEvt(window.__installEvt);
+    window.addEventListener("installable", f);
+    return () => window.removeEventListener("installable", f);
+  }, []);
+  const standalone = window.matchMedia?.("(display-mode: standalone)").matches || navigator.standalone;
+  const ios = /iphone|ipad|ipod/i.test(navigator.userAgent);
+  if (hidden || standalone || (!evt && !ios)) return null;
+  const close = () => { try { localStorage.setItem("install-dismissed", "1"); } catch { /* stockage indisponible */ } setHidden(true); };
+  const install = async () => { evt.prompt(); await evt.userChoice; window.__installEvt = null; close(); };
+  return (
+    <div className="card install">
+      <span className="kpi-ico"><Icon name="download" size={20} /></span>
+      <div style={{ flex: 1 }}>
+        <b>Installer l'application</b>
+        <div className="mut">{evt ? "Accès direct depuis l'écran d'accueil, même avec peu de réseau." : "Dans Safari : bouton Partager, puis « Sur l'écran d'accueil »."}</div>
+        {evt && <button className="small" style={{ marginTop: 8 }} onClick={install}>Installer</button>}
+      </div>
+      <button className="small sec iconbtn" aria-label="Ne plus proposer" onClick={close}><Icon name="x" size={15} /></button>
+    </div>
+  );
+}
+
+// Bandeau hors connexion: les écrans déjà ouverts restent consultables
+export function OfflineBar() {
+  const [online, setOnline] = useState(navigator.onLine);
+  useEffect(() => {
+    const up = () => setOnline(true), down = () => setOnline(false);
+    window.addEventListener("online", up);
+    window.addEventListener("offline", down);
+    return () => { window.removeEventListener("online", up); window.removeEventListener("offline", down); };
+  }, []);
+  if (online) return null;
+  return <div className="offline" role="status"><Icon name="wifiOff" size={16} /> Hors connexion · données du dernier chargement</div>;
 }

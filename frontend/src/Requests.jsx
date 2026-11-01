@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { api, dayLabel, hhmm, tnd } from "./api.js";
 import Icon from "./Icon.jsx";
-import { Avatar, CategoryBadge, ContactLinks, KIND } from "./ui.jsx";
+import { confirmDialog } from "./feedback.jsx";
+import { Avatar, CategoryBadge, ContactLinks, KIND, Loading } from "./ui.jsx";
 
 const hm = (iso, min) => `${hhmm(iso)} – ${hhmm(new Date(new Date(iso + (iso.endsWith("Z") ? "" : "Z")).getTime() + min * 60000).toISOString())}`;
 
@@ -72,7 +73,7 @@ function Pending({ r, clubs, reload }) {
         {r.join ? <button onClick={() => act("accept", {})}><Icon name="check" size={16} /> Accepter</button>
           : hasCourt ? <button onClick={() => act("accept", { court_booking_id: +courtId })}><Icon name="check" size={16} /> Accepter avec ce terrain</button>
           : <button className="amber" onClick={() => act("accept", { club_id: clubId ? +clubId : null })}><Icon name="clock" size={16} /> Accepter · terrain à confirmer</button>}
-        <button className="sec danger" onClick={() => act("refuse")}><Icon name="x" size={16} /> Refuser</button>
+        <button className="sec danger" onClick={async () => (await confirmDialog({ title: `Refuser la demande de ${r.name} ?`, message: `${tnd(r.charged_millimes)} de crédits lui seront rendus.`, confirm: "Refuser", cancel: "Retour", danger: true })) && act("refuse")}><Icon name="x" size={16} /> Refuser</button>
       </div>
       <div className="mut small-p">Refuser rend {tnd(r.charged_millimes)} de crédits au joueur.</div>
     </div>
@@ -115,7 +116,7 @@ function Groups({ reload: refresh }) {
   const [groups, setGroups] = useState(null);
   const load = () => api("/groups").then(setGroups);
   useEffect(() => { load(); }, []);
-  if (!groups) return null;
+  if (!groups) return <Loading rows={1} />;
   const propose = (g, c) => api("/proposals", { method: "POST", body: { session_id: g.session_id, player_id: c.player_id } }).then(() => { load(); refresh?.(); });
   const withdraw = (p) => api(`/proposals/${p.id}`, { method: "DELETE" }).then(load);
   return (
@@ -161,7 +162,7 @@ export default function Requests({ go, refreshSummary }) {
   const [sub, setSub] = useState("requests");
   const load = () => { api("/booking/requests").then(setItems); api("/clubs").then(setClubs); refreshSummary?.(); };
   useEffect(() => { load(); }, []);
-  if (!items) return null;
+  if (!items) return <><h1>Demandes</h1><Loading rows={3} /></>;
 
   const pending = items.filter((i) => i.status === "en_attente");
   const waiting = items.filter((i) => i.status === "acceptee");

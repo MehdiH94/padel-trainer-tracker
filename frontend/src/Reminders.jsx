@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { api, tnd, hhmm } from "./api.js";
 import Icon from "./Icon.jsx";
-import { Avatar, ago, ContactLinks } from "./ui.jsx";
+import { Avatar, ago, ContactLinks, Loading } from "./ui.jsx";
 
 const KINDS = {
   impaye: ["alert", "Impayés"],
@@ -16,7 +16,7 @@ export default function Reminders({ openPlayer }) {
   const [edits, setEdits] = useState({});
   const load = () => api("/reminders?base=" + encodeURIComponent(location.origin)).then(setItems);
   useEffect(() => { load(); }, []);
-  if (!items) return null;
+  if (!items) return <><h1>Relances</h1><Loading rows={3} /></>;
 
   const counts = Object.fromEntries(Object.keys(KINDS).map((k) => [k, items.filter((i) => i.kind === k).length]));
   const shown = items.filter((i) => kind === "all" || i.kind === kind);

@@ -50,3 +50,9 @@
 - **Planning** : les séances effectuées du jour sont regroupées dans une liste compacte qui défile (une ligne par séance, dépliable).
 - **Rappels automatiques** : 24 h et 2 h avant chaque séance prévue, par le moyen choisi par le joueur (WhatsApp / SMS / e-mail), demandé à la création du compte et, pour les comptes existants, à la première connexion (modifiable ensuite par le joueur ou par le coach sur la fiche). Tâche de fond toutes les 5 min, chaque rappel n'est envoyé qu'une fois (`session_reminders`).
 - **Reste à brancher** : passerelle SMS réelle, passerelle WhatsApp (API WhatsApp Business), réglages SMTP sur le VPS pour les e-mails.
+
+## Mise à jour (session 8) — ergonomie
+- **Sécurité des gestes** : annulation de séance, refus de demande et suppression de terrain demandent confirmation; « Effectuée » peut être annulée quelques secondes (retour à « prévue » tant que rien n'est encaissé pour la séance). Messages de confirmation (toasts) au lieu des fenêtres du navigateur.
+- **Navigation** : 5 onglets (Terrains s'ouvre depuis le Planning), adresses par écran (`#/planning`, `#/players/12`…) pour le bouton retour et les liens directs, recherche de joueur depuis tous les écrans, menu latéral sur ordinateur.
+- **Fluidité** : blocs de chargement, mode hors-ligne (service worker `public/sw.js`: dernières données consultables, bandeau « Hors connexion »), proposition d'installation sur l'écran d'accueil.
+- **Raccourcis coach** : copier une séance à la semaine suivante, ajouter un joueur à une séance depuis sa fiche, encaisser depuis « À relancer », guide « Bien démarrer » (prix, disponibilités, premier joueur).

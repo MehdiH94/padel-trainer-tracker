@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { api, tnd } from "./api.js";
 import Icon from "./Icon.jsx";
+import { toast } from "./feedback.jsx";
 
 // Reste à régler par un joueur pour une séance effectuée
 export const leftToPay = (x) => Math.max(0, x.due_millimes - x.paid_millimes);
@@ -22,6 +23,7 @@ export default function SessionPayments({ s, name, onPaid }) {
     e.preventDefault();
     try {
       await api("/payments", { method: "POST", body: { player_id: form.player_id, session_id: s.id, amount_millimes: Math.round(Number(String(form.amount).replace(",", ".")) * 1000), method: form.method } });
+      toast(`Paiement de ${name(form.player_id).split(" ")[0]} enregistré`);
       setForm(null);
       setErr("");
       onPaid?.();

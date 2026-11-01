@@ -2,7 +2,8 @@ import { useEffect, useState } from "react";
 import { api, dayLabel, hhmm, shortDate, tnd } from "./api.js";
 import FeedbackEditor from "./FeedbackEditor.jsx";
 import Icon from "./Icon.jsx";
-import { Avatar, CATEGORIES, CategoryBadge, CHANNELS, ContactLinks, KIND, Progress, RadarChart } from "./ui.jsx";
+import { Modal, toast, toastError } from "./feedback.jsx";
+import { Avatar, CATEGORIES, CategoryBadge, CHANNELS, ContactLinks, KIND, Loading, Progress, RadarChart } from "./ui.jsx";
 
 function Dots({ score, onPick }) {
   return (
@@ -68,6 +69,35 @@ function EditForm({ player, onSave, onCancel }) {
   );
 }
 
+// Ajouter le joueur à une séance prévue qui a encore de la place
+function AddToSession({ player, onClose }) {
+  const [list, setList] = useState(null);
+  useEffect(() => {
+    api("/sessions?start=" + encodeURIComponent(new Date().toISOString())).then((all) =>
+      setList(all.filter((s) => s.status === "prevue" && !s.player_ids.includes(player.id) && s.player_ids.length < KIND[s.kind].cap)));
+  }, []);
+  const add = (s) => api(`/sessions/${s.id}/players`, { method: "POST", body: { player_id: player.id } })
+    .then(() => { toast(`${player.name.split(" ")[0]} ajouté à la séance du ${shortDate(s.start)} à ${hhmm(s.start)}`); onClose(); })
+    .catch(toastError);
+  return (
+    <Modal onClose={onClose} label="Ajouter à une séance">
+      <div className="row"><b className="sheet-title">Ajouter {player.name.split(" ")[0]} à une séance</b><button className="small sec iconbtn" aria-label="Fermer" onClick={onClose}><Icon name="x" size={15} /></button></div>
+      <p className="mut">Séances prévues qui ont encore de la place.</p>
+      <div className="searchlist">
+        {list === null && <div className="skel" style={{ height: 52 }} />}
+        {list?.map((s) => (
+          <button key={s.id} className="searchrow" onClick={() => add(s)}>
+            <span className="kdot" style={{ background: KIND[s.kind].color }}><Icon name={KIND[s.kind].icon} size={15} /></span>
+            <span><span style={{ textTransform: "capitalize" }}>{shortDate(s.start)} · {hhmm(s.start)}</span><small>{KIND[s.kind].label}{s.club && ` · ${s.club}`} · {KIND[s.kind].cap - s.player_ids.length} place{KIND[s.kind].cap - s.player_ids.length > 1 ? "s" : ""}</small></span>
+            <Icon name="plus" size={16} />
+          </button>
+        ))}
+        {list?.length === 0 && <p className="mut center">Aucune séance prévue avec des places libres.</p>}
+      </div>
+    </Modal>
+  );
+}
+
 export default function PlayerPage({ id, onBack }) {
   const [p, setP] = useState(null);
   const [strokes, setStrokes] = useState([]);
@@ -76,20 +106,31 @@ export default function PlayerPage({ id, onBack }) {
   const [editing, setEditing] = useState(false);
   const [pay, setPay] = useState({ amount: "", method: "especes" });
   const [cr, setCr] = useState({ amount: "", method: "especes" });
+  const [adding, setAdding] = useState(false);
   const load = () => api(`/players/${id}/profile`).then(setP);
   useEffect(() => { load(); api("/strokes").then(setStrokes); }, [id]);
-  if (!p) return null;
+  if (!p) return <Loading rows={3} />;
   const { player, finance: fin, stats, skills, strengths, weaknesses, last_session: last } = p;
   const rate = (stroke, score) => api(`/players/${id}/skills`, { method: "POST", body: { stroke, score } }).then(load);
   const encaisser = async (e) => {
     e.preventDefault();
-    await api("/payments", { method: "POST", body: { player_id: id, amount_millimes: Math.round(pay.amount * 1000), method: pay.method } });
+    try {
+      await api("/payments", { method: "POST", body: { player_id: id, amount_millimes: Math.round(pay.amount * 1000), method: pay.method } });
+    } catch (x) {
+      return toastError(x);
+    }
+    toast(`Paiement de ${tnd(Math.round(pay.amount * 1000))} enregistré`);
     setPay({ ...pay, amount: "" });
     load();
   };
   const recharger = async (e) => {
     e.preventDefault();
-    await api(`/players/${id}/credits`, { method: "POST", body: { amount_millimes: Math.round(cr.amount * 1000), method: cr.method } });
+    try {
+      await api(`/players/${id}/credits`, { method: "POST", body: { amount_millimes: Math.round(cr.amount * 1000), method: cr.method } });
+    } catch (x) {
+      return toastError(x);
+    }
+    toast(`Crédits rechargés : +${tnd(Math.round(cr.amount * 1000))}`);
     setCr({ ...cr, amount: "" });
     load();
   };
@@ -108,9 +149,12 @@ export default function PlayerPage({ id, onBack }) {
         </div>
       </div>
       {editing ? (
-        <EditForm player={player} onCancel={() => setEditing(false)} onSave={async (body) => { await api(`/players/${id}`, { method: "PUT", body: { ...body, pref_kinds: player.pref_kinds } }); setEditing(false); load(); }} />
+        <EditForm player={player} onCancel={() => setEditing(false)} onSave={async (body) => { await api(`/players/${id}`, { method: "PUT", body: { ...body, pref_kinds: player.pref_kinds } }); setEditing(false); toast("Fiche enregistrée"); load(); }} />
       ) : (
-        <button className="sec" style={{ width: "100%", marginBottom: 8 }} onClick={() => setEditing(true)}><Icon name="edit" size={16} /> Modifier la fiche</button>
+        <div className="actions" style={{ marginTop: 0, marginBottom: 8 }}>
+          <button className="sec" onClick={() => setEditing(true)}><Icon name="edit" size={16} /> Modifier la fiche</button>
+          <button className="sec" onClick={() => setAdding(true)}><Icon name="userPlus" size={16} /> Ajouter à une séance</button>
+        </div>
       )}
       <div className="actions">
         <a className="btnlink" href={`tel:${player.phone}`}><Icon name="phone" size={16} /> Appeler</a>
@@ -118,6 +162,7 @@ export default function PlayerPage({ id, onBack }) {
         <a className="btnlink wa" href={`https://wa.me/${player.phone.replace("+", "")}`} target="_blank" rel="noreferrer"><Icon name="whatsapp" size={16} /> WhatsApp</a>
       </div>
 
+      {adding && <AddToSession player={player} onClose={() => { setAdding(false); load(); }} />}
       {!player.has_account && <InviteCard player={player} />}
       <div className="grid kpis" style={{ marginTop: 12 }}>
         <div className="kpi"><div className="big">{stats.done_count}</div><div className="mut">Séances effectuées</div></div>

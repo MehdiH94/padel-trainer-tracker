@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { api } from "./api.js";
 import Icon from "./Icon.jsx";
-import { KIND } from "./ui.jsx";
+import { toast, toastError } from "./feedback.jsx";
+import { KIND, Loading } from "./ui.jsx";
 
 const DAYS = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"];
 
@@ -9,12 +10,17 @@ export default function Settings({ onBack }) {
   const [s, setS] = useState(null);
   const [saved, setSaved] = useState(false);
   useEffect(() => { api("/booking/settings").then(setS); }, []);
-  if (!s) return null;
+  if (!s) return <><h1>Réglages</h1><Loading rows={3} /></>;
 
   const dayWindows = (d) => s.availability.filter((w) => w.weekday === d);
   const setDay = (d, windows) => setS({ ...s, availability: [...s.availability.filter((w) => w.weekday !== d), ...windows.map((w) => ({ ...w, weekday: d }))] });
   async function save() {
-    await api("/booking/settings", { method: "PUT", body: s });
+    try {
+      await api("/booking/settings", { method: "PUT", body: s });
+    } catch (x) {
+      return toastError(x);
+    }
+    toast("Réglages enregistrés");
     setSaved(true);
     setTimeout(() => setSaved(false), 1800);
   }

@@ -1,16 +1,26 @@
 const TZ = "Africa/Tunis";
 
 export const getToken = () => localStorage.getItem("token");
-export const setToken = (t) => (t ? localStorage.setItem("token", t) : (localStorage.removeItem("token"), localStorage.removeItem("role")));
+export const setToken = (t) => {
+  if (t) return localStorage.setItem("token", t);
+  localStorage.removeItem("token");
+  localStorage.removeItem("role");
+  window.caches?.delete("api"); // données hors-ligne du compte précédent
+};
 export const getRole = () => localStorage.getItem("role") || "coach";
 export const setSession = (r) => { setToken(r.token); localStorage.setItem("role", r.role); };
 
 export async function api(path, { method = "GET", body } = {}) {
-  const res = await fetch("/api" + path, {
-    method,
-    headers: { "Content-Type": "application/json", ...(getToken() && { Authorization: `Bearer ${getToken()}` }) },
-    body: body ? JSON.stringify(body) : undefined,
-  });
+  let res;
+  try {
+    res = await fetch("/api" + path, {
+      method,
+      headers: { "Content-Type": "application/json", ...(getToken() && { Authorization: `Bearer ${getToken()}` }) },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+  } catch {
+    throw new Error("Pas de connexion internet. Réessayez une fois connecté.");
+  }
   if (res.status === 401 && !path.startsWith("/auth/")) {
     setToken(null);
     location.reload();

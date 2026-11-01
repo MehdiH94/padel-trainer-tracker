@@ -2,6 +2,7 @@ import uuid
 from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -136,13 +137,37 @@ def patch_session(
         if body.status not in ("prevue", "effectuee", "annulee"):
             raise HTTPException(422, "Statut invalide")
         if s.status == "effectuee" and body.status != "effectuee":
-            raise HTTPException(409, "Une séance effectuée ne peut plus changer de statut")
+            # Retour arrière possible (« Annuler » juste après « Effectuée ») tant que rien n'a été encaissé pour cette séance
+            paid = db.scalar(select(Payment.id).where(Payment.session_id == s.id).limit(1))
+            if body.status != "prevue" or paid:
+                raise HTTPException(409, "Une séance effectuée et déjà réglée ne peut plus changer de statut")
         if body.status == "annulee" and s.status != "annulee":
             booking_svc.coach_cancel_session(db, s)  # réservations payées en crédits: remboursement
             courts.release_or_cancel(db, coach, s, sms)  # terrain manuel libéré, club prévenu sinon
         s.status = body.status
     if body.start is not None:  # report
         s.start = body.start
+    db.commit()
+    cb = db.scalar(select(CourtBooking).where(CourtBooking.session_id == s.id))
+    return to_out(s, cb.status if cb else None, session_payments(db, coach.id))
+
+
+class AddPlayerIn(BaseModel):
+    player_id: int
+
+
+@router.post("/{session_id}/players", response_model=SessionOut)
+def add_player(session_id: int, body: AddPlayerIn, coach: Coach = Depends(current_coach), db: Session = Depends(get_db)):
+    """Le coach ajoute un joueur à une séance prévue (depuis la fiche du joueur)."""
+    s = get_owned_session(db, coach, session_id)
+    get_owned_player(db, coach, body.player_id)
+    if s.status != "prevue":
+        raise HTTPException(409, "On ne peut ajouter un joueur qu'à une séance prévue")
+    if body.player_id in [a.player_id for a in s.attendances]:
+        raise HTTPException(409, "Ce joueur participe déjà à cette séance")
+    if len(s.attendances) >= CAPACITY.get(s.kind, 4):
+        raise HTTPException(409, "Cette séance est complète")
+    s.attendances.append(Attendance(player_id=body.player_id))
     db.commit()
     cb = db.scalar(select(CourtBooking).where(CourtBooking.session_id == s.id))
     return to_out(s, cb.status if cb else None, session_payments(db, coach.id))

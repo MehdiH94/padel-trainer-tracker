@@ -10,19 +10,25 @@ import Reminders from "./Reminders.jsx";
 import Requests from "./Requests.jsx";
 import Settings from "./Settings.jsx";
 import { api, getRole, getToken, setSession, setToken } from "./api.js";
+import { FeedbackHost, Modal } from "./feedback.jsx";
+import { useRoute } from "./router.js";
+import { Avatar, CategoryBadge, OfflineBar } from "./ui.jsx";
 
 function Login() {
   const [f, setF] = useState({ email: "", password: "", name: "" });
   const [mode, setMode] = useState("login");
   const [err, setErr] = useState("");
+  const [busy, setBusy] = useState(false);
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
   async function submit(e) {
     e.preventDefault();
+    setBusy(true);
     try {
       setSession(await api("/auth/" + mode, { method: "POST", body: f }));
       location.reload();
     } catch (x) {
       setErr(x.message);
+      setBusy(false);
     }
   }
   return (
@@ -31,17 +37,40 @@ function Login() {
         <div className="logo"><Icon name="ball" size={30} strokeWidth={1.8} /></div>
         <h1>Padel Coach</h1>
         <p className="mut">{mode === "login" ? "Connectez-vous à votre espace" : "Créez votre espace coach"}</p>
-        {mode === "register" && <input placeholder="Votre nom de coach" value={f.name} onChange={set("name")} />}
-        <input type="email" placeholder="E-mail" aria-label="E-mail" autoComplete="email" value={f.email} onChange={set("email")} required />
-        <input type="password" placeholder="Mot de passe" aria-label="Mot de passe" autoComplete={mode === "login" ? "current-password" : "new-password"} value={f.password} onChange={set("password")} required />
-        {err && <div className="err">{err}</div>}
-        <button style={{ width: "100%" }}>{mode === "login" ? "Se connecter" : "Créer mon compte coach"}</button>
-        <p className="mut center link-p" onClick={() => setMode(mode === "login" ? "register" : "login")}>
+        {mode === "register" && <label className="field"><span className="mut">Votre nom de coach</span><input value={f.name} onChange={set("name")} autoComplete="name" /></label>}
+        <label className="field"><span className="mut">E-mail</span><input type="email" value={f.email} onChange={set("email")} autoComplete="email" required /></label>
+        <label className="field"><span className="mut">Mot de passe</span><input type="password" value={f.password} onChange={set("password")} autoComplete={mode === "login" ? "current-password" : "new-password"} required /></label>
+        {err && <div className="err" role="alert">{err}</div>}
+        <button style={{ width: "100%" }} disabled={busy}>{busy ? "Connexion…" : mode === "login" ? "Se connecter" : "Créer mon compte coach"}</button>
+        <button type="button" className="link center" style={{ marginTop: 10 }} onClick={() => { setMode(mode === "login" ? "register" : "login"); setErr(""); }}>
           {mode === "login" ? "Vous êtes coach ? Créer un compte" : "J'ai déjà un compte"}
-        </p>
+        </button>
         {mode === "login" && <p className="mut center small-p">Joueur : utilisez le lien d'invitation envoyé par votre coach.</p>}
       </form>
     </div>
+  );
+}
+
+// Recherche d'un joueur depuis n'importe quel écran du coach
+function PlayerSearch({ onPick, onClose }) {
+  const [players, setPlayers] = useState(null);
+  const [q, setQ] = useState("");
+  useEffect(() => { api("/players").then(setPlayers).catch(() => setPlayers([])); }, []);
+  const norm = (t) => t.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLowerCase();
+  const shown = (players ?? []).filter((p) => norm(p.name + " " + p.phone).includes(norm(q))).slice(0, 8);
+  return (
+    <Modal onClose={onClose} label="Rechercher un joueur">
+      <div className="searchbox"><Icon name="search" size={18} /><input placeholder="Nom ou téléphone…" aria-label="Nom ou téléphone" value={q} onChange={(e) => setQ(e.target.value)} /></div>
+      <div className="searchlist">
+        {players === null && <div className="skel" style={{ height: 44 }} />}
+        {shown.map((p) => (
+          <button key={p.id} className="searchrow" onClick={() => onPick(p.id)}>
+            <Avatar name={p.name} size={32} /><span>{p.name}<small>{p.phone}</small></span><CategoryBadge category={p.category} />
+          </button>
+        ))}
+        {players && !shown.length && <p className="mut center">Aucun joueur trouvé.</p>}
+      </div>
+    </Modal>
   );
 }
 
@@ -50,14 +79,14 @@ const TABS = [
   ["planning", "calendar", "Planning", Planning],
   ["players", "users", "Joueurs", Players],
   ["requests", "inbox", "Demandes", Requests],
-  ["courts", "pin", "Terrains", Courts],
   ["reminders", "send", "Relances", Reminders],
 ];
+const PAGES = { courts: Courts, settings: Settings };
 
 function CoachApp() {
-  const [tab, setTab] = useState("home");
-  const [playerId, setPlayerId] = useState(null);
+  const [[tab = "home", sub], go] = useRoute("home");
   const [summary, setSummary] = useState({ pending: 0, waiting_court: 0, to_notify: 0 });
+  const [search, setSearch] = useState(false);
   const refresh = () => api("/booking/summary").then(setSummary).catch(() => {});
   useEffect(() => {
     refresh();
@@ -66,33 +95,41 @@ function CoachApp() {
   }, []);
   useEffect(() => { refresh(); }, [tab]);
 
-  const Page = tab === "settings" ? Settings : TABS.find((t) => t[0] === tab)[3];
-  const openPlayer = (id) => { setPlayerId(id); setTab("players"); };
+  const Page = PAGES[tab] ?? TABS.find((t) => t[0] === tab)?.[3] ?? Home;
+  const playerId = tab === "players" && sub ? +sub : null;
+  const openPlayer = (id) => go(`players/${id}`);
+  const navOn = tab === "courts" ? "planning" : tab; // les terrains s'ouvrent depuis le planning
   const alerts = summary.pending + summary.to_notify; // ce qui attend une action du coach
   return (
     <>
-      <main><Page key={tab + playerId} go={setTab} openPlayer={openPlayer} playerId={playerId} closePlayer={() => setPlayerId(null)} onBack={() => setTab("home")} summary={summary} refreshSummary={refresh} /></main>
-      <nav>
+      <OfflineBar />
+      <main id="main"><Page key={tab + (sub ?? "")} go={go} openPlayer={openPlayer} playerId={playerId} closePlayer={() => go("players")} onBack={() => (history.length > 1 ? history.back() : go("home"))} summary={summary} refreshSummary={refresh} /></main>
+      <nav aria-label="Navigation principale">
+        <span className="brandmark"><Icon name="ball" size={20} /> Padel Coach</span>
         {TABS.map(([k, icon, label]) => (
-          <button key={k} className={tab === k ? "on" : ""} onClick={() => { setTab(k); setPlayerId(null); }}>
+          <button key={k} className={navOn === k ? "on" : ""} aria-current={navOn === k ? "page" : undefined} onClick={() => go(k)}>
             <span className="navico">
-              <Icon name={icon} size={22} strokeWidth={tab === k ? 2.3 : 1.8} />
-              {k === "requests" && alerts > 0 && <b className="navbadge">{alerts}</b>}
+              <Icon name={icon} size={22} strokeWidth={navOn === k ? 2.3 : 1.8} />
+              {k === "requests" && alerts > 0 && <b className="navbadge" aria-label={`${alerts} à traiter`}>{alerts}</b>}
             </span>
             {label}
           </button>
         ))}
       </nav>
       <div className="topbtns">
-        <button onClick={() => setTab("settings")} title="Réglages" aria-label="Réglages"><Icon name="sliders" size={17} /></button>
-        <button onClick={() => { setToken(null); location.reload(); }} title="Se déconnecter" aria-label="Se déconnecter"><Icon name="logout" size={17} /></button>
+        <button onClick={() => setSearch(true)} title="Rechercher un joueur" aria-label="Rechercher un joueur"><Icon name="search" size={17} /></button>
+        <button onClick={() => go("settings")} title="Réglages" aria-label="Réglages"><Icon name="sliders" size={17} /></button>
+        <button onClick={() => { setToken(null); location.hash = ""; location.reload(); }} title="Se déconnecter" aria-label="Se déconnecter"><Icon name="logout" size={17} /></button>
       </div>
+      {search && <PlayerSearch onClose={() => setSearch(false)} onPick={(id) => { setSearch(false); openPlayer(id); }} />}
     </>
   );
 }
 
 export default function App() {
-  if (location.pathname.startsWith("/invite/")) return <Invite token={location.pathname.split("/")[2]} />;
-  if (!getToken()) return <Login />;
-  return getRole() === "player" ? <PlayerApp /> : <CoachApp />;
+  let page;
+  if (location.pathname.startsWith("/invite/")) page = <Invite token={location.pathname.split("/")[2]} />;
+  else if (!getToken()) page = <Login />;
+  else page = getRole() === "player" ? <PlayerApp /> : <CoachApp />;
+  return <>{page}<FeedbackHost /></>;
 }

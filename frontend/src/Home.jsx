@@ -3,7 +3,9 @@ import { api, dayKey, dayLabel, hhmm, shortDate, tnd, toDate } from "./api.js";
 import FeedbackEditor from "./FeedbackEditor.jsx";
 import SessionPayments from "./SessionPayments.jsx";
 import Icon from "./Icon.jsx";
-import { Avatar, AvatarStack, BarChart, COURT_STATUS, KIND } from "./ui.jsx";
+import { toast, toastError } from "./feedback.jsx";
+import { sessionStatus } from "./sessionActions.js";
+import { Avatar, AvatarStack, BarChart, COURT_STATUS, InstallCard, KIND, Loading } from "./ui.jsx";
 
 const TZ = "Africa/Tunis";
 const ymd = (d) => d.toLocaleDateString("fr-CA", { timeZone: TZ });
@@ -57,6 +59,68 @@ function DonePanel({ s, name, strokes, onSaved, onClose }) {
   );
 }
 
+// Impayé: encaisser sur place ou relancer
+function UnpaidRow({ u, openPlayer, go, onPaid }) {
+  const [f, setF] = useState(null);
+  async function save(e) {
+    e.preventDefault();
+    try {
+      await api("/payments", { method: "POST", body: { player_id: u.player_id, amount_millimes: Math.round(Number(String(f.amount).replace(",", ".")) * 1000), method: f.method } });
+      toast(`Paiement de ${u.name.split(" ")[0]} enregistré`);
+      setF(null);
+      onPaid();
+    } catch (x) {
+      toastError(x);
+    }
+  }
+  return (
+    <div className="card">
+      <div className="row">
+        <button className="row g10 plain" onClick={() => openPlayer(u.player_id)}>
+          <Avatar name={u.name} />
+          <span style={{ textAlign: "left" }}><b>{u.name}</b><span className="red" style={{ display: "block" }}>{tnd(u.amount_millimes)}</span></span>
+        </button>
+        {!f && (
+          <div className="row" style={{ gap: 6 }}>
+            <button className="small" onClick={() => setF({ amount: (u.amount_millimes / 1000).toFixed(3), method: "especes" })}>Encaisser</button>
+            <button className="small sec iconbtn" title="Relancer" aria-label={`Relancer ${u.name}`} onClick={() => go("reminders")}><Icon name="send" size={15} /></button>
+          </div>
+        )}
+      </div>
+      {f && (
+        <form className="payform" style={{ marginTop: 10 }} onSubmit={save}>
+          <span className="inputunit"><input inputMode="decimal" aria-label="Montant" value={f.amount} onChange={(e) => setF({ ...f, amount: e.target.value })} required /><em>TND</em></span>
+          <select aria-label="Moyen de paiement" value={f.method} onChange={(e) => setF({ ...f, method: e.target.value })}><option value="especes">Espèces</option><option value="virement">Virement</option></select>
+          <button className="small">OK</button>
+          <button type="button" className="small sec iconbtn" aria-label="Annuler" onClick={() => setF(null)}><Icon name="x" size={14} /></button>
+        </form>
+      )}
+    </div>
+  );
+}
+
+// Premiers pas d'un nouveau coach: prix, disponibilités, premier joueur
+function Onboarding({ settings, players, go }) {
+  const steps = [
+    ["Fixer mes prix", Boolean(settings.price_individuel || settings.price_duo || settings.price_groupe), "settings"],
+    ["Ouvrir mes disponibilités", settings.availability.length > 0, "settings"],
+    ["Ajouter mon premier joueur", players.length > 0, "players"],
+  ];
+  const done = steps.filter((s) => s[1]).length;
+  if (done === steps.length) return null;
+  return (
+    <div className="card onboard">
+      <div className="row"><b>Bien démarrer</b><span className="mut">{done}/{steps.length}</span></div>
+      <div className="bar"><div style={{ width: `${(done / steps.length) * 100}%`, background: "var(--green)" }} /></div>
+      {steps.map(([label, ok, to], i) => (
+        <button key={label} className={"step" + (ok ? " ok" : "")} onClick={() => go(to)} disabled={ok}>
+          <span className="stepnum">{ok ? <Icon name="check" size={14} /> : i + 1}</span>{label}{!ok && <Icon name="chevR" size={16} />}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 export default function Home({ go, openPlayer, summary }) {
   const [d, setD] = useState(null);
   const [sessions, setSessions] = useState([]);
@@ -66,10 +130,13 @@ export default function Home({ go, openPlayer, summary }) {
   const [metric, setMetric] = useState("hours");
   const [now, setNow] = useState(new Date());
   const [openDone, setOpenDone] = useState(null);
+  const [settings, setSettings] = useState(null);
+  const [playersLoaded, setPlayersLoaded] = useState(false);
   const load = () => {
+    api("/booking/settings").then(setSettings).catch(() => {});
     api("/dashboard").then(setD);
     api("/sessions").then(setSessions);
-    api("/players").then(setPlayers);
+    api("/players").then((p) => { setPlayers(p); setPlayersLoaded(true); });
     api("/payments").then(setPays);
   };
   useEffect(() => { load(); api("/strokes").then(setStrokes); }, []);
@@ -77,7 +144,7 @@ export default function Home({ go, openPlayer, summary }) {
     const t = setInterval(() => setNow(new Date()), 30000);
     return () => clearInterval(t);
   }, []);
-  if (!d) return null;
+  if (!d) return <Loading hero rows={3} />;
 
   const byId = (id) => players.find((p) => p.id === id);
   const name = (id) => byId(id)?.name ?? "?";
@@ -90,7 +157,7 @@ export default function Home({ go, openPlayer, summary }) {
   const finished = sessions.filter((s) => s.status === "effectuee").sort((a, b) => toDate(b.start) - toDate(a.start)).slice(0, 14);
   const missing = finished.filter((s) => s.feedback_missing).length;
   const totalUnpaid = d.unpaid.reduce((a, u) => a + u.amount_millimes, 0);
-  const setStatus = (id, status) => api(`/sessions/${id}`, { method: "PATCH", body: { status } }).then(load);
+  const setStatus = sessionStatus(sessions, load);
   const alerts = (summary?.pending ?? 0) + (summary?.to_notify ?? 0);
 
   const weeks = Array.from({ length: 8 }, (_, i) => weekStart(new Date(Date.now() - (7 - i) * 7 * 86400000).toISOString()));
@@ -137,6 +204,9 @@ export default function Home({ go, openPlayer, summary }) {
           <Icon name="chevR" size={20} />
         </button>
       )}
+
+      {settings && playersLoaded && <Onboarding settings={settings} players={players} go={go} />}
+      <InstallCard />
 
       {focus && (() => {
         const ph = phase(focus, now);
@@ -221,19 +291,11 @@ export default function Home({ go, openPlayer, summary }) {
           </div>
         </div>
         <div className="mut">8 dernières semaines</div>
-        <BarChart data={chart} format={(v) => (metric === "hours" ? `${Math.round(v * 10) / 10}h` : Math.round(v))} color={metric === "hours" ? "var(--brand)" : "var(--green)"} />
+        {chart.every((c) => !c.value) ? <div className="empty"><Icon name="calendar" size={26} /><div>Vos heures et revenus apparaîtront ici après vos premières séances.</div></div> : <BarChart data={chart} format={(v) => (metric === "hours" ? `${Math.round(v * 10) / 10}h` : Math.round(v))} color={metric === "hours" ? "var(--brand)" : "var(--green)"} />}
       </div>
 
       {d.unpaid.length > 0 && <h2>À relancer</h2>}
-      {d.unpaid.slice(0, 3).map((u) => (
-        <div className="card row" key={u.player_id}>
-          <div className="row g10" style={{ cursor: "pointer" }} onClick={() => openPlayer(u.player_id)}>
-            <Avatar name={u.name} />
-            <div><b>{u.name}</b><div className="red">{tnd(u.amount_millimes)}</div></div>
-          </div>
-          <button className="small sec" onClick={() => go("reminders")}><Icon name="send" size={14} /> Relancer</button>
-        </div>
-      ))}
+      {d.unpaid.slice(0, 3).map((u) => <UnpaidRow key={u.player_id} u={u} openPlayer={openPlayer} go={go} onPaid={load} />)}
     </>
   );
 }

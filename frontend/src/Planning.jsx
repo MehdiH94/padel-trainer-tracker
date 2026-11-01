@@ -4,15 +4,16 @@ import Icon from "./Icon.jsx";
 import SessionCard from "./SessionCard.jsx";
 import SessionForm from "./SessionForm.jsx";
 import SessionPayments, { PaySummary } from "./SessionPayments.jsx";
-import { KIND } from "./ui.jsx";
+import { duplicateNextWeek, sessionStatus } from "./sessionActions.js";
+import { KIND, Loading } from "./ui.jsx";
 
 const TZ = "Africa/Tunis";
 const ymd = (d) => d.toLocaleDateString("fr-CA", { timeZone: TZ });
 const addDays = (d, n) => new Date(d.getTime() + n * 86400000);
 const mondayOf = (d) => addDays(d, -((new Date(ymd(d) + "T12:00:00Z").getUTCDay() + 6) % 7));
 
-export default function Planning() {
-  const [sessions, setSessions] = useState([]);
+export default function Planning({ go, summary }) {
+  const [sessions, setSessions] = useState(null);
   const [players, setPlayers] = useState([]);
   const [adding, setAdding] = useState(false);
   const [monday, setMonday] = useState(mondayOf(new Date()));
@@ -27,7 +28,7 @@ export default function Planning() {
   const name = (id) => players.find((p) => p.id === id)?.name ?? "?";
   const byDay = useMemo(() => {
     const m = {};
-    sessions.forEach((s) => (m[dayKey(s.start)] ||= []).push(s));
+    (sessions ?? []).forEach((s) => (m[dayKey(s.start)] ||= []).push(s));
     return m;
   }, [sessions]);
   const week = Array.from({ length: 7 }, (_, i) => addDays(monday, i));
@@ -35,7 +36,8 @@ export default function Planning() {
   const list = byDay[sel] || [];
   const active = list.filter((s) => s.status !== "effectuee");
   const done = list.filter((s) => s.status === "effectuee"); // affichées en liste compacte
-  const setStatus = (id, status) => api(`/sessions/${id}`, { method: "PATCH", body: { status } }).then(load);
+  const setStatus = sessionStatus(sessions ?? [], load);
+  const duplicate = (s) => duplicateNextWeek(s, load);
   const shift = (n) => {
     const m = addDays(monday, n * 7);
     setMonday(m);
@@ -48,6 +50,9 @@ export default function Planning() {
       <div className="row">
         <h1 style={{ margin: 0 }}>Planning</h1>
         <div className="row" style={{ gap: 4 }}>
+          <button className="small sec" onClick={() => go("courts")}>
+            <Icon name="pin" size={15} /> Terrains{summary?.waiting_court > 0 && <b className="pillcount" aria-label={`${summary.waiting_court} en attente`}>{summary.waiting_court}</b>}
+          </button>
           <button className="small sec iconbtn" aria-label="Semaine précédente" onClick={() => shift(-1)}><Icon name="chevL" size={16} /></button>
           <button className="small sec" onClick={() => { setMonday(mondayOf(new Date())); setSel(today); }}>Aujourd'hui</button>
           <button className="small sec iconbtn" aria-label="Semaine suivante" onClick={() => shift(1)}><Icon name="chevR" size={16} /></button>
@@ -75,7 +80,8 @@ export default function Planning() {
 
       {adding && <SessionForm players={players} onDone={() => { setAdding(false); load(); }} />}
 
-      {active.map((s) => <SessionCard key={s.id} s={s} name={name} onStatus={setStatus} />)}
+      {sessions === null && <Loading rows={2} />}
+      {active.map((s) => <SessionCard key={s.id} s={s} name={name} onStatus={setStatus} onDuplicate={duplicate} />)}
 
       {done.length > 0 && (
         <>
@@ -90,13 +96,18 @@ export default function Planning() {
                   <PaySummary s={s} />
                   <Icon name={openDone === s.id ? "chevD" : "chevR"} size={15} />
                 </button>
-                {openDone === s.id && <SessionPayments s={s} name={name} onPaid={load} />}
+                {openDone === s.id && (
+                  <>
+                    <SessionPayments s={s} name={name} onPaid={load} />
+                    <div className="paylist" style={{ paddingTop: 0 }}><button className="small sec" onClick={() => duplicate(s)}><Icon name="copy" size={14} /> Copier à la semaine suivante</button></div>
+                  </>
+                )}
               </div>
             ))}
           </div>
         </>
       )}
-      {list.length === 0 && !adding && (
+      {sessions !== null && list.length === 0 && !adding && (
         <div className="card empty">
           <Icon name="sun" size={32} />
           <b>Journée libre</b>

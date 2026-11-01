@@ -2,7 +2,7 @@ import { hhmm, tnd } from "./api.js";
 import Icon from "./Icon.jsx";
 import { AvatarStack, COURT_STATUS, KIND, STATUS } from "./ui.jsx";
 
-export default function SessionCard({ s, name, onStatus }) {
+export default function SessionCard({ s, name, onStatus, onDuplicate }) {
   const names = s.player_ids.map(name);
   const k = KIND[s.kind];
   const end = new Date(new Date(s.start.endsWith("Z") || /[+-]\d\d:\d\d$/.test(s.start) ? s.start : s.start + "Z").getTime() + s.duration_min * 60000).toISOString();
@@ -36,6 +36,7 @@ export default function SessionCard({ s, name, onStatus }) {
         <div className="actions">
           <button className="small" onClick={() => onStatus(s.id, "effectuee")}><Icon name="check" size={15} /> Effectuée</button>
           <button className="small sec" onClick={() => onStatus(s.id, "annulee")}>Annuler</button>
+          {onDuplicate && <button className="small sec iconbtn" title="Copier à la semaine suivante" aria-label="Copier à la semaine suivante" onClick={() => onDuplicate(s)}><Icon name="copy" size={15} /></button>}
         </div>
       )}
     </div>

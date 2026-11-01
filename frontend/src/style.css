@@ -330,3 +330,57 @@ nav button.on::before { content: ""; position: absolute; top: 0; left: 28%; righ
 }
 /* Les boutons Réglages / Déconnexion (en haut à droite) ne doivent pas recouvrir les en-têtes de page */
 main > .row:first-child { padding-right: 88px; flex-wrap: wrap; }
+
+/* --- Retours: messages, fenêtres, chargement, hors-ligne --- */
+.toasts { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(76px + env(safe-area-inset-bottom)); width: min(440px, calc(100% - 24px)); display: grid; gap: 8px; z-index: 30; pointer-events: none; }
+.toast { pointer-events: auto; display: flex; align-items: center; gap: 10px; background: #111827; color: #fff; border-radius: 14px; padding: 10px 12px; box-shadow: 0 10px 28px #0f172a55; font-size: .92rem; animation: toast-in .22s var(--ease); }
+.toast > .icon { color: #4ade80; }
+.toast.ko > .icon { color: #f87171; }
+.toast span { flex: 1; }
+.toast button { background: #ffffff1f; color: #fdba74; min-height: 36px; }
+@keyframes toast-in { from { opacity: 0; transform: translateY(10px); } }
+.overlay { animation: fade-in .18s var(--ease); }
+.sheet { animation: sheet-in .22s var(--ease); max-height: calc(100dvh - 32px); overflow: auto; }
+.sheet-title { display: block; font-size: 1.08rem; margin-bottom: 4px; }
+@keyframes fade-in { from { opacity: 0; } }
+@keyframes sheet-in { from { opacity: 0; transform: translateY(16px) scale(.98); } }
+button.danger-solid { background: var(--red); color: #fff; }
+button.danger-solid:hover { background: #b91c1c; }
+button.plain { background: none; color: inherit; padding: 0; min-height: 0; font-weight: inherit; text-align: left; }
+button.plain:hover { background: none; }
+.actions > button.iconbtn { flex: none; }
+.skel { border-radius: 16px; margin-bottom: 10px; background: linear-gradient(90deg, var(--soft) 25%, var(--line) 50%, var(--soft) 75%); background-size: 200% 100%; animation: shimmer 1.2s linear infinite; }
+.skel-hero { height: 150px; margin: -16px -16px 16px; border-radius: 0 0 28px 28px; }
+@keyframes shimmer { to { background-position: -200% 0; } }
+.offline { position: sticky; top: 0; z-index: 7; display: flex; align-items: center; justify-content: center; gap: 6px; background: var(--amber-l); color: var(--warn-txt); font-size: .85rem; font-weight: 600; padding: 6px 12px; }
+.searchlist { display: grid; gap: 4px; max-height: 55dvh; overflow-y: auto; }
+.searchrow { justify-content: flex-start; gap: 10px; background: none; color: var(--txt); font-weight: 600; text-align: left; padding: 8px 6px; border-radius: 12px; }
+.searchrow:hover { background: var(--brand-xl); }
+.searchrow > span:not(.avatar):not(.cat):not(.kdot) { flex: 1; display: flex; flex-direction: column; }
+.searchrow small { color: var(--mut); font-weight: 500; font-size: .82rem; }
+.install { display: flex; gap: 12px; align-items: flex-start; border: 1px dashed var(--brand-ring); }
+.kpi-ico { width: 38px; height: 38px; flex: none; border-radius: 12px; background: var(--brand-xl); color: var(--brand); display: grid; place-items: center; }
+.onboard .bar { margin: 8px 0 6px; }
+.onboard .step { width: 100%; justify-content: flex-start; gap: 10px; background: none; color: var(--txt); padding: 10px 2px; border-radius: 0; border-top: 1px solid var(--line); font-weight: 600; }
+.onboard .step > .icon:last-child { margin-left: auto; color: var(--mut); }
+.onboard .step.ok { color: var(--mut); text-decoration: line-through; opacity: 1; cursor: default; }
+.stepnum { width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; background: var(--brand-l); color: var(--brand-d); font-size: .8rem; flex: none; }
+.step.ok .stepnum { background: var(--green-l); color: var(--ok-txt); }
+button .pillcount { margin-left: 2px; }
+.brandmark { display: none; }
+
+/* --- Ordinateur: menu latéral --- */
+@media (min-width: 1024px) {
+  nav { top: 0; right: auto; width: 220px; flex-direction: column; justify-content: flex-start; gap: 4px; padding: 20px 12px; border-top: 0; border-right: 1px solid var(--line); }
+  nav button { flex: none; flex-direction: row; justify-content: flex-start; gap: 12px; padding: 10px 14px; border-radius: 12px; font-size: .95rem; min-height: 46px; }
+  nav button.on { background: var(--brand-xl); }
+  nav button.on::before { display: none; }
+  nav button:hover { background: var(--soft); }
+  .brandmark { display: flex; align-items: center; gap: 8px; font-family: var(--font-display); font-size: 1.35rem; font-weight: 700; text-transform: uppercase; color: var(--brand); padding: 4px 14px 18px; }
+  main, .offline { margin-left: 220px; }
+  main { max-width: 760px; padding: 24px 32px 48px; margin-left: max(220px, calc(50vw - 380px + 110px)); }
+  .hero, .skel-hero { margin: -24px -32px 20px; padding-left: 32px; padding-right: 32px; border-radius: 0 0 28px 28px; }
+  .fab { bottom: 28px; right: 28px; }
+  .toasts { bottom: 24px; left: calc(50% + 110px); }
+}
+.offline ~ .topbtns { top: 40px; }

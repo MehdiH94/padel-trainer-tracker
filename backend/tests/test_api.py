@@ -660,3 +660,22 @@ def test_index_is_never_cached(tmp_path, monkeypatch):
     assert c.get("/").headers["cache-control"] == "no-cache"
     assert c.get("/invite/abc").headers["cache-control"] == "no-cache"  # route du navigateur -> index.html
     assert "immutable" in c.get("/assets/a-123.js").headers["cache-control"]
+
+
+def test_undo_completed_session_until_paid(client):
+    p = mkplayer(client)["id"]
+    s = client.post("/sessions", json={"start": "2026-01-05T10:00:00Z", "player_ids": [p], "price_millimes": 60000}).json()[0]
+    client.patch(f"/sessions/{s['id']}", json={"status": "effectuee"})
+    assert client.patch(f"/sessions/{s['id']}", json={"status": "prevue"}).json()["status"] == "prevue"  # « Annuler »
+    client.patch(f"/sessions/{s['id']}", json={"status": "effectuee"})
+    assert client.patch(f"/sessions/{s['id']}", json={"status": "annulee"}).status_code == 409
+    client.post("/payments", json={"player_id": p, "amount_millimes": 60000, "session_id": s["id"]})
+    assert client.patch(f"/sessions/{s['id']}", json={"status": "prevue"}).status_code == 409  # déjà réglée
+
+
+def test_coach_adds_player_to_session(client):
+    a, b, c = (mkplayer(client, phone=f"22 000 00{i}", name=n)["id"] for i, n in enumerate("ABC"))
+    s = client.post("/sessions", json={"start": "2026-01-05T10:00:00Z", "kind": "duo", "player_ids": [a]}).json()[0]
+    assert client.post(f"/sessions/{s['id']}/players", json={"player_id": b}).json()["player_ids"] == [a, b]
+    assert client.post(f"/sessions/{s['id']}/players", json={"player_id": b}).status_code == 409  # déjà dedans
+    assert client.post(f"/sessions/{s['id']}/players", json={"player_id": c}).status_code == 409  # complète
