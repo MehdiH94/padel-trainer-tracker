@@ -91,10 +91,11 @@ function bookPromo(p, go) {
   go("book");
 }
 
-// Annulation: jusqu'à 24 h avant (seul) ou 48 h avant (à deux, en groupe). Après, le bouton est grisé
-// et le joueur peut envoyer un lien pour qu'un autre joueur prenne sa place (ses crédits lui sont alors rendus).
+// Annulation: jusqu'à 24 h avant (seul) ou 48 h avant (à deux, en groupe). Après, le bouton reste visible (autre couleur):
+// un clic explique le délai et propose d'envoyer un lien pour qu'un autre joueur prenne sa place (ses crédits lui sont alors rendus).
 function CancelBox({ s, reload }) {
   const [url, setUrl] = useState(null);
+  const [open, setOpen] = useState(false); // explication affichée seulement si le joueur clique sur « Annuler »
   if (!s.booking_id) return null;
   const when = (iso) => `${dayLabel(iso)} à ${hhmm(iso)}`;
   if (s.can_cancel) {
@@ -115,19 +116,30 @@ function CancelBox({ s, reload }) {
     } catch { /* partage annulé */ }
   };
   return (
-    <div className="cancel-row late">
-      <button className="small sec" disabled aria-disabled="true" title="Délai d'annulation dépassé">Annuler</button>
-      <small>Trop tard pour annuler : une séance {s.booking_kind === "individuel" ? "seul" : "à deux ou en groupe"} s'annule au plus tard {h} h avant. Trouvez quelqu'un pour vous remplacer, vos crédits vous seront rendus.</small>
-      {!url ? <button className="small" onClick={get}><Icon name="users" size={14} /> Me faire remplacer</button> : (
-        <div className="replace-share">
-          <input readOnly value={url} aria-label="Lien de la séance" onFocus={(e) => e.target.select()} />
-          <div className="actions">
-            <a className="btnlink wa" href={`https://wa.me/?text=${encodeURIComponent(msg)}`} target="_blank" rel="noreferrer"><Icon name="whatsapp" size={15} /> WhatsApp</a>
-            <button className="small sec" onClick={share}><Icon name="send" size={14} /> Partager</button>
-            <button className="small sec" onClick={() => navigator.clipboard?.writeText(url).then(() => toast("Lien copié"))}><Icon name="copy" size={14} /> Copier</button>
-          </div>
-          <small className="mut">Dès que quelqu'un prend votre place, vous êtes prévenu et vos crédits vous sont rendus.</small>
-        </div>
+    <div className="cancel-row">
+      <button className="small sec late-btn" onClick={() => setOpen(true)}>Annuler</button>
+      {open && (
+        <Modal onClose={() => setOpen(false)} label="Annulation impossible">
+          <div className="row"><b className="sheet-title">Trop tard pour annuler</b><button className="small sec iconbtn" aria-label="Fermer" onClick={() => setOpen(false)}><Icon name="x" size={15} /></button></div>
+          <p className="small-p">Une séance {s.booking_kind === "individuel" ? "seul" : "à deux ou en groupe"} s'annule au plus tard {h} h avant son début.</p>
+          <p className="small-p">Vous pouvez quand même vous faire remplacer : envoyez le lien de la séance à un ami. Dès qu'il prend votre place, vos crédits vous sont rendus.</p>
+          {!url ? (
+            <div className="actions" style={{ flexDirection: "column" }}>
+              <button onClick={get}><Icon name="users" size={15} /> Me faire remplacer</button>
+              <button className="sec" onClick={() => setOpen(false)}>Garder ma séance</button>
+            </div>
+          ) : (
+            <div className="replace-share">
+              <input readOnly value={url} aria-label="Lien de la séance" onFocus={(e) => e.target.select()} />
+              <div className="actions">
+                <a className="btnlink wa" href={`https://wa.me/?text=${encodeURIComponent(msg)}`} target="_blank" rel="noreferrer"><Icon name="whatsapp" size={15} /> WhatsApp</a>
+                <button className="small sec" onClick={share}><Icon name="send" size={14} /> Partager</button>
+                <button className="small sec" onClick={() => navigator.clipboard?.writeText(url).then(() => toast("Lien copié"))}><Icon name="copy" size={14} /> Copier</button>
+              </div>
+              <small className="mut">Vous serez prévenu dès que quelqu'un prend votre place.</small>
+            </div>
+          )}
+        </Modal>
       )}
     </div>
   );

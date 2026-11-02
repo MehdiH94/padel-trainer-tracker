@@ -551,8 +551,7 @@ main > .row:first-child > .row { flex-wrap: wrap; justify-content: flex-end; }
 /* Annulation et remplacement (joueur) */
 .cancel-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin-top: 8px; }
 .cancel-row small { font-size: .78rem; }
-.cancel-row button:disabled { opacity: .45; cursor: not-allowed; }
-.cancel-row.late { flex-direction: column; align-items: flex-start; background: var(--amber-l); color: var(--warn-txt); border-radius: 12px; padding: 8px 10px; }
+.cancel-row .late-btn { background: var(--soft); color: var(--mut); box-shadow: none; } /* délai dépassé: un clic explique */
 .replace-share { display: flex; flex-direction: column; gap: 6px; width: 100%; }
 .replace-share input { font-size: .8rem; }
 .replace-share .actions { margin-top: 0; flex-wrap: wrap; }
