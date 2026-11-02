@@ -11,10 +11,11 @@ const PERIODS = [["", "Toute la journée"], ["matin", "Matin"], ["apres-midi", "
 const DAYS = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"];
 const HOW = { individuel: "Seul", duo: "À deux", groupe: "En groupe" };
 
-// Comment le joueur paiera: avec ses crédits chez ce coach s'il en a assez, sinon sur place
+// Le prix est débité des crédits chez ce coach quand il valide la réservation; le solde peut passer en négatif (dette)
 const payment = (me, coachId, price) => {
-  const w = me.wallets.find((x) => x.coach_id === coachId);
-  return w && w.credits_millimes >= price ? `Payé avec vos crédits chez ce coach (solde ${tnd(w.credits_millimes)})` : "À régler sur place auprès du coach";
+  const bal = me.wallets.find((x) => x.coach_id === coachId)?.credits_millimes ?? 0;
+  const after = bal - price;
+  return `Débité de vos crédits quand le coach valide : solde ${tnd(bal)} → ${tnd(after)}` + (after < 0 ? " (à régler au coach)" : "");
 };
 
 // Prix affiché: la formule choisie une fois la carte ouverte, sinon la moins chère (« dès »)
@@ -141,7 +142,7 @@ export function Book({ me, reload, go, coachParam }) {
         <b style={{ textTransform: "capitalize" }}>{dayLabel(done.start)} à {hhmm(done.start)}</b>
         <p className="mut">
           {confirmed ? `${done.coach_name} vous attend.` : `${done.coach_name} doit valider votre demande et confirmer le terrain.`}{" "}
-          {done.paid_with === "credits" ? "Payé avec vos crédits." : "À régler sur place."}
+          {done.charged_millimes ? `${tnd(done.charged_millimes)} débités de vos crédits.` : `${tnd(done.price_millimes)} seront débités de vos crédits à la validation.`}
         </p>
         <button onClick={() => go("mine")}>Voir mes séances</button>
       </div>
@@ -266,7 +267,7 @@ export function CoachPage({ id, go, onBack }) {
       <div className="grid three">
         {Object.entries(KIND).map(([k, v]) => <div key={k} className="kpi"><div className="mut small-p">{HOW[k]}</div><b className="big sm">{tnd(c.prices[k])}</b></div>)}
       </div>
-      {c.credits_millimes > 0 && <div className="mut small-p" style={{ marginTop: 6 }}><Icon name="wallet" size={13} /> Vos crédits chez ce coach : {tnd(c.credits_millimes)}</div>}
+      {c.credits_millimes !== 0 && <div className={"small-p " + (c.credits_millimes < 0 ? "red" : "mut")} style={{ marginTop: 6 }}><Icon name="wallet" size={13} /> {c.credits_millimes < 0 ? `Vous devez ${tnd(-c.credits_millimes)} à ce coach` : `Vos crédits chez ce coach : ${tnd(c.credits_millimes)}`}</div>}
       {c.clubs.length > 0 && (<><h2>Clubs</h2><div className="card">{c.clubs.map((n) => <div key={n} className="clubline"><Icon name="pin" size={15} /> {n}</div>)}</div></>)}
       <h2>Disponibilités</h2>
       <div className="card">

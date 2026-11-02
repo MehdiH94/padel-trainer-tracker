@@ -198,13 +198,13 @@ def test_no_court_request_waits_for_coach_then_court_confirmed(client):
     p, pc = player_client(client)
     client.post(f"/players/{p['id']}/credits", json={"amount_millimes": 60000})
     _, r = book_new(pc)
-    assert r.json()["status"] == "en_attente" and pc.get("/me").json()["credits_millimes"] == 0
+    assert r.json()["status"] == "en_attente" and pc.get("/me").json()["credits_millimes"] == 60000  # débité à la validation
     req = client.get("/booking/requests").json()[0]
     assert req["courts_available"] == [] and req["name"] == "Sami"
     assert client.get("/booking/summary").json() == {"pending": 1, "waiting_court": 0, "to_notify": 0}
     # le coach accepte en attendant le terrain: SMS au club
     out = client.post(f"/booking/requests/{req['id']}/accept", json={"club_id": club["id"]}).json()
-    assert out["status"] == "acceptee"
+    assert out["status"] == "acceptee" and pc.get("/me").json()["credits_millimes"] == 0
     assert FakeSmsProvider.sent[-1][0] == "+21671123456"
     assert client.get("/booking/summary").json() == {"pending": 0, "waiting_court": 1, "to_notify": 0}
     cb = client.get("/court-bookings").json()[0]
@@ -743,17 +743,18 @@ def _day_of(iso):
     return datetime.fromisoformat(iso).astimezone(TUNIS).date().isoformat()
 
 
-def test_booking_without_credits_is_paid_on_site(client):
+def test_booking_without_credits_makes_balance_negative(client):
     open_week(client)
     p, pc = player_client(client)
     slot = pc.get("/me/slots").json()[0]
     free_court(client, slot)
-    r = pc.post("/me/book", json={"kind": "individuel", "start": slot}).json()
-    assert r["status"] == "confirmee" and r["paid_with"] == "sur_place"
+    r = pc.post("/me/book", json={"kind": "individuel", "start": slot}).json()  # validation automatique (terrain libre)
+    assert r["status"] == "confirmee" and r["charged_millimes"] == 60000 and r["credits_millimes"] == -60000
     s = client.get("/sessions").json()[0]
     assert s["price_millimes"] == 60000
     client.patch(f"/sessions/{s['id']}", json={"status": "effectuee"})
-    assert client.get("/dashboard").json()["unpaid"][0]["amount_millimes"] == 60000  # à régler sur place
+    unpaid = client.get("/dashboard").json()["unpaid"]
+    assert [(u["amount_millimes"], u["negative_balance_millimes"]) for u in unpaid] == [(60000, 60000)]  # une seule fois
 
 
 def test_player_books_with_another_coach_and_sees_coach_page(client):
@@ -780,7 +781,7 @@ def test_player_books_with_another_coach_and_sees_coach_page(client):
     assert pc.get(f"/me/offers?day={day}&kind=individuel&period=matin").json()["slots_with_court"] == []
     # réservation chez le second coach: une fiche est créée chez lui, reliée au compte
     r = pc.post("/me/book", json={"kind": "individuel", "start": off["slots_with_court"][0]["start"], "coach_id": coaches[1]["id"]}).json()
-    assert r["status"] == "confirmee" and r["coach_name"] == "Coach Test" and r["paid_with"] == "sur_place"
+    assert r["status"] == "confirmee" and r["coach_name"] == "Coach Test" and r["credits_millimes"] == -60000
     theirs = other.get("/players").json()
     assert [(x["name"], x["category"], x["has_account"]) for x in theirs] == [("Sami Ben", "P250+", True)]
     mine = pc.get("/me/sessions").json()["upcoming"]
@@ -820,7 +821,7 @@ def test_durations_happy_hours_and_multiple_kinds(client):
     r = pc.post("/me/book", json={"kind": "groupe", "start": morning["start"], "kinds": ["individuel", "groupe"]}).json()
     req = client.get("/booking/requests").json()[0]
     assert req["accepted_kinds"] == ["individuel", "groupe"] and req["duration_min"] == 90 and req["price_millimes"] == 22500
-    assert r["paid_with"] == "sur_place"
+    assert r["status"] == "en_attente" and r["charged_millimes"] == 0  # validation par le coach, rien de débité avant
 
 
 def test_promotion_on_reserved_court_notifies_players(client):
@@ -862,3 +863,37 @@ def test_coach_chooses_clubs(client):
     assert me_coach["clubs"] == ["Club Carthage", "Hammamet Padel"]
     client.put("/clubs/selection", json={"names": ["Padel Club La Marsa", "Club Carthage", "Hammamet Padel"]})
     assert len(client.get("/clubs").json()) == 3  # réactivé, pas dupliqué
+
+
+
+# --- DP-001: débit à la validation du coach, solde négatif autorisé ------------
+
+def test_dp001_debit_on_coach_validation_and_negative_balance(client):
+    open_week(client, auto_confirm=False)
+    p, pc = player_client(client)
+    client.post(f"/players/{p['id']}/credits", json={"amount_millimes": 120000})
+    slots = pc.get("/me/slots").json()
+    ids = [pc.post("/me/book", json={"kind": "individuel", "start": slots[i]}).json()["id"] for i in (-1, -3, -5, -7)]  # loin: annulable
+    bal = lambda: pc.get("/me").json()["credits_millimes"]  # noqa: E731
+    assert bal() == 120000  # demandes en attente: rien de débité
+    accept = lambda i: client.post(f"/booking/requests/{i}/accept", json={})  # noqa: E731
+    accept(ids[0]), accept(ids[1])
+    assert bal() == 0
+    accept(ids[2])
+    assert bal() == -60000  # solde négatif: dette envers le coach
+    unpaid = client.get("/dashboard").json()["unpaid"]
+    assert [(u["player_id"], u["amount_millimes"]) for u in unpaid] == [(p["id"], 60000)]
+    assert client.get(f"/players/{p['id']}/credits").json()["balance_millimes"] == -60000
+    assert client.get(f"/players/{p['id']}/profile").json()["finance"]["due_millimes"] == 60000
+    assert any(i["kind"] == "impaye" and i["amount_millimes"] == 60000 for i in client.get("/reminders").json())
+    # séance validée puis effectuée: pas comptée une deuxième fois dans les impayés
+    sid = next(s["id"] for s in client.get("/sessions").json() if s["start"][:16] == slots[-5][:16])
+    client.patch(f"/sessions/{sid}", json={"status": "effectuee"})
+    assert [u["amount_millimes"] for u in client.get("/dashboard").json()["unpaid"]] == [60000]
+    client.post(f"/players/{p['id']}/credits", json={"amount_millimes": 60000})
+    assert bal() == 0 and client.get("/dashboard").json()["unpaid"] == []
+    # refus: rien débité; annulation dans les délais d'une séance validée: 60 TND rendus
+    client.post(f"/booking/requests/{ids[3]}/refuse")
+    assert bal() == 0
+    assert pc.post(f"/me/bookings/{ids[0]}/cancel").json()["refunded_millimes"] == 60000
+    assert bal() == 60000

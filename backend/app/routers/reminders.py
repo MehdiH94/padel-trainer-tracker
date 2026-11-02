@@ -14,7 +14,7 @@ from ..models import Coach, ReminderLog, Player, TrainingSession
 from ..services.common import TUNIS, aware
 from ..services.courts import JOURS
 from ..services.accounts import has_account
-from ..services.finance import billed_by_player, credit_balance, paid_by_player
+from ..services.finance import amounts_due, credit_balance
 from .players import get_owned_player
 
 router = APIRouter(tags=["relances"])
@@ -44,9 +44,7 @@ def reminders(base: str = "", coach: Coach = Depends(current_coach), db: Session
         } | (extra or {}))
 
     # 1. Impayés
-    billed, paid = billed_by_player(sessions), paid_by_player(db, coach.id)
-    for pid, amount in billed.items():
-        due = amount - paid.get(pid, 0)
+    for pid, due in amounts_due(db, coach.id, sessions).items():  # séances non réglées + solde de crédits négatif
         if due > 0 and pid in players:
             p = players[pid]
             add(p, "impaye", "Rappel de paiement", f"Bonjour {p.name.split()[0]}, petit rappel : il reste {tnd(due)} à régler pour vos séances de padel. Merci ! — {coach.name}", {"amount_millimes": due})

@@ -95,7 +95,7 @@ def book(body: BookIn, player: Player = Depends(current_player), db: Session = D
         db.rollback()
         raise HTTPException(409, str(e))
     return {"id": b.id, "status": b.status, "kind": b.kind, "start": b.start, "coach_name": coach.name,
-            "paid_with": "credits" if b.charged_millimes else "sur_place", "credits_millimes": credit_balance(db, row.id)}
+            "price_millimes": b.price_millimes, "charged_millimes": b.charged_millimes, "credits_millimes": credit_balance(db, row.id)}
 
 
 def _partners(db: Session, s: TrainingSession, me_ids: int | set[int]) -> list[dict]:
@@ -186,7 +186,7 @@ def accept_proposal(proposal_id: int, player: Player = Depends(current_player), 
         raise HTTPException(409, str(e))
     p.status = "acceptee"
     db.commit()
-    return {"id": b.id, "status": b.status, "paid_with": "credits" if b.charged_millimes else "sur_place", "credits_millimes": credit_balance(db, row.id)}
+    return {"id": b.id, "status": b.status, "price_millimes": b.price_millimes, "charged_millimes": b.charged_millimes, "credits_millimes": credit_balance(db, row.id)}
 
 
 @router.post("/proposals/{proposal_id}/decline")

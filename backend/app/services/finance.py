@@ -36,3 +36,19 @@ def paid_by_player(db: Session, coach_id: int) -> dict[int, int]:
 
 def credit_balance(db: Session, player_id: int) -> int:
     return db.scalar(select(func.coalesce(func.sum(CreditTx.amount_millimes), 0)).where(CreditTx.player_id == player_id))
+
+
+def debts(db: Session, coach_id: int) -> dict[int, int]:
+    """Soldes de crédits négatifs (séances validées au-delà de ce qui a été prépayé): ce que le joueur doit au coach.
+    Ces séances sont marquées payées en crédits, elles ne comptent donc pas aussi dans billed_by_player."""
+    rows = db.execute(select(CreditTx.player_id, func.sum(CreditTx.amount_millimes)).where(CreditTx.coach_id == coach_id).group_by(CreditTx.player_id))
+    return {pid: -total for pid, total in rows if total < 0}
+
+
+def amounts_due(db: Session, coach_id: int, sessions: list[TrainingSession]) -> dict[int, int]:
+    """Total dû par joueur: séances facturées non réglées + solde de crédits négatif."""
+    billed, paid = billed_by_player(sessions), paid_by_player(db, coach_id)
+    out = {pid: amt - paid.get(pid, 0) for pid, amt in billed.items() if amt - paid.get(pid, 0) > 0}
+    for pid, debt in debts(db, coach_id).items():
+        out[pid] = out.get(pid, 0) + debt
+    return out

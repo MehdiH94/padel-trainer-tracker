@@ -25,7 +25,7 @@ function Head({ r }) {
         <span className="sep" /> <Icon name="clock" size={16} /> {hm(r.start, r.duration_min)}
         <span className="sep" /> <Icon name="wallet" size={16} /> {tnd(r.price_millimes ?? r.charged_millimes)}
         {r.price_millimes < r.base_millimes && <span className="promo-tag">−{Math.round(100 - (r.price_millimes * 100) / r.base_millimes)} %</span>}
-        <span className="mut small-p">{r.charged_millimes ? "payé en crédits" : "à régler sur place"}</span>
+        <span className="mut small-p">{r.charged_millimes ? "débité des crédits" : "débité des crédits à la validation"}</span>
       </div>
       {r.accepted_kinds?.length > 1 && (
         <div className="accepts">
@@ -81,9 +81,9 @@ function Pending({ r, clubs, reload }) {
         {r.join ? <button onClick={() => act("accept", {})}><Icon name="check" size={16} /> Accepter</button>
           : hasCourt ? <button onClick={() => act("accept", { court_booking_id: +courtId })}><Icon name="check" size={16} /> Accepter avec ce terrain</button>
           : <button className="amber" onClick={() => act("accept", { club_id: clubId ? +clubId : null })}><Icon name="clock" size={16} /> Accepter · terrain à confirmer</button>}
-        <button className="sec danger" onClick={async () => (await confirmDialog({ title: `Refuser la demande de ${r.name} ?`, message: `${tnd(r.charged_millimes)} de crédits lui seront rendus.`, confirm: "Refuser", cancel: "Retour", danger: true })) && act("refuse")}><Icon name="x" size={16} /> Refuser</button>
+        <button className="sec danger" onClick={async () => (await confirmDialog({ title: `Refuser la demande de ${r.name} ?`, message: r.charged_millimes ? `${tnd(r.charged_millimes)} de crédits lui seront rendus.` : "Rien n'a été débité de ses crédits.", confirm: "Refuser", cancel: "Retour", danger: true })) && act("refuse")}><Icon name="x" size={16} /> Refuser</button>
       </div>
-      <div className="mut small-p">Refuser rend {tnd(r.charged_millimes)} de crédits au joueur.</div>
+      <div className="mut small-p">Accepter débite {tnd(r.price_millimes)} des crédits du joueur (le solde peut devenir négatif). Refuser ne débite rien.</div>
     </div>
   );
 }

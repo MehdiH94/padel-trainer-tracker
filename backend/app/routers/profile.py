@@ -117,7 +117,8 @@ def build_profile(db: Session, coach_id: int, player: Player) -> dict:
     last = next((h for h in done if h["worked_on"] or h["note"] or h["to_improve"]), None)
     return {
         "finance": {
-            "billed_millimes": billed, "paid_millimes": paid, "due_millimes": max(billed - paid, 0),
+            # dû = séances non réglées + solde de crédits négatif (séances validées au-delà du prépayé, DP-001)
+            "billed_millimes": billed, "paid_millimes": paid, "due_millimes": max(billed - paid, 0) + max(-credit_balance(db, player.id), 0),
             "credit_millimes": max(paid - billed, 0), "credits_balance_millimes": credit_balance(db, player.id),
             "payments": [{"id": p.id, "amount_millimes": p.amount_millimes, "method": p.method, "kind": p.kind, "paid_at": p.paid_at} for p in pays[:20]],
         },

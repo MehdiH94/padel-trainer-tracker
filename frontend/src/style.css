@@ -455,3 +455,4 @@ button.prepare.done > .icon:first-child { color: var(--ok-txt); }
 .newclub { display: grid; grid-template-columns: 1.4fr 1fr auto; gap: 6px; margin-top: 10px; }
 .newclub input { margin: 0; }
 @media (max-width: 420px) { .newclub { grid-template-columns: 1fr 1fr; } .newclub button { grid-column: 1 / -1; } }
+.debt { margin-top: 4px; display: inline-block; background: #b91c1c; color: #fff; font-weight: 700; font-size: .85rem; padding: 3px 10px; border-radius: 99px; }

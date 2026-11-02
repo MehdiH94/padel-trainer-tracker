@@ -22,10 +22,6 @@ class BookingError(Exception):
     pass
 
 
-class InsufficientCredits(BookingError):
-    pass
-
-
 def price_for(coach: Coach, kind: str) -> int:
     return {"individuel": coach.price_individuel, "duo": coach.price_duo, "groupe": coach.price_groupe}[kind]
 
@@ -123,12 +119,15 @@ def suggestions(db: Session, coach: Coach, player: Player, kinds: list[str]) -> 
 
 # --- Demandes -----------------------------------------------------------
 
-def _debit(db: Session, coach: Coach, player: Player, price: int, b: Booking) -> None:
-    """Payé avec les crédits s'il y en a assez chez ce coach; sinon la séance sera réglée sur place (rien de débité)."""
-    if price and credit_balance(db, player.id) >= price:
-        db.add(CreditTx(coach_id=coach.id, player_id=player.id, amount_millimes=-price, reason="reservation", booking_id=b.id))
-    else:
-        b.charged_millimes = 0
+def _debit(db: Session, b: Booking) -> None:
+    """À la validation par le coach, le prix est débité des crédits du joueur chez ce coach, même si le solde
+    ne suffit pas: un solde négatif est ce que le joueur doit au coach (DP-001). Rien n'est débité à la demande."""
+    if b.charged_millimes:  # ancienne réservation déjà débitée au moment de la demande: pas deux fois
+        return
+    price = b.price_millimes
+    if price:
+        db.add(CreditTx(coach_id=b.coach_id, player_id=b.player_id, amount_millimes=-price, reason="reservation", booking_id=b.id))
+        b.charged_millimes = price
 
 
 def request_join(db: Session, coach: Coach, player: Player, s: TrainingSession, sms: SmsProvider | None = None, *, force_accept: bool = False) -> Booking:
@@ -142,11 +141,10 @@ def request_join(db: Session, coach: Coach, player: Player, s: TrainingSession, 
     if not force_accept and not fits_session(db, player, s)[0]:
         raise BookingError("Votre classement n'est pas compatible avec les joueurs de cette séance")
     price = s.price_millimes or price_for(coach, s.kind)
-    b = Booking(coach_id=coach.id, player_id=player.id, kind=s.kind, start=s.start, duration_min=s.duration_min, session_id=s.id, charged_millimes=price,
+    b = Booking(coach_id=coach.id, player_id=player.id, kind=s.kind, start=s.start, duration_min=s.duration_min, session_id=s.id, charged_millimes=0,
                 price_millimes=price, accepted_kinds=s.kind)
     db.add(b)
     db.flush()
-    _debit(db, coach, player, price, b)
     if force_accept or coach.auto_confirm:
         accept(db, coach, b, sms)
     db.commit()
@@ -164,11 +162,10 @@ def request_new(db: Session, coach: Coach, player: Player, kind: str, start: dat
         raise BookingError("Ce créneau n'est plus disponible")
     price = q["price_millimes"]
     accepted = [k for k in CAPACITY if k in (accepted_kinds or []) or k == kind]
-    b = Booking(coach_id=coach.id, player_id=player.id, kind=kind, start=aware(start), duration_min=q["duration_min"], charged_millimes=price,
+    b = Booking(coach_id=coach.id, player_id=player.id, kind=kind, start=aware(start), duration_min=q["duration_min"], charged_millimes=0,
                 accepted_kinds=",".join(accepted), price_millimes=price)
     db.add(b)
     db.flush()
-    _debit(db, coach, player, price, b)
     held = courts.held_covering(db, coach, b.start, b.duration_min)
     if coach.auto_confirm and held:
         accept(db, coach, b, sms, court=held[0])  # terrain disponible: validation automatique
@@ -186,10 +183,14 @@ def accept(db: Session, coach: Coach, b: Booking, sms: SmsProvider | None = None
         s = db.get(TrainingSession, b.session_id)
         if len(s.attendances) >= CAPACITY[s.kind]:
             raise BookingError("Cette séance est complète")
+        _debit(db, b)
         s.attendances.append(Attendance(player_id=player.id, credit_paid_millimes=b.charged_millimes))
         state = court_state(db, s)
         b.status = "confirmee" if state in (None, "confirmee") else "acceptee"
         return
+    if not b.price_millimes:
+        b.price_millimes = price_for(coach, b.kind)
+    _debit(db, b)
     s = TrainingSession(
         coach_id=coach.id, start=b.start, duration_min=b.duration_min, kind=b.kind, level=player.category,
         price_millimes=b.price_millimes or b.charged_millimes or price_for(coach, b.kind), price_mode="par_joueur", open=b.kind != "individuel",

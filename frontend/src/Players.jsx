@@ -72,7 +72,7 @@ export default function Players({ playerId, openPlayer, closePlayer }) {
           </div>
           <div style={{ textAlign: "right" }}>
             <CategoryBadge category={p.category} gender={p.gender} />
-            {p.has_account && <div className="mut" style={{ fontSize: ".8rem" }}><Icon name="wallet" size={12} /> {tnd(p.credits_millimes)}</div>}
+            {p.has_account && <div className={p.credits_millimes < 0 ? "red" : "mut"} style={{ fontSize: ".8rem" }}><Icon name="wallet" size={12} /> {tnd(p.credits_millimes)}</div>}
             {unpaid[p.id] > 0 && <div className="red" style={{ fontSize: ".82rem" }}>{tnd(unpaid[p.id])} dû</div>}
           </div>
         </div>

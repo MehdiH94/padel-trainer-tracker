@@ -8,7 +8,7 @@ from ..auth import current_coach
 from ..db import get_db
 from ..models import Coach, Payment, Player, TrainingSession
 from ..services.common import TUNIS, aware
-from ..services.finance import billed_by_player, paid_by_player
+from ..services.finance import amounts_due, debts
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 
@@ -32,12 +32,11 @@ def dashboard(coach: Coach = Depends(current_coach), db: Session = Depends(get_d
     def revenue(since: datetime) -> int:
         return sum(p.amount_millimes for p in payments if aware(p.paid_at) >= since)
 
-    billed, paid = billed_by_player(sessions), paid_by_player(db, coach.id)
     names = {p.id: p.name for p in db.scalars(select(Player).where(Player.coach_id == coach.id))}
-    unpaid = [
-        {"player_id": pid, "name": names.get(pid, "?"), "amount_millimes": amt - paid.get(pid, 0)}
-        for pid, amt in billed.items()
-        if amt - paid.get(pid, 0) > 0
+    debt = debts(db, coach.id)
+    unpaid = [  # séances non réglées + soldes de crédits négatifs (DP-001)
+        {"player_id": pid, "name": names.get(pid, "?"), "amount_millimes": amt, "negative_balance_millimes": debt.get(pid, 0)}
+        for pid, amt in amounts_due(db, coach.id, sessions).items()
     ]
 
     return {
