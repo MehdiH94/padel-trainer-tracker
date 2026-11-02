@@ -6,3 +6,8 @@ node_modules/
 dist/
 .vite/
 *.log
+
+# Tests de bout en bout (Playwright)
+frontend/test-results/
+frontend/playwright-report/
+backend/e2e.db

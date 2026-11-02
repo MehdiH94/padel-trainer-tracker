@@ -24,7 +24,9 @@ python seed_more_coaches.py                          # + 2 coachs fictifs (coach
 # Frontend (depuis frontend/)
 npm install && npm run dev                           # http://localhost:5173
 npm run build
+npx playwright test                                  # parcours de bout en bout (5), sur l'appli construite (npm run build avant)
 ```
+Tests de bout en bout (`frontend/e2e/`, Playwright): l'application est servie comme en production (`e2e/serve.sh`, `app.web`) sur une base neuve avec les données de démo (`e2e/setup.js`); en local, `PYTHON=../backend/.venv/bin/python npx playwright test`. Sur GitHub, le job `e2e` tourne à chaque push et le déploiement attend qu'il soit vert (rapport et captures en artefact si échec). Ajouter un parcours à chaque nouvelle fonctionnalité visible.
 Le schéma est créé par `create_all`: après un changement de modèle, supprimer `backend/padel.db` et relancer le seed.
 
 ## Règles métier à ne pas casser
