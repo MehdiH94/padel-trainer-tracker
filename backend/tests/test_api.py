@@ -946,3 +946,19 @@ def test_dp002_not_enforced_without_email_sending(client, monkeypatch):
     open_week(client)
     _, pc = player_client(client)
     assert pc.get("/me").json()["can_book"] is True  # aucun e-mail ne peut partir: on ne bloque pas
+
+
+def test_dp003_old_address_redirects_to_canonical_domain(tmp_path, monkeypatch):
+    import importlib
+    (tmp_path / "index.html").write_text("<html>app</html>")
+    monkeypatch.setenv("STATIC_DIR", str(tmp_path))
+    monkeypatch.setenv("CANONICAL_HOST", "padel.exemple.tn")
+    from app import web
+    web = importlib.reload(web)
+    c = TestClient(web.web, base_url="http://141.95.86.176")
+    r = c.get("/invite/abc?x=1", follow_redirects=False)
+    assert r.status_code == 301 and r.headers["location"] == "https://padel.exemple.tn/invite/abc?x=1"
+    assert TestClient(web.web, base_url="https://padel.exemple.tn").get("/").status_code == 200
+    assert TestClient(web.web, base_url="http://127.0.0.1:8000").get("/api/health").json() == {"ok": True}  # vérification interne
+    monkeypatch.delenv("CANONICAL_HOST")
+    importlib.reload(web)

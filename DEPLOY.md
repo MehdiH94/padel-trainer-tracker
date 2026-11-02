@@ -29,3 +29,6 @@ padel.mondomaine.tn {          # HTTPS automatique avec un domaine
 }
 ```
 Pour utiliser le Caddy intégré à la place (ports 80/443 libres): `docker compose --profile caddy up -d --build`.
+
+## Domaine définitif et e-mails
+Voir `docs/DOMAINE.md` (DNS, HTTPS, redirection de l'ancienne adresse avec `CANONICAL_HOST`, SMTP, SPF/DKIM/DMARC, vérifications).

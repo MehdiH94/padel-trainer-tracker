@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 
 from fastapi import FastAPI
+from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException
 
@@ -35,6 +36,20 @@ class SinglePage(StaticFiles):
 
 
 web = FastAPI(title="Padel Trainer Tracker", lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
+
+# Domaine définitif (DP-003): toute autre adresse publique (ancien domaine, IP) redirige vers https://CANONICAL_HOST.
+# Les appels internes (localhost, 127.0.0.1: vérifications de santé, seeds) ne sont pas redirigés.
+CANONICAL_HOST = os.getenv("CANONICAL_HOST", "").strip().lower()
+INTERNAL = {"localhost", "127.0.0.1", "app", "testserver"}
+
+
+@web.middleware("http")
+async def canonical_host(request, call_next):
+    host = request.headers.get("host", "").split(":")[0].lower()
+    if CANONICAL_HOST and host and host != CANONICAL_HOST and host not in INTERNAL:
+        url = f"https://{CANONICAL_HOST}{request.url.path}" + (f"?{request.url.query}" if request.url.query else "")
+        return RedirectResponse(url, status_code=301 if request.method in ("GET", "HEAD") else 308)
+    return await call_next(request)
 web.mount("/api", api)
 if DIST.exists():
     web.mount("/", SinglePage(directory=DIST, html=True))
