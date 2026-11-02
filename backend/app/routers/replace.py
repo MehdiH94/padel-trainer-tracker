@@ -8,6 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..auth import current_player, hash_password
+from ..errors import check_fields
 from ..constants import CATEGORIES
 from ..db import get_db
 from ..models import Booking, Coach, Player, TrainingSession
@@ -81,10 +82,13 @@ def signup(token: str, body: SignupIn, db: Session = Depends(get_db)):
     """Nouveau joueur: il crée son compte chez ce coach (inscription à confirmer par l'administrateur) et prend la place."""
     b = _booking(db, token)
     email = body.email.strip().lower()
-    if "@" not in email or len(body.password) < 6 or not body.name.strip():
-        raise HTTPException(422, "Nom, e-mail valide et mot de passe de 6 caractères minimum requis")
-    if body.gender not in ("M", "F") or body.category not in CATEGORIES or body.contact_channel not in CHANNELS:
-        raise HTTPException(422, "Genre, niveau ou moyen de contact invalide")
+    check_fields(name=body.name, email=email, password=body.password)
+    if body.gender not in ("M", "F"):
+        raise HTTPException(422, "Genre : choisissez Homme ou Dame.")
+    if body.category not in CATEGORIES:
+        raise HTTPException(422, "Niveau invalide : choisissez un niveau de P25- à P1000+.")
+    if body.contact_channel not in CHANNELS:
+        body.contact_channel = "email"
     if db.scalar(select(Coach).where(Coach.email == email)) or db.scalar(select(Player).where(Player.email == email)):
         raise HTTPException(409, "Cet e-mail a déjà un compte : connectez-vous pour prendre la place.")
     p = Player(coach_id=b.coach_id, name=body.name.strip(), phone=body.phone, email=email, password_hash=hash_password(body.password),

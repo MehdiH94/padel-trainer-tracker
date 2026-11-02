@@ -49,6 +49,12 @@ test("le coach ajoute un élève, qui s'inscrit avec le lien pré-rempli", async
   await page.getByRole("button", { name: "Joueur", exact: true }).click(); // bouton flottant « + Joueur »
   const form = page.locator("form.card");
   await form.locator("input").first().fill("Lina Test");
+  // saisies invalides: explication en clair sous le champ, pas de code d'erreur
+  await form.locator("input[inputmode=tel]").fill("12 345 678 9");
+  await expect(form.getByText(/il faut 8 chiffres/)).toBeVisible();
+  await form.locator("input[type=email]").fill("lina.gmail.com");
+  await expect(form.getByText(/forme nom@exemple.com/)).toBeVisible();
+  await expect(form.getByRole("button", { name: "Ajouter le joueur" })).toBeDisabled();
   await form.locator("input[inputmode=tel]").fill("55 600 700");
   await form.locator("input[type=email]").fill("sami@demo.tn"); // déjà pris: refusé pendant la saisie
   await expect(form.getByText(/déjà celle de Sami Ben Ali/)).toBeVisible();

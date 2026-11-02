@@ -15,7 +15,7 @@ router = APIRouter(tags=["payments"])
 def create_payment(body: PaymentIn, coach: Coach = Depends(current_coach), db: Session = Depends(get_db)):
     get_owned_player(db, coach, body.player_id)
     if body.amount_millimes <= 0 or body.method not in ("especes", "virement"):
-        raise HTTPException(422, "Paiement invalide")
+        raise HTTPException(422, "Montant invalide : indiquez un montant supérieur à 0, payé en espèces ou par virement.")
     if body.session_id is not None:
         s = db.get(TrainingSession, body.session_id)
         if not s or s.coach_id != coach.id or body.player_id not in [a.player_id for a in s.attendances]:

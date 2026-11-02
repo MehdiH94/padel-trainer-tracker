@@ -3,6 +3,9 @@ import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.exceptions import RequestValidationError
+
+from .errors import validation_handler
 from sqlalchemy import inspect, select, text
 
 from .db import Base, SessionLocal, engine
@@ -74,6 +77,7 @@ async def lifespan(_: FastAPI):
 
 
 app = FastAPI(title="Padel Trainer Tracker", lifespan=lifespan)
+app.add_exception_handler(RequestValidationError, validation_handler)  # erreurs de formulaire expliquées en français
 for r in (admin, auth, replace, players, sessions, payments, dashboard, booking, profile, clubs, reminders, promotions, me, exercises):
     app.include_router(r.router)
 

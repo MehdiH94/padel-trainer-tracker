@@ -34,6 +34,24 @@ export function stopActing() {
   location.reload();
 }
 
+// Message d'erreur compréhensible, jamais un simple code (« Erreur 422 »)
+const BY_STATUS = {
+  400: "Demande incorrecte. Vérifiez les informations saisies.",
+  401: "Identifiants incorrects ou session expirée. Reconnectez-vous.",
+  403: "Vous n'avez pas le droit de faire cette action.",
+  404: "Élément introuvable : il a peut-être été supprimé. Rechargez la page.",
+  409: "Cette action n'est plus possible : les informations ont changé entre-temps. Rechargez la page.",
+  413: "Fichier ou texte trop volumineux.",
+  422: "Certaines informations sont invalides. Vérifiez le formulaire.",
+  429: "Trop de tentatives. Patientez une minute puis réessayez.",
+};
+function explain(status, detail) {
+  if (typeof detail === "string" && detail) return detail;
+  if (Array.isArray(detail) && detail.length) return detail.map((d) => d.msg?.replace(/^Value error, /, "") ?? String(d)).join(" ");
+  if (status >= 500) return "Le serveur a rencontré un problème. Réessayez dans un instant ; si cela continue, prévenez l'administrateur.";
+  return BY_STATUS[status] ?? "Action impossible pour le moment. Réessayez.";
+}
+
 export async function api(path, { method = "GET", body } = {}) {
   let res;
   try {
@@ -51,7 +69,7 @@ export async function api(path, { method = "GET", body } = {}) {
   }
   if (!res.ok) {
     const e = await res.json().catch(() => ({}));
-    throw new Error(typeof e.detail === "string" ? e.detail : "Erreur " + res.status);
+    throw new Error(explain(res.status, e.detail));
   }
   return res.json();
 }
@@ -110,3 +128,6 @@ export function useContactCheck(email, phone, exclude) {
   }, [email, phone, exclude]);
   return errs;
 }
+
+// Format d'e-mail (vérifié pendant la saisie, avant l'envoi): message en clair, ou null si correct
+export const emailProblem = (v) => (v && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v.trim()) ? "Adresse e-mail invalide : elle doit être de la forme nom@exemple.com." : null);

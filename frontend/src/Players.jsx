@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, tnd, useContactCheck } from "./api.js";
+import { api, emailProblem, tnd, useContactCheck } from "./api.js";
 import Icon from "./Icon.jsx";
 import InviteLink from "./InviteLink.jsx";
 import PlayerPage from "./PlayerPage.jsx";
@@ -14,6 +14,7 @@ export default function Players({ playerId, openPlayer, closePlayer }) {
   const [adding, setAdding] = useState(false);
   const [f, setF] = useState({ name: "", phone: "", email: "", gender: "M", category: "P100-" });
   const taken = useContactCheck(f.email, f.phone); // e-mail ou téléphone déjà utilisés
+  const badEmail = emailProblem(f.email);
   const [err, setErr] = useState("");
   const [added, setAdded] = useState(null); // élève tout juste ajouté: son lien d'inscription
   const load = () => {
@@ -63,8 +64,8 @@ export default function Players({ playerId, openPlayer, closePlayer }) {
           <label className="field"><span className="mut">Nom complet</span><input value={f.name} onChange={set("name")} required /></label>
           <label className="field"><span className="mut">Téléphone (8 chiffres)</span><input inputMode="tel" placeholder="22 123 456" value={f.phone} onChange={set("phone")} required aria-invalid={!!taken.phone} /></label>
           {taken.phone && <div className="err" role="alert">{taken.phone}</div>}
-          <label className="field"><span className="mut">E-mail (facultatif)</span><input type="email" value={f.email} onChange={set("email")} aria-invalid={!!taken.email} /></label>
-          {taken.email && <div className="err" role="alert">{taken.email}</div>}
+          <label className="field"><span className="mut">E-mail (facultatif)</span><input type="email" value={f.email} onChange={set("email")} aria-invalid={!!(badEmail || taken.email)} /></label>
+          {(badEmail || taken.email) && <div className="err" role="alert">{badEmail || taken.email}</div>}
           <div className="grid">
             <label className="field"><span className="mut">Genre</span>
               <select value={f.gender} onChange={set("gender")}><option value="M">Homme</option><option value="F">Dame</option></select>
@@ -74,7 +75,7 @@ export default function Players({ playerId, openPlayer, closePlayer }) {
             </label>
           </div>
           {err && <div className="err">{err}</div>}
-          <button style={{ width: "100%" }} disabled={!!(taken.email || taken.phone)}>Ajouter le joueur</button>
+          <button style={{ width: "100%" }} disabled={!!(badEmail || taken.email || taken.phone)}>Ajouter le joueur</button>
         </form>
       )}
       {shown.map((p) => (

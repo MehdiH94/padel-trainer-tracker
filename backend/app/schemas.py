@@ -15,7 +15,7 @@ def normalize_tn_phone(raw: str) -> str:
     elif digits.startswith("00216"):
         digits = digits[5:]
     if not re.fullmatch(r"\d{8}", digits):
-        raise ValueError("Numéro tunisien invalide (8 chiffres attendus)")
+        raise ValueError("Numéro de téléphone invalide : il faut 8 chiffres (ex. 22 123 456), éventuellement précédés de +216")
     return "+216" + digits
 
 
@@ -62,7 +62,7 @@ class PlayerIn(BaseModel):
     def _category(cls, v: str) -> str:
         v = normalize_category(v.strip().upper())
         if v not in CATEGORIES:
-            raise ValueError("Catégorie invalide (P25- à P1000+)")
+            raise ValueError("Niveau invalide : choisissez un niveau de P25- à P1000+")
         return v
 
     @field_validator("email")
@@ -70,7 +70,7 @@ class PlayerIn(BaseModel):
     def _email(cls, v: str | None) -> str | None:
         v = (v or "").strip().lower()
         if v and "@" not in v:
-            raise ValueError("Email invalide")
+            raise ValueError("Adresse e-mail invalide : elle doit contenir un @ (ex. nom@gmail.com)")
         return v or None
 
 

@@ -11,6 +11,7 @@ from ..models import Coach, Player
 from ..constants import CATEGORIES
 from ..schemas import CHANNELS, Creds
 from ..services import email_verification as verification
+from ..errors import check_fields
 from ..services import signups
 from ..services.accounts import contact_conflicts
 
@@ -25,8 +26,9 @@ def session_for(user_id: int, role: str) -> dict:
 def register(c: Creds, db: Session = Depends(get_db)):
     """Création d'un compte coach."""
     email = c.email.strip().lower()
+    check_fields(name=c.name or email, email=email, password=c.password)
     if db.scalar(select(Coach).where(Coach.email == email)) or db.scalar(select(Player).where(Player.email == email, Player.password_hash.is_not(None))):
-        raise HTTPException(409, "Email déjà utilisé")
+        raise HTTPException(409, "Cette adresse e-mail a déjà un compte : connectez-vous, ou utilisez une autre adresse.")
     coach = Coach(email=email, password_hash=hash_password(c.password), name=c.name or email)
     db.add(coach)
     db.commit()
@@ -77,8 +79,7 @@ def invite_accept(token: str, body: InviteAccept, db: Session = Depends(get_db))
     """Le joueur crée son compte depuis le lien d'invitation envoyé par le coach."""
     p = _by_token(db, token)
     email = body.email.strip().lower()
-    if "@" not in email or len(body.password) < 6:
-        raise HTTPException(422, "Email invalide ou mot de passe trop court (6 caractères minimum)")
+    check_fields(email=email, password=body.password)
     if contact_conflicts(db, p.coach_id, email, None, p.id)["email"]:
         raise HTTPException(409, "Cette adresse e-mail est déjà utilisée par un autre compte. Utilisez-en une autre, ou connectez-vous avec ce compte.")
     if body.contact_channel is not None and body.contact_channel not in CHANNELS:

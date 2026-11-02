@@ -60,7 +60,7 @@ def check_contact(email: str = "", phone: str = "", exclude: int | None = None, 
     try:
         phone = normalize_tn_phone(phone) if phone.strip() else ""
     except ValueError:
-        return {"email": None, "phone": "Numéro tunisien invalide (8 chiffres attendus)"}
+        return {"email": None, "phone": "Numéro de téléphone invalide : il faut 8 chiffres (ex. 22 123 456)."}
     return contact_conflicts(db, coach.id, email, phone, exclude)
 
 
@@ -110,7 +110,7 @@ def recharge(player_id: int, body: CreditIn, coach: Coach = Depends(current_coac
     """Le joueur paie à l'avance: l'argent encaissé devient des crédits utilisables pour réserver."""
     p = get_owned_player(db, coach, player_id)
     if body.amount_millimes <= 0 or body.method not in ("especes", "virement"):
-        raise HTTPException(422, "Recharge invalide")
+        raise HTTPException(422, "Montant invalide : indiquez un montant supérieur à 0, payé en espèces ou par virement.")
     db.add(Payment(coach_id=coach.id, player_id=p.id, amount_millimes=body.amount_millimes, method=body.method, kind="credit"))
     db.add(CreditTx(coach_id=coach.id, player_id=p.id, amount_millimes=body.amount_millimes, reason="recharge"))
     db.flush()

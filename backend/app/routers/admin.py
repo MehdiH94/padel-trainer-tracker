@@ -14,6 +14,7 @@ from ..db import get_db
 from ..models import Attendance, Club, Coach, CourtBooking, Player, Promotion, TrainingSession
 from ..services.common import aware
 from ..schemas import PlayerIn
+from ..errors import check_fields
 from ..services import admin_ops, signups
 from ..services.accounts import account_of, contact_conflicts, has_account, share_profile
 
@@ -129,8 +130,7 @@ class CoachIn(BaseModel):
 @router.post("/coaches", status_code=201)
 def add_coach(body: CoachIn, admin: Coach = Depends(current_admin), db: Session = Depends(get_db)):
     email = body.email.strip().lower()
-    if "@" not in email or not body.name.strip():
-        raise HTTPException(422, "Nom et e-mail valides requis")
+    check_fields(name=body.name, email=email, password=body.password, password_required=False)
     if db.scalar(select(Coach).where(Coach.email == email)) or db.scalar(select(Player).where(Player.email == email)):
         raise HTTPException(409, "Cet e-mail est déjà utilisé")
     password = body.password or secrets.token_urlsafe(6)
@@ -262,8 +262,11 @@ def edit_player(player_id: int, body: AdminPlayerEdit, admin: Coach = Depends(cu
     except ValueError as e:
         raise HTTPException(422, str(e))
     email = (body.email or "").strip().lower() or None
-    if body.gender not in ("M", "F") or body.category not in CATEGORIES or (email and "@" not in email):
-        raise HTTPException(422, "Genre, niveau ou e-mail invalide")
+    check_fields(name=body.name, email=email, password=body.password, email_required=False, password_required=False)
+    if body.gender not in ("M", "F"):
+        raise HTTPException(422, "Genre : choisissez Homme ou Dame.")
+    if body.category not in CATEGORIES:
+        raise HTTPException(422, "Niveau invalide : choisissez un niveau de P25- à P1000+.")
     errors = contact_conflicts(db, p.coach_id, email, phone, p.id)
     if errors["email"] or errors["phone"]:
         raise HTTPException(409, errors["email"] or errors["phone"])
@@ -301,8 +304,7 @@ def edit_coach(coach_id: int, body: CoachEdit, admin: Coach = Depends(current_ad
     if not c:
         raise HTTPException(404, "Coach introuvable")
     email = body.email.strip().lower()
-    if "@" not in email or not body.name.strip():
-        raise HTTPException(422, "Nom et e-mail valides requis")
+    check_fields(name=body.name, email=email, password=body.password, password_required=False)
     if db.scalar(select(Coach).where(func.lower(Coach.email) == email, Coach.id != c.id)) or db.scalar(select(Player).where(func.lower(Player.email) == email)):
         raise HTTPException(409, "Cet e-mail est déjà utilisé")
     if body.password and len(body.password) < 6:

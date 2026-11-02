@@ -1572,3 +1572,22 @@ def test_admin_full_rights_act_as_and_edit_everything(client, monkeypatch):
     boss.post("/admin/clubs", json={"name": "Club Test"})
     assert boss.put("/admin/clubs/club test", json={"name": "Club Test Sousse", "phone": "73 111 222"}).status_code == 200
     assert "Club Test Sousse" in [c["name"] for c in boss.get("/admin/clubs").json()]
+
+
+def test_errors_are_explained_in_plain_french(client):
+    """Jamais de liste technique ni de code: chaque refus dit ce qui ne va pas."""
+    cases = [
+        ({"name": "A", "phone": "123"}, "8 chiffres"),
+        ({"name": "A", "phone": "22 123 456", "email": "sansarobase"}, "@"),
+        ({"phone": "22 123 456"}, "Nom : ce champ est obligatoire."),
+        ({"name": "A", "phone": "22 123 456", "category": "P2000"}, "Niveau invalide"),
+    ]
+    for body, expected in cases:
+        r = client.post("/players", json=body)
+        assert r.status_code == 422 and isinstance(r.json()["detail"], str) and expected in r.json()["detail"], r.json()
+    r = TestClient(app).post("/auth/register", json={"email": "nouveau@x.tn", "password": "123", "name": "Coach"})
+    assert r.json()["detail"] == "Mot de passe trop court : 6 caractères minimum."
+    r = TestClient(app).post("/auth/register", json={"email": "pasunemail", "password": "secret1", "name": "Coach"})
+    assert "nom@exemple.com" in r.json()["detail"]
+    r = TestClient(app).post("/auth/register", json={"email": "A@B.tn", "password": "secret1", "name": "Coach"})
+    assert r.status_code == 409 and "déjà un compte" in r.json()["detail"]
