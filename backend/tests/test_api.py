@@ -1144,3 +1144,31 @@ def test_price_follows_the_formula_actually_played(client):
     sid2 = next(x["id"] for x in client.get("/sessions").json() if x["player_ids"] == [s["id"]])
     assert pb.post("/me/book", json={"session_id": sid2, "kinds": ["individuel", "duo", "groupe"]}).status_code == 409
     assert bal(ps) == 40000
+
+
+def test_recurring_manual_courts(client):
+    club = mkclub(client)
+    from app.services.common import TUNIS
+    tomorrow = (datetime.now(TUNIS) + timedelta(days=1)).date()
+    start = datetime.combine(tomorrow, datetime.min.time().replace(hour=9), TUNIS).isoformat()
+    # tous les jours de 9 h à 10 h pendant une semaine
+    r = client.post("/court-bookings/manual", json={"club_id": club["id"], "start": start, "duration_min": 60, "repeat": "daily",
+                                                     "until": (tomorrow + timedelta(days=6)).isoformat()}).json()
+    assert r["created"] == 7 and r["series_id"]
+    free = [c for c in client.get("/court-bookings").json() if c["free"]]
+    assert len(free) == 7 and all(datetime.fromisoformat(c["start"]).replace(tzinfo=timezone.utc).astimezone(TUNIS).hour == 9 for c in free)
+    # chaque lundi de 17 h à 18 h pendant 4 semaines; les créneaux déjà saisis sont sautés
+    monday = tomorrow + timedelta(days=(7 - tomorrow.weekday()) % 7)
+    st2 = datetime.combine(monday, datetime.min.time().replace(hour=17), TUNIS).isoformat()
+    r2 = client.post("/court-bookings/manual", json={"club_id": club["id"], "start": st2, "repeat": "weekly", "weekdays": [0],
+                                                      "until": (monday + timedelta(weeks=3)).isoformat()}).json()
+    assert r2["created"] == 4
+    again = client.post("/court-bookings/manual", json={"club_id": club["id"], "start": st2, "repeat": "weekly", "weekdays": [0],
+                                                         "until": (monday + timedelta(weeks=3)).isoformat()})
+    assert again.status_code == 409  # déjà saisis
+    assert client.post("/court-bookings/manual", json={"club_id": club["id"], "start": st2, "repeat": "daily",
+                                                        "until": (monday + timedelta(days=400)).isoformat()}).status_code == 422
+    # supprimer la série à partir du 3e jour: les 2 premiers restent
+    third = sorted((c for c in client.get("/court-bookings").json() if c["series_id"] == r["series_id"]), key=lambda c: c["start"])[2]
+    assert client.delete(f"/court-bookings/{third['id']}?series=true").json()["deleted"] == 5
+    assert len([c for c in client.get("/court-bookings").json() if c["series_id"] == r["series_id"]]) == 2

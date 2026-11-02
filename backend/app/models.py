@@ -124,6 +124,7 @@ class CourtBooking(Base):
     duration_min: Mapped[int] = mapped_column(Integer, default=60)
     court_label: Mapped[str] = mapped_column(String(60), default="")
     source: Mapped[str] = mapped_column(String(10), default="sms")  # sms / manuel
+    series_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)  # terrain réservé à la main qui se répète
     status: Mapped[str] = mapped_column(String(12), default="a_envoyer")  # a_envoyer/en_attente/confirmee/refusee/annulee
     message: Mapped[str] = mapped_column(Text, default="")
     sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

@@ -1,7 +1,8 @@
 """Clubs et réservation des terrains par SMS."""
 import os
 
-from datetime import datetime
+import uuid
+from datetime import date, datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel, field_validator
@@ -10,7 +11,8 @@ from sqlalchemy.orm import Session
 
 from ..auth import current_coach
 from ..db import get_db
-from ..models import Club, Coach, CourtBooking, Player, TrainingSession
+from ..models import Club, Coach, CourtBooking, Player, Promotion, TrainingSession
+from ..services.common import TUNIS, aware
 from ..schemas import normalize_tn_phone
 from ..services import courts
 from ..sms import get_sms_provider
@@ -128,7 +130,7 @@ def cb_out(db: Session, cb: CourtBooking) -> dict:
         "session_id": cb.session_id, "start": cb.start or s.start, "duration_min": s.duration_min if s else cb.duration_min,
         "session_status": s.status if s else None, "players": names, "court_label": cb.court_label, "free": s is None,
         "message": cb.message or (courts.render(db, coach, club, cb, s) if cb.source == "sms" else ""), "sent_at": cb.sent_at,
-        "reply": cb.reply, "replied_at": cb.replied_at,
+        "reply": cb.reply, "replied_at": cb.replied_at, "series_id": cb.series_id,
     }
 
 
@@ -146,17 +148,53 @@ class ManualIn(BaseModel):
     start: datetime
     duration_min: int = 60
     court_label: str = ""
+    # Terrain réservé de façon régulière: tous les jours, ou certains jours chaque semaine, jusqu'à une date
+    repeat: str = "none"  # none / daily / weekly
+    weekdays: list[int] = []  # 0 = lundi (weekly; par défaut le jour de la première date)
+    until: date | None = None  # dernier jour inclus (par défaut 8 semaines)
+
+
+MAX_DAYS = 183  # six mois au plus
 
 
 @router.post("/court-bookings/manual", status_code=201)
 def add_manual(body: ManualIn, coach: Coach = Depends(current_coach), db: Session = Depends(get_db)):
-    """Terrain que le coach a déjà réservé lui-même (téléphone, sur place…), disponible pour ses séances."""
+    """Terrain que le coach a déjà réservé lui-même (téléphone, sur place…), disponible pour ses séances.
+    Avec repeat, une série de terrains est créée (les créneaux déjà saisis au même club et à la même heure sont sautés)."""
     club = owned_club(db, coach, body.club_id)
-    if not 15 <= body.duration_min <= 480:
-        raise HTTPException(422, "Durée invalide")
-    cb = courts.create_free_court(db, coach, club, body.start, body.duration_min, body.court_label.strip())
+    if not 15 <= body.duration_min <= 480 or body.repeat not in ("none", "daily", "weekly"):
+        raise HTTPException(422, "Durée ou répétition invalide")
+    label = body.court_label.strip()
+    if body.repeat == "none":
+        cb = courts.create_free_court(db, coach, club, body.start, body.duration_min, label)
+        db.commit()
+        return cb_out(db, cb)
+    first = aware(body.start).astimezone(TUNIS)
+    until = body.until or (first.date() + timedelta(weeks=8))
+    if until < first.date() or (until - first.date()).days > MAX_DAYS:
+        raise HTTPException(422, "Date de fin invalide (six mois au plus)")
+    days = set(body.weekdays or [first.weekday()]) if body.repeat == "weekly" else set(range(7))
+    if not days <= set(range(7)):
+        raise HTTPException(422, "Jours invalides")
+    existing = {(c.club_id, aware(c.start)) for c in db.scalars(select(CourtBooking).where(
+        CourtBooking.coach_id == coach.id, CourtBooking.status != "annulee", CourtBooking.start.is_not(None)))}
+    series, now = str(uuid.uuid4()), datetime.now(timezone.utc)
+    created, skipped = [], 0
+    d = first.date()
+    while d <= until:
+        if d.weekday() in days:
+            start = datetime.combine(d, first.timetz().replace(tzinfo=None), TUNIS).astimezone(timezone.utc)
+            if start <= now or (club.id, start) in existing:
+                skipped += 1
+            else:
+                cb = courts.create_free_court(db, coach, club, start, body.duration_min, label)
+                cb.series_id = series
+                created.append(cb)
+        d += timedelta(days=1)
+    if not created:
+        raise HTTPException(409, "Aucun nouveau terrain: ces créneaux sont passés ou déjà saisis")
     db.commit()
-    return cb_out(db, cb)
+    return cb_out(db, created[0]) | {"created": len(created), "skipped": skipped}
 
 
 def owned_cb(db: Session, coach: Coach, cb_id: int) -> CourtBooking:
@@ -209,14 +247,22 @@ def paste_reply(cb_id: int, body: ReplyIn, coach: Coach = Depends(current_coach)
 
 
 @router.delete("/court-bookings/{cb_id}")
-def delete_free_court(cb_id: int, coach: Coach = Depends(current_coach), db: Session = Depends(get_db)):
+def delete_free_court(cb_id: int, series: bool = False, coach: Coach = Depends(current_coach), db: Session = Depends(get_db)):
     """Supprime un terrain réservé à la main qui n'est lié à aucune séance."""
     cb = owned_cb(db, coach, cb_id)
     if cb.session_id is not None or cb.source != "manuel":
         raise HTTPException(409, "Seul un terrain libre saisi à la main peut être supprimé")
-    db.delete(cb)
+    # series=true: ce terrain et les suivants de la même série encore libres (ceux déjà utilisés restent)
+    targets = [cb]
+    if series and cb.series_id:
+        targets = list(db.scalars(select(CourtBooking).where(
+            CourtBooking.series_id == cb.series_id, CourtBooking.session_id.is_(None), CourtBooking.start >= cb.start)))
+    for t in targets:
+        for p in db.scalars(select(Promotion).where(Promotion.court_booking_id == t.id)):
+            db.delete(p)
+        db.delete(t)
     db.commit()
-    return {"ok": True}
+    return {"ok": True, "deleted": len(targets)}
 
 
 @router.post("/court-bookings/send-due")

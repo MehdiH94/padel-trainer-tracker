@@ -36,36 +36,74 @@ function ClubForm({ club, onDone }) {
   );
 }
 
-function ManualForm({ clubs, onDone }) {
+const WEEKDAYS = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"];
+const weekdayOf = (ymd) => (new Date(ymd + "T12:00:00Z").getUTCDay() + 6) % 7; // 0 = lundi
+const plusDays = (ymd, n) => new Date(new Date(ymd + "T12:00:00Z").getTime() + n * 86400000).toISOString().slice(0, 10);
+
+// Nombre de terrains que la répétition va créer (aperçu avant d'enregistrer)
+function countOccurrences(f) {
+  if (f.repeat === "none") return 1;
+  let n = 0;
+  for (let d = f.date; d <= f.until && n < 400; d = plusDays(d, 1)) if (f.repeat === "daily" || f.weekdays.includes(weekdayOf(d))) n++;
+  return n;
+}
+
+function ManualForm({ clubs, onDone, onCancel }) {
   const today = new Date().toLocaleDateString("fr-CA", { timeZone: "Africa/Tunis" });
-  const [f, setF] = useState({ club_id: clubs[0]?.id ?? "", date: today, time: "18:00", duration_min: 60, court_label: "" });
+  const [f, setF] = useState({ club_id: clubs[0]?.id ?? "", date: today, time: "18:00", duration_min: 60, court_label: "", repeat: "none", weekdays: [weekdayOf(today)], until: plusDays(today, 55) });
   const [err, setErr] = useState("");
+  const [busy, setBusy] = useState(false);
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
+  const setDate = (e) => setF({ ...f, date: e.target.value, weekdays: f.repeat === "weekly" && f.weekdays.length > 1 ? f.weekdays : [weekdayOf(e.target.value)], until: f.until < e.target.value ? plusDays(e.target.value, 55) : f.until });
+  const toggleDay = (d) => setF({ ...f, weekdays: f.weekdays.includes(d) ? (f.weekdays.length > 1 ? f.weekdays.filter((x) => x !== d) : f.weekdays) : [...f.weekdays, d] });
+  const count = countOccurrences(f);
   async function save(e) {
     e.preventDefault();
+    setBusy(true);
     try {
-      await api("/court-bookings/manual", { method: "POST", body: { club_id: +f.club_id, start: `${f.date}T${f.time}:00+01:00`, duration_min: +f.duration_min, court_label: f.court_label } });
+      const r = await api("/court-bookings/manual", { method: "POST", body: {
+        club_id: +f.club_id, start: `${f.date}T${f.time}:00+01:00`, duration_min: +f.duration_min, court_label: f.court_label,
+        repeat: f.repeat, weekdays: f.weekdays, until: f.until,
+      } });
+      toast(r.created ? `${r.created} terrain${r.created > 1 ? "s" : ""} ajouté${r.created > 1 ? "s" : ""}${r.skipped ? ` (${r.skipped} déjà saisi${r.skipped > 1 ? "s" : ""} ou passé${r.skipped > 1 ? "s" : ""})` : ""}` : "Terrain ajouté");
       onDone();
     } catch (x) {
       setErr(x.message);
+      setBusy(false);
     }
   }
-  if (!clubs.length) return <div className="card mut">Ajoutez d'abord un club (en bas de cette page).</div>;
+  if (!clubs.length) return <div className="card mut">Ajoutez d'abord un club (Réglages › Mes clubs, ou en bas de cette page).</div>;
   return (
-    <form className="card" onSubmit={save}>
-      <b>Saisir un terrain déjà réservé</b>
-      <div className="mut" style={{ marginBottom: 8 }}>Il sera proposé automatiquement quand une demande tombe sur ce créneau.</div>
+    <form className="card edit-card" onSubmit={save}>
+      <div className="row"><b>Ajouter un terrain déjà réservé</b>{onCancel && <button type="button" className="small sec iconbtn" aria-label="Fermer" onClick={onCancel}><Icon name="x" size={15} /></button>}</div>
+      <div className="mut small-p" style={{ marginBottom: 8 }}>Il sera proposé aux joueurs et utilisé automatiquement quand une demande tombe sur ce créneau.</div>
       <label className="field"><span className="mut">Club</span><select value={f.club_id} onChange={set("club_id")}>{clubs.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></label>
       <div className="grid">
-        <label className="field"><span className="mut">Date</span><input type="date" value={f.date} onChange={set("date")} required /></label>
+        <label className="field"><span className="mut">{f.repeat === "none" ? "Date" : "À partir du"}</span><input type="date" value={f.date} min={today} onChange={setDate} required /></label>
         <label className="field"><span className="mut">Début</span><input type="time" value={f.time} onChange={set("time")} required /></label>
         <label className="field"><span className="mut">Durée</span>
-          <select value={f.duration_min} onChange={set("duration_min")}>{[60, 90, 120, 180, 240].map((m) => <option key={m} value={m}>{m / 60} h</option>)}</select>
+          <select value={f.duration_min} onChange={set("duration_min")}>{[60, 90, 120, 180, 240].map((m) => <option key={m} value={m}>{m % 60 ? `${Math.floor(m / 60)} h ${m % 60}` : `${m / 60} h`}</option>)}</select>
         </label>
         <label className="field"><span className="mut">Terrain</span><input placeholder="ex. Terrain 2" value={f.court_label} onChange={set("court_label")} /></label>
       </div>
-      {err && <div className="err">{err}</div>}
-      <button style={{ width: "100%" }}>Enregistrer le terrain</button>
+      <div className="field"><span className="mut">Répétition</span>
+        <div className="seg">
+          {[["none", "Une fois"], ["daily", "Tous les jours"], ["weekly", "Chaque semaine"]].map(([k, l]) => (
+            <button type="button" key={k} className={f.repeat === k ? "on" : ""} aria-pressed={f.repeat === k} onClick={() => setF({ ...f, repeat: k, weekdays: k === "weekly" ? [weekdayOf(f.date)] : f.weekdays })}>{l}</button>
+          ))}
+        </div>
+      </div>
+      {f.repeat === "weekly" && (
+        <div className="field"><span className="mut">Jours</span>
+          <div className="chips">{WEEKDAYS.map((d, i) => <button type="button" key={d} className={"chip small" + (f.weekdays.includes(i) ? " on" : "")} aria-pressed={f.weekdays.includes(i)} onClick={() => toggleDay(i)}>{d}</button>)}</div>
+        </div>
+      )}
+      {f.repeat !== "none" && (
+        <label className="field"><span className="mut">Jusqu'au (inclus, 6 mois au plus)</span><input type="date" value={f.until} min={f.date} max={plusDays(f.date, 183)} onChange={set("until")} required /></label>
+      )}
+      {f.repeat !== "none" && <div className="multi-hint"><Icon name="repeat" size={16} /> <span><b>{count} terrain{count > 1 ? "s" : ""}</b> seront ajoutés, de {f.time} pour {f.duration_min} min. Les créneaux déjà saisis sont ignorés.</span></div>}
+      {err && <div className="err" role="alert">{err}</div>}
+      <button style={{ width: "100%" }} disabled={busy}>{busy ? "Enregistrement…" : f.repeat === "none" ? "Enregistrer le terrain" : `Enregistrer les ${count} terrains`}</button>
     </form>
   );
 }
@@ -158,6 +196,7 @@ export default function Courts({ onBack }) {
   const [editing, setEditing] = useState(null); // club, "new" ou null
   const [filter, setFilter] = useState("todo");
   const [adding, setAdding] = useState(false);
+  const [removing, setRemoving] = useState(null); // terrain d'une série: celui-ci ou toute la suite
   const [msg, setMsg] = useState("");
   const [promos, setPromos] = useState([]);
   const [promoFor, setPromoFor] = useState(null);
@@ -181,15 +220,21 @@ export default function Courts({ onBack }) {
     setMsg(r.sent ? `${r.sent} SMS envoyé${r.sent > 1 ? "s" : ""}` : "Rien à envoyer pour le moment (les demandes partent 7 jours avant la séance).");
     load();
   };
+  const doRemove = (cb, series) => api(`/court-bookings/${cb.id}${series ? "?series=true" : ""}`, { method: "DELETE" })
+    .then((r) => { setRemoving(null); load(); toast(r.deleted > 1 ? `${r.deleted} terrains supprimés` : "Terrain supprimé"); }).catch(toastError);
   const remove = async (cb) => {
+    if (cb.series_id) return setRemoving(cb);
     if (!(await confirmDialog({ title: "Supprimer ce terrain ?", message: "Il ne sera plus proposé pour les réservations.", confirm: "Supprimer", danger: true }))) return;
-    api(`/court-bookings/${cb.id}`, { method: "DELETE" }).then(() => { load(); toast("Terrain supprimé"); }).catch(toastError);
+    doRemove(cb, false);
   };
 
   return (
     <>
       <button className="small sec" onClick={onBack}><Icon name="chevL" size={15} /> Planning</button>
-      <h1 style={{ marginTop: 10 }}>Terrains</h1>
+      <div className="row" style={{ marginTop: 10 }}>
+        <h1 style={{ margin: 0 }}>Terrains</h1>
+        <button className="small" onClick={() => { setFilter("free"); setAdding(true); }}><Icon name="plus" size={15} /> Ajouter un terrain</button>
+      </div>
       <div className="grid kpis">
         <div className="kpi"><span className="ico ok"><Icon name="checkCircle" size={18} /></span><div className="big">{count(["confirmee"])}</div><div className="mut">Confirmés</div></div>
         <div className="kpi"><span className="ico warn"><Icon name="clock" size={18} /></span><div className="big">{count(["a_envoyer", "en_attente"])}</div><div className="mut">En attente</div></div>
@@ -209,6 +254,7 @@ export default function Courts({ onBack }) {
       {filter === "free" ? (
         <>
           <p className="mut">Terrains réservés par vos soins, pas encore attribués à une séance.</p>
+          {adding && <ManualForm clubs={clubs} onCancel={() => setAdding(false)} onDone={() => { setAdding(false); load(); }} />}
           {free.length === 0 && !adding && <div className="card mut">Aucun terrain libre.</div>}
           {free.map((cb) => {
             const promo = promos.find((p) => p.court_booking_id === cb.id && p.active);
@@ -217,7 +263,7 @@ export default function Courts({ onBack }) {
                 <div className="row">
                   <div>
                     <b style={{ textTransform: "capitalize" }}>{dayLabel(cb.start)} · {hhmm(cb.start)}–{endTime(cb)}</b>
-                    <div className="mut">{cb.club_name}{cb.court_label && ` · ${cb.court_label}`}</div>
+                    <div className="mut">{cb.club_name}{cb.court_label && ` · ${cb.court_label}`}{cb.series_id && <> · <Icon name="repeat" size={12} /> régulier</>}</div>
                   </div>
                   <button className="small sec iconbtn" title="Supprimer" aria-label="Supprimer" onClick={() => remove(cb)}><Icon name="trash" size={15} /></button>
                 </div>
@@ -234,7 +280,18 @@ export default function Courts({ onBack }) {
             );
           })}
           {promoFor && <PromoForm cb={promoFor} onClose={() => setPromoFor(null)} onDone={() => { setPromoFor(null); load(); }} />}
-          {adding ? <ManualForm clubs={clubs} onDone={() => { setAdding(false); load(); }} /> : <button className="small" onClick={() => setAdding(true)}><Icon name="plus" size={15} /> Saisir un terrain réservé</button>}
+          {!adding && <button className="small" onClick={() => setAdding(true)}><Icon name="plus" size={15} /> Ajouter un terrain déjà réservé (une fois ou régulièrement)</button>}
+          {removing && (
+            <Modal onClose={() => setRemoving(null)} label="Supprimer un terrain d'une série">
+              <b className="sheet-title">Supprimer ce terrain ?</b>
+              <p className="mut">Il fait partie d'une série (terrain réservé régulièrement). Les terrains déjà utilisés par une séance ne sont jamais supprimés.</p>
+              <div className="actions" style={{ flexDirection: "column" }}>
+                <button className="sec" onClick={() => doRemove(removing, false)}>Seulement celui-ci</button>
+                <button className="danger-solid" onClick={() => doRemove(removing, true)}>Celui-ci et tous les suivants</button>
+                <button className="link center" onClick={() => setRemoving(null)}>Annuler</button>
+              </div>
+            </Modal>
+          )}
         </>
       ) : (
         <>
