@@ -5,7 +5,9 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from ..auth import create_token, hash_password, verify_password
+from fastapi.security import HTTPAuthorizationCredentials
+
+from ..auth import _decode, bearer, create_token, hash_password, verify_password
 from ..db import get_db
 from ..models import Coach, Player
 from ..constants import CATEGORIES
@@ -33,6 +35,20 @@ def register(c: Creds, db: Session = Depends(get_db)):
     db.add(coach)
     db.commit()
     return session_for(coach.id, "coach")
+
+
+@router.post("/refresh")
+def refresh(creds: HTTPAuthorizationCredentials | None = Depends(bearer), db: Session = Depends(get_db)):
+    """« Rester connecté »: à chaque ouverture de l'appli, un nouveau jeton de 60 jours remplace l'ancien.
+    L'accès d'un administrateur à un autre espace n'est pas prolongé."""
+    data = _decode(creds)
+    if data.get("admin"):
+        raise HTTPException(409, "Accès administrateur limité à 12 h")
+    uid, role = int(data["sub"]), data.get("role")
+    user = db.get(Coach, uid) if role == "coach" else db.get(Player, uid) if role == "player" else None
+    if user is None or (role == "player" and (user.password_hash is None or user.signup_status == "refusee")):
+        raise HTTPException(401, "Session expirée : reconnectez-vous.")
+    return session_for(uid, role)
 
 
 @router.post("/login")

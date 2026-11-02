@@ -24,7 +24,8 @@ def verify_password(pw: str, hashed: str) -> bool:
 
 def create_token(user_id: int, role: str = "coach", admin_id: int | None = None) -> str:
     """Jeton de connexion. admin_id: l'administrateur agit dans l'espace de ce compte (valable 12 h)."""
-    exp = datetime.now(timezone.utc) + (timedelta(hours=12) if admin_id else timedelta(days=30))
+    # 60 jours, renouvelés à chaque ouverture de l'appli (/auth/refresh): on reste connecté tant qu'on s'en sert
+    exp = datetime.now(timezone.utc) + (timedelta(hours=12) if admin_id else timedelta(days=60))
     data = {"sub": str(user_id), "role": role, "exp": exp}
     if admin_id:
         data["admin"] = admin_id

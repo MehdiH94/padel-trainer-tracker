@@ -1,24 +1,40 @@
 import { useEffect, useRef, useState } from "react";
 const TZ = "Africa/Tunis";
 
-export const getToken = () => localStorage.getItem("token");
+// « Rester connecté » (par défaut): la connexion est gardée sur l'appareil (localStorage) et renouvelée à chaque
+// ouverture (refreshSession). Sinon elle ne dure que le temps de la session du navigateur (sessionStorage).
+const store = () => (localStorage.getItem("remember") === "0" ? sessionStorage : localStorage);
+export const getToken = () => sessionStorage.getItem("token") || localStorage.getItem("token");
 export const setToken = (t) => {
-  if (t) return localStorage.setItem("token", t);
+  if (t) return store().setItem("token", t);
   const admin = localStorage.getItem("admin_token");
   if (admin) { // l'administrateur quitte l'espace qu'il avait ouvert: il retrouve son compte
-    localStorage.setItem("token", admin);
-    localStorage.setItem("role", "coach");
+    for (const s of [localStorage, sessionStorage]) { s.removeItem("token"); s.removeItem("role"); }
+    store().setItem("token", admin);
+    store().setItem("role", "coach");
     localStorage.removeItem("admin_token");
     localStorage.removeItem("admin_label");
     location.hash = "admin";
     return;
   }
-  localStorage.removeItem("token");
-  localStorage.removeItem("role");
+  for (const s of [localStorage, sessionStorage]) { s.removeItem("token"); s.removeItem("role"); }
   window.caches?.delete("api"); // données hors-ligne du compte précédent
 };
-export const getRole = () => localStorage.getItem("role") || "coach";
-export const setSession = (r) => { setToken(r.token); localStorage.setItem("role", r.role); };
+export const getRole = () => sessionStorage.getItem("role") || localStorage.getItem("role") || "coach";
+export const setSession = (r, remember) => {
+  if (remember !== undefined) {
+    for (const s of [localStorage, sessionStorage]) { s.removeItem("token"); s.removeItem("role"); }
+    localStorage.setItem("remember", remember ? "1" : "0");
+  }
+  setToken(r.token);
+  store().setItem("role", r.role);
+};
+
+// À l'ouverture de l'appli: nouveau jeton de 60 jours (on reste connecté tant qu'on s'en sert)
+export function refreshSession() {
+  if (!getToken() || localStorage.getItem("admin_token") || localStorage.getItem("remember") === "0") return;
+  api("/auth/refresh", { method: "POST" }).then((r) => setToken(r.token)).catch(() => {});
+}
 
 // Administrateur: ouvrir l'espace d'un coach ou d'un joueur (tous ses droits), puis revenir
 export const actingAs = () => localStorage.getItem("admin_label");

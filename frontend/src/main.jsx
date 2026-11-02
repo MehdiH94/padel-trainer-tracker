@@ -1,6 +1,7 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
 import App from "./App.jsx";
+import { refreshSession } from "./api.js";
 import "./style.css";
 
 // Installation sur l'écran d'accueil: on garde l'événement pour proposer le bouton au bon moment
@@ -35,3 +36,4 @@ if (import.meta.env.PROD) {
 }
 
 createRoot(document.getElementById("root")).render(<App />);
+refreshSession(); // « Rester connecté »: la connexion est prolongée à chaque ouverture

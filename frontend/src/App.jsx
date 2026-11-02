@@ -21,6 +21,7 @@ import { Avatar, CategoryBadge, OfflineBar } from "./ui.jsx";
 
 function Login() {
   const [f, setF] = useState({ email: "", password: "", name: "" });
+  const [remember, setRemember] = useState(localStorage.getItem("remember") !== "0"); // coché par défaut
   const [mode, setMode] = useState("login");
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
@@ -29,7 +30,7 @@ function Login() {
     e.preventDefault();
     setBusy(true);
     try {
-      setSession(await api("/auth/" + mode, { method: "POST", body: f }));
+      setSession(await api("/auth/" + mode, { method: "POST", body: f }), remember);
       location.reload();
     } catch (x) {
       setErr(x.message);
@@ -45,6 +46,9 @@ function Login() {
         {mode === "register" && <label className="field"><span className="mut">Votre nom de coach</span><input value={f.name} onChange={set("name")} autoComplete="name" /></label>}
         <label className="field"><span className="mut">E-mail</span><input type="email" value={f.email} onChange={set("email")} autoComplete="email" required /></label>
         <label className="field"><span className="mut">Mot de passe</span><input type="password" value={f.password} onChange={set("password")} autoComplete={mode === "login" ? "current-password" : "new-password"} required /></label>
+        <label className="check" style={{ margin: "4px 0 10px" }}>
+          <input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} /> Rester connecté sur cet appareil
+        </label>
         {err && <div className="err" role="alert">{err}</div>}
         <button style={{ width: "100%" }} disabled={busy}>{busy ? "Connexion…" : mode === "login" ? "Se connecter" : "Créer mon compte coach"}</button>
         <button type="button" className="link center" style={{ marginTop: 10 }} onClick={() => { setMode(mode === "login" ? "register" : "login"); setErr(""); }}>

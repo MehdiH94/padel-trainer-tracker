@@ -116,3 +116,23 @@ test("l'administrateur ouvre l'espace d'un coach puis revient", async ({ page })
   await expect(page.getByRole("heading", { name: "Administration" })).toBeVisible();
   await expect(page.getByText("Mode administrateur")).toHaveCount(0);
 });
+
+test("rester connecté: coché, on retrouve son espace en rouvrant l'appli; décoché, il faut se reconnecter", async ({ page, context }) => {
+  await login(page, "demo@padel.tn"); // case cochée par défaut
+  await expect(page.getByRole("heading", { name: "Bonjour coach" })).toBeVisible();
+  const again = await context.newPage(); // nouvel onglet = appli rouverte
+  await again.goto("/");
+  await expect(again.getByRole("heading", { name: "Bonjour coach" })).toBeVisible();
+  await again.close();
+
+  await page.getByRole("button", { name: "Se déconnecter" }).click();
+  await page.locator("input[type=email]").fill("demo@padel.tn");
+  await page.locator("input[type=password]").fill("demo1234");
+  await page.getByLabel("Rester connecté sur cet appareil").uncheck();
+  await page.getByRole("button", { name: "Se connecter" }).click();
+  await expect(page.getByRole("heading", { name: "Bonjour coach" })).toBeVisible();
+  const other = await context.newPage();
+  await other.goto("/");
+  await expect(other.getByRole("button", { name: "Se connecter" })).toBeVisible();
+  await other.close();
+});

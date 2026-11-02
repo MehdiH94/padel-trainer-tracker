@@ -1591,3 +1591,19 @@ def test_errors_are_explained_in_plain_french(client):
     assert "nom@exemple.com" in r.json()["detail"]
     r = TestClient(app).post("/auth/register", json={"email": "A@B.tn", "password": "secret1", "name": "Coach"})
     assert r.status_code == 409 and "déjà un compte" in r.json()["detail"]
+
+
+def test_stay_logged_in_refresh(client, monkeypatch):
+    """« Rester connecté »: le jeton est renouvelé à l'ouverture; pas pour un accès administrateur, ni un compte fermé."""
+    r = client.post("/auth/refresh").json()
+    assert r["role"] == "coach" and login_as(TestClient(app), r["token"]).get("/players").status_code == 200
+    assert TestClient(app).post("/auth/refresh").status_code == 401  # sans jeton
+    monkeypatch.setenv("ADMIN_EMAILS", "boss@padel.tn")
+    boss = register("boss@padel.tn")
+    coach_id = next(c["id"] for c in boss.get("/admin/coaches").json() if c["email"] == "a@b.tn")
+    acting = login_as(TestClient(app), boss.post(f"/admin/coaches/{coach_id}/act").json()["token"])
+    assert acting.post("/auth/refresh").status_code == 409
+    p, pc = player_client(client)
+    assert pc.post("/auth/refresh").json()["role"] == "player"
+    boss.post(f"/admin/signups/{p['id']}/refuse")
+    assert pc.post("/auth/refresh").status_code == 401

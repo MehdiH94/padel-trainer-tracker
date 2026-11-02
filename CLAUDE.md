@@ -17,14 +17,14 @@ Application de gestion pour un coach de padel indépendant (Tunisie) + espace jo
 # Backend (depuis backend/)
 python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
-python -m pytest -q                                  # 111 tests, doivent rester verts
+python -m pytest -q                                  # 112 tests, doivent rester verts
 uvicorn app.main:app --port 8000
 python seed_demo.py                                  # données de démo (base vide): coach demo@padel.tn / demo1234, joueur sami@demo.tn / demo1234
 python seed_more_coaches.py                          # + 2 coachs fictifs (coach.youssef@demo.tn, coach.meriem@demo.tn / demo1234), sans effet s'ils existent
 # Frontend (depuis frontend/)
 npm install && npm run dev                           # http://localhost:5173
 npm run build
-npx playwright test                                  # parcours de bout en bout (5), sur l'appli construite (npm run build avant)
+npx playwright test                                  # parcours de bout en bout (6), sur l'appli construite (npm run build avant)
 ```
 Tests de bout en bout (`frontend/e2e/`, Playwright): l'application est servie comme en production (`e2e/serve.sh`, `app.web`) sur une base neuve avec les données de démo (`e2e/setup.js`); en local, `PYTHON=../backend/.venv/bin/python npx playwright test`. Sur GitHub, le job `e2e` tourne à chaque push et le déploiement attend qu'il soit vert (rapport et captures en artefact si échec). Ajouter un parcours à chaque nouvelle fonctionnalité visible.
 Le schéma est créé par `create_all`: après un changement de modèle, supprimer `backend/padel.db` et relancer le seed.
@@ -57,4 +57,5 @@ Le schéma est créé par `create_all`: après un changement de modèle, supprim
 - Paiement de séance: `Payment.session_id` le rattache à une séance; sans séance, il couvre les plus anciennes séances effectuées encore dues.
 - Données à jour sans recharger: `useLive(load)` (`api.js`) relance le chargement toutes les 15 s quand l'appli est affichée et dès qu'on y revient (appli joueur, accueil, planning, demandes, terrains); le joueur voit un message quand sa réservation est acceptée ou confirmée. Nouvelle version déployée: l'appli ouverte se recharge seule au retour dedans (ou toutes les 5 min hors saisie), voir `main.jsx`.
 - Erreurs toujours expliquées en français, jamais un code seul: les refus de formulaire (validation) sont traduits champ par champ (`app/errors.py`: `validation_handler`, `check_fields` pour nom / e-mail / mot de passe), messages des `ValueError` de `schemas.py` rédigés pour l'utilisateur; côté appli, `api.js` (`explain`) remplace tout « Erreur 4xx/5xx » par une phrase, et `emailProblem` signale un e-mail mal formé pendant la saisie.
+- Connexion: « Rester connecté » coché par défaut (jeton gardé dans `localStorage`, sinon `sessionStorage` = déconnecté à la fermeture, `api.js` `setSession(r, remember)`); jeton de 60 jours renouvelé à chaque ouverture (`refreshSession` → `/auth/refresh`, pas pour un accès administrateur de 12 h).
 - Garder le code simple, commentaires en français, pas de dépendances inutiles.
