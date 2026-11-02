@@ -17,7 +17,7 @@ Application de gestion pour un coach de padel indépendant (Tunisie) + espace jo
 # Backend (depuis backend/)
 python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
-python -m pytest -q                                  # 88 tests, doivent rester verts
+python -m pytest -q                                  # 89 tests, doivent rester verts
 uvicorn app.main:app --port 8000
 python seed_demo.py                                  # données de démo (base vide): coach demo@padel.tn / demo1234, joueur sami@demo.tn / demo1234
 python seed_more_coaches.py                          # + 2 coachs fictifs (coach.youssef@demo.tn, coach.meriem@demo.tn / demo1234), sans effet s'ils existent
@@ -37,6 +37,7 @@ Le schéma est créé par `create_all`: après un changement de modèle, supprim
 - Promotion: notifie une fois chaque compte joueur du coach (moyen de contact choisi), s'arrête quand le terrain est pris.
 - Créneaux proposés aux joueurs (`Coach.booking_mode`, `booking.free_slots`): « terrains » (par défaut) = seulement dans les terrains réservés libres du coach; « disponibilites » = ses plages de disponibilité (il réserve le terrain après). Une séance qui utilise une partie d'un terrain le découpe (`courts.take_part`): le reste du bloc reste libre; une séance montée par le coach sur un de ses terrains libres l'utilise.
 - Dates: toujours stockées en UTC (`db.UTCDateTime`); une heure reçue avec décalage (« +01:00 », Tunis) est convertie. L'interface choisit les heures en 24 h (`TimeSelect`) et les dates en toutes lettres (`DateSelect`).
+- Calendrier des terrains (Terrains › Calendrier, `CourtCalendar.jsx`): un bloc par terrain, couleur selon `cb_out.state` (`clubs.court_state_label`): complet (minimum de joueurs atteint), incomplet, demande (au club, pas confirmé), libre (réservé, aucun joueur), refuse.
 - Terrains réservés à la main (`POST /court-bookings/manual`): une fois, tous les jours ou certains jours chaque semaine jusqu'à une date (6 mois max), `CourtBooking.series_id`; créneaux passés ou déjà saisis au même club/heure sautés; suppression d'un seul ou de la suite de la série (`?series=true`, jamais ceux déjà utilisés).
 - Clubs du coach: `Club.active` (Réglages › Mes clubs, `PUT /clubs/selection`); un club quitté reste en base (historique, terrains) mais n'est plus proposé. Les clubs sont partagés par leur nom entre coachs (filtre joueur).
 - Séance payée avec des crédits = `Attendance.credit_paid_millimes > 0`: jamais facturée une seconde fois.

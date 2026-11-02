@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { api, dayLabel, hhmm } from "./api.js";
 import Icon from "./Icon.jsx";
 import { confirmDialog, Modal, toast, toastError } from "./feedback.jsx";
+import CourtCalendar from "./CourtCalendar.jsx";
 import { COURT_STATUS, DateSelect, Loading, TimeSelect } from "./ui.jsx";
 
 const PLACEHOLDERS = "{date} {debut} {fin} {duree} {joueurs} {coach} {club}";
@@ -315,6 +316,7 @@ export default function Courts({ onBack }) {
   const [filter, setFilter] = useState("todo");
   const [adding, setAdding] = useState(false);
   const [freeView, setFreeView] = useState("list"); // terrains libres: par série ou agenda jour par jour
+  const [view, setView] = useState("cal"); // calendrier (par défaut) ou listes
   const [removing, setRemoving] = useState(null); // terrain d'une série: celui-ci ou toute la suite
   const [msg, setMsg] = useState("");
   const [promos, setPromos] = useState([]);
@@ -352,8 +354,26 @@ export default function Courts({ onBack }) {
       <button className="small sec" onClick={onBack}><Icon name="chevL" size={15} /> Planning</button>
       <div className="row" style={{ marginTop: 10 }}>
         <h1 style={{ margin: 0 }}>Terrains</h1>
-        <button className="small" onClick={() => { setFilter("free"); setAdding(true); }}><Icon name="plus" size={15} /> Ajouter un terrain</button>
+        <button className="small" onClick={() => setAdding(true)}><Icon name="plus" size={15} /> Ajouter un terrain</button>
       </div>
+      <div className="seg" style={{ margin: "10px 0" }}>
+        <button className={view === "cal" ? "on" : ""} onClick={() => setView("cal")}><Icon name="calendar" size={14} /> Calendrier</button>
+        <button className={view === "list" ? "on" : ""} onClick={() => setView("list")}><Icon name="inbox" size={14} /> Listes</button>
+      </div>
+      {adding && <ManualForm clubs={clubs} onCancel={() => setAdding(false)} onDone={() => { setAdding(false); load(); }} />}
+      {promoFor && <PromoForm cb={promoFor} onClose={() => setPromoFor(null)} onDone={() => { setPromoFor(null); load(); }} />}
+      {removing && (
+        <Modal onClose={() => setRemoving(null)} label="Supprimer un terrain d'une série">
+          <b className="sheet-title">Supprimer ce terrain ?</b>
+          <p className="mut">Il fait partie d'une série (terrain réservé régulièrement). Les terrains déjà utilisés par une séance ne sont jamais supprimés.</p>
+          <div className="actions" style={{ flexDirection: "column" }}>
+            <button className="sec" onClick={() => doRemove(removing, false)}>Seulement celui-ci</button>
+            <button className="danger-solid" onClick={() => doRemove(removing, true)}>Celui-ci et tous les suivants</button>
+            <button className="link center" onClick={() => setRemoving(null)}>Annuler</button>
+          </div>
+        </Modal>
+      )}
+      {view === "cal" ? <CourtCalendar list={list} promos={promos} onRemove={remove} onPromo={setPromoFor} onStopPromo={stopPromo} onChanged={load} /> : (<>
       <div className="grid kpis">
         <div className="kpi"><span className="ico ok"><Icon name="checkCircle" size={18} /></span><div className="big">{count(["confirmee"])}</div><div className="mut">Confirmés</div></div>
         <div className="kpi"><span className="ico warn"><Icon name="clock" size={18} /></span><div className="big">{count(["a_envoyer", "en_attente"])}</div><div className="mut">En attente</div></div>
@@ -373,7 +393,6 @@ export default function Courts({ onBack }) {
       {filter === "free" ? (
         <>
           <p className="mut">Terrains réservés par vos soins, pas encore attribués à une séance.</p>
-          {adding && <ManualForm clubs={clubs} onCancel={() => setAdding(false)} onDone={() => { setAdding(false); load(); }} />}
           {free.length === 0 && !adding && <div className="card mut">Aucun terrain libre.</div>}
           {free.length > 0 && (
             <div className="seg" style={{ marginBottom: 10 }}>
@@ -384,19 +403,7 @@ export default function Courts({ onBack }) {
           {freeView === "agenda" ? <FreeAgenda free={free} /> : groupFree(free).map((g) => g.items.length > 1
             ? <SeriesCard key={g.key} g={g} promos={promos} onRemove={remove} onRemoveSeries={(cb) => doRemove(cb, true)} onPromo={setPromoFor} onStopPromo={stopPromo} />
             : <FreeCard key={g.key} cb={g.items[0]} promo={promos.find((p) => p.court_booking_id === g.items[0].id && p.active)} onRemove={remove} onPromo={setPromoFor} onStopPromo={stopPromo} />)}
-          {promoFor && <PromoForm cb={promoFor} onClose={() => setPromoFor(null)} onDone={() => { setPromoFor(null); load(); }} />}
           {!adding && <button className="small" onClick={() => setAdding(true)}><Icon name="plus" size={15} /> Ajouter un terrain déjà réservé (une fois ou régulièrement)</button>}
-          {removing && (
-            <Modal onClose={() => setRemoving(null)} label="Supprimer un terrain d'une série">
-              <b className="sheet-title">Supprimer ce terrain ?</b>
-              <p className="mut">Il fait partie d'une série (terrain réservé régulièrement). Les terrains déjà utilisés par une séance ne sont jamais supprimés.</p>
-              <div className="actions" style={{ flexDirection: "column" }}>
-                <button className="sec" onClick={() => doRemove(removing, false)}>Seulement celui-ci</button>
-                <button className="danger-solid" onClick={() => doRemove(removing, true)}>Celui-ci et tous les suivants</button>
-                <button className="link center" onClick={() => setRemoving(null)}>Annuler</button>
-              </div>
-            </Modal>
-          )}
         </>
       ) : (
         <>
@@ -406,6 +413,7 @@ export default function Courts({ onBack }) {
           {msg && <div className="mut" style={{ marginTop: 6 }}>{msg}</div>}
         </>
       )}
+      </>)}
 
       <h2>Mes clubs</h2>
       {clubs.map((c) => (

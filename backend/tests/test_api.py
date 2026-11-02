@@ -1202,3 +1202,24 @@ def test_slots_only_on_reserved_courts_by_default(client):
     s10 = datetime.combine(day, datetime.min.time().replace(hour=10), TUNIS).isoformat()
     client.post("/sessions", json={"start": s10, "club_id": club["id"], "court_booked": True})
     assert sum(1 for c in client.get("/court-bookings").json() if c["free"]) == 2  # 8 h-9 h et 11 h-12 h
+
+
+def test_court_calendar_states(client):
+    open_week(client, auto_confirm=False)
+    club = mkclub(client)
+    p, pc = player_client(client)
+    start = _future_slot(pc, 30)
+    free_court(client, start, minutes=240)  # terrain réservé, aucun joueur
+    states = lambda: sorted(c["state"] for c in client.get("/court-bookings").json() if c["state"] != "annule")  # noqa: E731
+    assert states() == ["libre"]
+    r = pc.post("/me/book", json={"kind": "duo", "start": start, "kinds": ["duo"]}).json()
+    rq = next(x for x in client.get("/booking/requests").json() if x["id"] == r["id"])
+    client.post(f"/booking/requests/{r['id']}/accept", json={"court_booking_id": rq["courts_available"][0]["id"]})
+    assert states() == ["incomplet", "libre"]  # 1 joueur sur 2 voulus; le reste du bloc reste libre
+    host = mkplayer(client, phone="22 777 777", name="Host")
+    later = (datetime.now(timezone.utc) + timedelta(days=5)).replace(minute=0, second=0, microsecond=0)
+    client.post("/sessions", json={"start": later.isoformat(), "player_ids": [host["id"]], "club_id": club["id"]})  # SMS au club: demande
+    assert states() == ["demande", "incomplet", "libre"]
+    cb = next(c for c in client.get("/court-bookings").json() if c["state"] == "demande")
+    client.post(f"/court-bookings/{cb['id']}/reply", json={"text": "OUI c'est bon"})
+    assert states() == ["complet", "incomplet", "libre"]

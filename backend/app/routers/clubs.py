@@ -14,7 +14,7 @@ from ..db import get_db
 from ..models import Club, Coach, CourtBooking, Player, Promotion, TrainingSession
 from ..services.common import TUNIS, aware
 from ..schemas import normalize_tn_phone
-from ..services import courts
+from ..services import courts, groups
 from ..sms import get_sms_provider
 from ..sms.base import SmsProvider
 
@@ -120,6 +120,19 @@ def update_club(club_id: int, body: ClubIn, coach: Coach = Depends(current_coach
     return club_out(c)
 
 
+def court_state_label(cb: CourtBooking, s: TrainingSession | None) -> str:
+    """État affiché dans le calendrier des terrains (une couleur par état):
+    complet = terrain réservé et nombre minimum de joueurs atteint; incomplet = réservé mais minimum pas atteint;
+    libre = réservé, encore aucun joueur; demande = terrain demandé au club, pas encore confirmé; refuse / annule."""
+    if cb.status in ("a_envoyer", "en_attente"):
+        return "demande"
+    if cb.status in ("refusee", "annulee"):
+        return "refuse" if cb.status == "refusee" else "annule"
+    if not s or not s.attendances or s.status == "annulee":
+        return "libre"
+    return "complet" if len(s.attendances) >= groups.min_needed(s) else "incomplet"
+
+
 def cb_out(db: Session, cb: CourtBooking) -> dict:
     club = db.get(Club, cb.club_id)
     s = db.get(TrainingSession, cb.session_id) if cb.session_id else None
@@ -131,6 +144,8 @@ def cb_out(db: Session, cb: CourtBooking) -> dict:
         "session_status": s.status if s else None, "players": names, "court_label": cb.court_label, "free": s is None,
         "message": cb.message or (courts.render(db, coach, club, cb, s) if cb.source == "sms" else ""), "sent_at": cb.sent_at,
         "reply": cb.reply, "replied_at": cb.replied_at, "series_id": cb.series_id,
+        "players_count": len(s.attendances) if s else 0, "min_needed": groups.min_needed(s) if s and s.attendances else None,
+        "kind": s.kind if s else None, "state": court_state_label(cb, s),
     }
 
 
