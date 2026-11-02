@@ -438,6 +438,25 @@ def can_cancel(b: Booking, now: datetime | None = None) -> bool:
     return b.status in ("en_attente", "attente_joueurs") or now <= cancel_deadline(b)
 
 
+def ensure_booking(db: Session, s: TrainingSession, player_id: int) -> Booking:
+    """Séance montée par le coach (joueur inscrit sans réservation): on crée la réservation correspondante pour
+    que le joueur puisse annuler ou se faire remplacer avec les mêmes règles que pour une réservation faite en ligne."""
+    b = db.scalar(select(Booking).where(Booking.session_id == s.id, Booking.player_id == player_id, Booking.status.in_(ACTIVE)))
+    if b:
+        return b
+    a = next((x for x in s.attendances if x.player_id == player_id), None)
+    if not a or s.status != "prevue":
+        raise BookingError("Séance introuvable")
+    n = len(s.attendances) or 1
+    price = s.price_millimes // n if s.price_mode == "groupe" else s.price_millimes  # part de ce joueur
+    b = Booking(coach_id=s.coach_id, player_id=player_id, kind=s.kind, start=s.start, duration_min=s.duration_min, status="confirmee",
+                session_id=s.id, accepted_kinds="", price_millimes=price, charged_millimes=a.credit_paid_millimes,
+                notified_at=datetime.now(timezone.utc))
+    db.add(b)
+    db.flush()
+    return b
+
+
 def cancel_booking(db: Session, coach: Coach, b: Booking) -> bool:
     """Annulation par le joueur, dans les délais: les crédits sont remboursés. Retourne True (remboursé)."""
     if b.status not in ACTIVE:

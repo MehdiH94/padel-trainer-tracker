@@ -96,18 +96,20 @@ function bookPromo(p, go) {
 function CancelBox({ s, reload }) {
   const [url, setUrl] = useState(null);
   const [open, setOpen] = useState(false); // explication affichée seulement si le joueur clique sur « Annuler »
-  if (!s.booking_id) return null;
+  if (!s.booking_id && !s.session_id) return null;
+  // Séance montée par le coach: la réservation est créée au moment d'annuler ou de céder sa place
+  const bookingId = async () => s.booking_id ?? (await api(`/me/sessions/${s.session_id}/booking`, { method: "POST" })).booking_id;
   const when = (iso) => `${dayLabel(iso)} à ${hhmm(iso)}`;
   if (s.can_cancel) {
     return (
       <div className="cancel-row">
-        <button className="small sec" onClick={() => cancelBooking(s, reload)}>Annuler</button>
+        <button className="small sec" onClick={async () => { try { cancelBooking({ ...s, booking_id: await bookingId() }, reload); } catch (x) { toastError(x); } }}>Annuler</button>
         {s.cancel_until && <small className="mut">Annulable jusqu'au {when(s.cancel_until)}</small>}
       </div>
     );
   }
   const h = s.booking_kind === "individuel" ? 24 : 48;
-  const get = () => api(`/me/bookings/${s.booking_id}/replacement`, { method: "POST" }).then((r) => setUrl(location.origin + r.path)).catch(toastError);
+  const get = () => bookingId().then((id) => api(`/me/bookings/${id}/replacement`, { method: "POST" })).then((r) => setUrl(location.origin + r.path)).catch(toastError);
   const msg = url && `Je ne peux plus venir à ma séance de padel du ${when(s.start)} avec ${s.coach_name}${s.club ? ` (${s.club})` : ""}. Tu veux prendre ma place ? ${url}`;
   const share = async () => {
     try {
@@ -332,7 +334,6 @@ function Mine({ me, sessions, reload }) {
               </div>
             </div>
           ))}
-          {sessions.upcoming.some((s) => !s.booking_id && s.status !== "en_attente") && <div className="mut small-p">Pour modifier une séance fixée par {me.coach_name}, contactez-le.</div>}
         </>
       )}
 

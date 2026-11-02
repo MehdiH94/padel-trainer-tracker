@@ -1367,3 +1367,27 @@ def test_replacement_requires_compatible_level(client):
     token = qc.post(f"/me/bookings/{r2['id']}/replacement").json()["path"].split("/")[-1]
     _, low = player_client(client, name="Novice", phone="20333444", category="P25-")
     assert low.post(f"/replace/{token}/take").status_code == 409  # trop d'écart avec Sami
+
+
+def test_coach_made_session_can_be_cancelled_or_handed_over(client):
+    """Séance montée par le coach (sans réservation en ligne): mêmes règles que les réservations du joueur."""
+    p, pc = player_client(client, category="P250-")
+    q, qc = player_client(client, name="Rim", phone="20111222", category="P250-")
+    far = (datetime.now(timezone.utc) + timedelta(days=5)).replace(minute=0, second=0, microsecond=0)
+    near = (datetime.now(timezone.utc) + timedelta(hours=30)).replace(minute=0, second=0, microsecond=0)
+    s1 = client.post("/sessions", json={"start": far.isoformat(), "kind": "duo", "price_millimes": 80000, "price_mode": "groupe", "player_ids": [p["id"], q["id"]]}).json()[0]
+    s2 = client.post("/sessions", json={"start": near.isoformat(), "kind": "duo", "price_millimes": 80000, "price_mode": "groupe", "player_ids": [p["id"], q["id"]]}).json()[0]
+    up = {x["session_id"]: x for x in pc.get("/me/sessions").json()["upcoming"]}
+    assert up[s1["id"]]["can_cancel"] is True and up[s2["id"]]["can_cancel"] is False  # duo: 48 h avant
+    # annulation dans les délais: Sami quitte la séance, Rim reste
+    b1 = pc.post(f"/me/sessions/{s1['id']}/booking").json()["booking_id"]
+    assert pc.post(f"/me/bookings/{b1}/cancel").status_code == 200
+    assert next(x for x in client.get("/sessions").json() if x["id"] == s1["id"])["player_ids"] == [q["id"]]
+    # hors délai: pas d'annulation, mais un lien pour se faire remplacer
+    b2 = pc.post(f"/me/sessions/{s2['id']}/booking").json()["booking_id"]
+    assert pc.post(f"/me/bookings/{b2}/cancel").status_code == 409
+    token = pc.post(f"/me/bookings/{b2}/replacement").json()["path"].split("/")[-1]
+    _, ali = player_client(client, name="Ali", phone="20333444", category="P250+")
+    assert ali.post(f"/replace/{token}/take").status_code == 200
+    names = {pl["id"]: pl["name"] for pl in client.get("/players").json()}
+    assert sorted(names[i] for i in next(x for x in client.get("/sessions").json() if x["id"] == s2["id"])["player_ids"]) == ["Ali", "Rim"]

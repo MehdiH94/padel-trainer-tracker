@@ -149,13 +149,15 @@ def my_sessions(player: Player = Depends(current_player), db: Session = Depends(
     upcoming, history = [], []
     for s, a in rows:
         b = by_session.get(s.id)
+        # séance montée par le coach (pas de réservation): mêmes règles d'annulation, d'après le type de séance
+        deadline = svc.cancel_deadline(b) if b else aware(s.start) - svc.CANCEL_BEFORE.get(s.kind, svc.CANCEL_BEFORE["groupe"])
         item = {
             "session_id": s.id, "booking_id": b.id if b else None, "start": s.start, "duration_min": s.duration_min,
             "kind": s.kind, "club": s.club, "court_state": svc.court_state(db, s), "spots_left": svc.spots_left(db, s) if s.open else 0,
             "partners": _partners(db, s, ids), "status": b.status if b else "confirmee", "session_status": s.status,
             "coach_name": coach_names.get(s.coach_id, ""), "players_count": len(s.attendances), "min_needed": groups.min_needed(s),
             "booking_kind": b.kind if b else s.kind, "accepted_kinds": groups.split(b.accepted_kinds) if b else [],
-            "can_cancel": svc.can_cancel(b) if b else False, "cancel_until": svc.cancel_deadline(b) if b else None,
+            "can_cancel": svc.can_cancel(b) if b else now <= deadline, "cancel_until": deadline,
             "worked_on": [t for t in a.worked_on.split(",") if t], "note": a.note, "to_improve": a.to_improve,
         }
         (upcoming if s.status == "prevue" and aware(s.start) >= now else history).append(item)
@@ -182,6 +184,22 @@ def cancel(booking_id: int, player: Player = Depends(current_player), db: Sessio
         raise HTTPException(409, str(e))
     db.commit()
     return {"refunded": refunded, "refunded_millimes": b.charged_millimes if refunded else 0, "credits_millimes": credit_balance(db, b.player_id)}
+
+
+@router.post("/sessions/{session_id}/booking")
+def session_booking(session_id: int, player: Player = Depends(current_player), db: Session = Depends(get_db)):
+    """Séance montée par le coach: réservation créée à la demande, pour annuler ou se faire remplacer."""
+    s = db.get(TrainingSession, session_id)
+    ids = {p.id for p in linked(db, player)}
+    a = next((x for x in s.attendances if x.player_id in ids), None) if s else None
+    if not a:
+        raise HTTPException(404, "Séance introuvable")
+    try:
+        b = svc.ensure_booking(db, s, a.player_id)
+    except svc.BookingError as e:
+        raise HTTPException(409, str(e))
+    db.commit()
+    return {"booking_id": b.id}
 
 
 @router.post("/bookings/{booking_id}/replacement")
