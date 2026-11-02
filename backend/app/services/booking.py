@@ -101,7 +101,9 @@ def suggestions(db: Session, coach: Coach, player: Player, kinds: list[str]) -> 
         ok, gap = fits_session(db, player, s)
         if not ok:  # au plus un cran d'écart avec chaque joueur, règle particulière pour les dames
             continue
-        kind_penalty = 0 if s.kind in kinds else 1.5
+        if s.kind not in kinds:  # jamais une autre formule que celles choisies par le joueur
+            continue
+        kind_penalty = 0
         days = (aware(s.start) - earliest).total_seconds() / 86400
         players = [db.get(Player, pid) for pid in attendee_ids(s)]
         out.append({
@@ -130,8 +132,11 @@ def _debit(db: Session, b: Booking) -> None:
         b.charged_millimes = price
 
 
-def request_join(db: Session, coach: Coach, player: Player, s: TrainingSession, sms: SmsProvider | None = None, *, force_accept: bool = False) -> Booking:
-    """Le joueur demande une place dans une séance existante."""
+def request_join(db: Session, coach: Coach, player: Player, s: TrainingSession, sms: SmsProvider | None = None, *, force_accept: bool = False,
+                 kinds: list[str] | None = None) -> Booking:
+    """Le joueur demande une place dans une séance existante (kinds: formules qu'il a choisies, s'il les a précisées)."""
+    if kinds and s.kind not in kinds:
+        raise BookingError("Cette séance ne correspond pas aux formules que vous avez choisies")
     if not s.open or s.status != "prevue" or aware(s.start) < datetime.now(timezone.utc):
         raise BookingError("Cette séance n'est plus disponible")
     if player.id in attendee_ids(s) or db.scalar(select(Booking).where(Booking.session_id == s.id, Booking.player_id == player.id, Booking.status.in_(ACTIVE))):

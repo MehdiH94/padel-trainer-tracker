@@ -27,10 +27,19 @@ function Head({ r }) {
         {r.price_millimes < r.base_millimes && <span className="promo-tag">−{Math.round(100 - (r.price_millimes * 100) / r.base_millimes)} %</span>}
         <span className="mut small-p">{r.charged_millimes ? "débité des crédits" : "débité des crédits à la validation"}</span>
       </div>
-      {r.accepted_kinds?.length > 1 && (
-        <div className="accepts">
-          <span className="mut small-p">Le joueur accepte aussi :</span>
-          {r.accepted_kinds.filter((k) => k !== r.kind).map((k) => <span key={k} className="kind-pill" style={{ background: KIND[k].color + "1a", color: KIND[k].color }}><Icon name={KIND[k].icon} size={13} /> {KIND[k].label}</span>)}
+      {!r.join && (
+        <div className="accepts" aria-label="Formules acceptées par le joueur">
+          <span className="mut small-p">Formules acceptées :</span>
+          {Object.keys(KIND).map((k) => {
+            const ok = r.accepted_kinds?.includes(k);
+            return <span key={k} className={"kind-pill" + (ok ? "" : " refused")} style={ok ? { background: KIND[k].color + "1a", color: KIND[k].color } : undefined}><Icon name={ok ? "check" : "x"} size={13} /> {KIND[k].label}</span>;
+          })}
+        </div>
+      )}
+      {!r.join && r.kind !== "groupe" && (
+        <div className="limit-note">
+          <Icon name="alert" size={15} />
+          <span>{r.accepted_kinds?.includes("groupe") ? `Séance créée en ${KIND[r.kind].label.toLowerCase()}` : `Ne veut pas s'entraîner en groupe`} : <b>{r.max_players === 1 ? "personne d'autre ne pourra rejoindre" : `${r.max_players} joueurs maximum`}</b> une fois acceptée.</span>
         </div>
       )}
       {r.join && <div className="mut">Rejoint une séance existante{r.partners.length ? ` avec ${r.partners.join(", ")}` : ""}</div>}

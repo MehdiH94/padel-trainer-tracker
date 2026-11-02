@@ -82,20 +82,27 @@ def offers(db: Session, account: Player, day: date, kinds: list[str], coach_id: 
     coaches = [db.get(Coach, coach_id)] if coach_id else list(db.scalars(select(Coach)))
     now = datetime.now(timezone.utc)
     groups, with_court, other = [], [], []
+    other_kinds: dict[str, int] = {}  # séances ouvertes ce jour-là d'une formule que le joueur n'a pas choisie
     for c in filter(None, coaches):
         clubs = coach_clubs(db, c)
         if club and not any(same_club(club, n) for n in clubs):
             continue
         who = {"id": c.id, "name": c.name}
-        # 1. Groupes déjà formés (séances ouvertes d'une formule acceptée, compatibles avec le niveau du joueur)
+        # 1. Groupes déjà formés. Seules les formules choisies par le joueur sont proposées: un joueur qui ne veut
+        #    que du solo ne se voit pas proposer de groupe, et une séance « duo » (son créateur ne voulait pas plus de
+        #    2 joueurs) n'est jamais proposée à qui cherche un groupe. Les autres sont seulement comptées (« si vous
+        #    reconsidérez votre choix »).
         for s in db.scalars(select(TrainingSession).where(TrainingSession.coach_id == c.id, TrainingSession.open.is_(True), TrainingSession.status == "prevue",
-                                                         TrainingSession.kind.in_([k for k in kinds if k != "individuel"]))):
+                                                         TrainingSession.kind.in_(["duo", "groupe"]))):
             if not _in_window(s.start, day, period) or aware(s.start) < now + timedelta(hours=2):
                 continue
             if my_ids & set(attendee_ids(s)) or spots_left(db, s) <= 0 or (club and not same_club(club, s.club)):
                 continue
             ok, gap = fits_session(db, account, s)
             if not ok:
+                continue
+            if s.kind not in kinds:
+                other_kinds[s.kind] = other_kinds.get(s.kind, 0) + 1
                 continue
             others = [db.get(Player, i) for i in attendee_ids(s)]
             groups.append({
@@ -131,7 +138,7 @@ def offers(db: Session, account: Player, day: date, kinds: list[str], coach_id: 
     groups.sort(key=lambda g: (g.pop("_gap"), closeness(g)))
     with_court.sort(key=lambda x: (-x["discount_pct"], closeness(x)))  # les promotions d'abord
     other.sort(key=closeness)
-    return {"groups": groups[:10], "slots_with_court": with_court[:20], "slots_other": other[:30]}
+    return {"groups": groups[:10], "slots_with_court": with_court[:20], "slots_other": other[:30], "other_kinds": other_kinds}
 
 
 def courts_state(db: Session, s: TrainingSession) -> str:

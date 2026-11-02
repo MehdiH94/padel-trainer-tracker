@@ -458,3 +458,12 @@ button.prepare.done > .icon:first-child { color: var(--ok-txt); }
 .debt { margin-top: 4px; display: inline-block; background: #b91c1c; color: #fff; font-weight: 700; font-size: .85rem; padding: 3px 10px; border-radius: 99px; }
 .verify-banner { display: flex; gap: 12px; align-items: flex-start; background: var(--amber-l); color: var(--warn-txt); border-color: var(--amber); }
 .unverified { color: var(--warn-txt); font-weight: 600; }
+.multi-hint { display: flex; gap: 8px; align-items: flex-start; background: var(--brand-xl); color: var(--txt); border: 1px solid var(--brand-ring); border-radius: 12px; padding: 8px 12px; margin: -2px 0 10px; font-size: .9rem; }
+.multi-hint > .icon { color: var(--brand); margin-top: 2px; }
+.kindcard .tick.off { background: var(--card); border: 2px solid var(--line); }
+.accept-summary { font-size: .9rem; margin: -2px 0 12px; }
+.reconsider { display: flex; gap: 12px; align-items: flex-start; border: 1px dashed var(--brand-ring); background: var(--brand-xl); margin-top: 4px; }
+.reconsider > .icon { color: var(--brand); margin-top: 2px; }
+.kind-pill.refused { background: var(--soft); color: var(--mut); text-decoration: line-through; }
+.limit-note { display: flex; gap: 8px; align-items: flex-start; background: var(--amber-l); color: var(--warn-txt); border-radius: 10px; padding: 8px 10px; font-size: .86rem; margin-bottom: 8px; }
+.limit-note > .icon { margin-top: 2px; flex: none; }

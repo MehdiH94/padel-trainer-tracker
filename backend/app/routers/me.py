@@ -110,7 +110,7 @@ def book(body: BookIn, player: Player = Depends(current_player), db: Session = D
     row = row_for_coach(db, player, coach)  # fiche du joueur chez ce coach (créée au besoin)
     try:
         if s:
-            b = svc.request_join(db, coach, row, s, sms)
+            b = svc.request_join(db, coach, row, s, sms, kinds=body.kinds)
         elif body.start and body.kind:
             b = svc.request_new(db, coach, row, body.kind, body.start, sms, accepted_kinds=body.kinds)
         else:

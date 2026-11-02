@@ -322,8 +322,8 @@ def test_suggestions_rank_by_level_and_type(client):
     _, far = player_client(client, name="Far", phone="20222222", category="P1000")
     sug = near.get("/me/suggestions", params={"kinds": "duo"}).json()
     assert [x["session_id"] for x in sug] == [s["id"]] and sug[0]["match"] == "ideal" and sug[0]["spots_left"] == 1
-    # type non souhaité: la séance reste proposée, comme « proche » de la demande
-    assert near.get("/me/suggestions", params={"kinds": "individuel"}).json()[0]["match"] == "proche"
+    # formule non choisie (seul): la séance de duo n'est pas proposée
+    assert near.get("/me/suggestions", params={"kinds": "individuel"}).json() == []
     assert far.get("/me/suggestions").json() == []  # P1000 trop éloigné de P100
     assert near.get("/me").json()["pref_kinds"] == ["individuel"]  # préférences mémorisées
 
@@ -962,3 +962,36 @@ def test_dp003_old_address_redirects_to_canonical_domain(tmp_path, monkeypatch):
     assert TestClient(web.web, base_url="http://127.0.0.1:8000").get("/api/health").json() == {"ok": True}  # vérification interne
     monkeypatch.delenv("CANONICAL_HOST")
     importlib.reload(web)
+
+
+# --- Formules choisies: jamais de séance d'une autre formule ------------------
+
+def test_formulas_are_respected_when_matching_groups(client):
+    open_week(client)
+    a, pa = player_client(client, name="Ali", phone="20111111")
+    b, pb = player_client(client, name="Bea", phone="20222222")
+    slots = pa.get("/me/slots").json()
+    day = _day_of(slots[-1])
+    start = next(x for x in slots if _day_of(x) == day)
+    # Ali ne veut que seul ou à deux: il prend le créneau en duo
+    r = pa.post("/me/book", json={"kind": "duo", "start": start, "kinds": ["individuel", "duo"]}).json()
+    assert r["status"] == "en_attente" or r["status"] == "confirmee"
+    req = next(x for x in client.get("/booking/requests").json() if x["name"] == "Ali")
+    assert req["accepted_kinds"] == ["individuel", "duo"] and req["max_players"] == 2  # clair pour le coach
+    if req["status"] == "en_attente":
+        client.post(f"/booking/requests/{req['id']}/accept", json={})
+    sid = next(s["id"] for s in client.get("/sessions").json() if s["player_ids"] == [a["id"]])
+    # 1. Bea cherche un groupe: la séance d'Ali (duo) ne lui est pas proposée, seulement signalée
+    off = pb.get(f"/me/offers?day={day}&kinds=groupe").json()
+    assert off["groups"] == [] and off["other_kinds"] == {"duo": 1}
+    assert pb.post("/me/book", json={"session_id": sid, "kinds": ["groupe"]}).status_code == 409
+    # 2. Bea veut s'entraîner seule: aucun groupe proposé, mais on lui signale ce qui existe
+    off = pb.get(f"/me/offers?day={day}&kinds=individuel").json()
+    assert off["groups"] == [] and off["other_kinds"] == {"duo": 1}
+    assert pb.get("/me/suggestions?kinds=individuel").json() == []
+    # si elle reconsidère (duo coché), la séance d'Ali apparaît, et c'est un duo: 1 place, pas plus
+    off = pb.get(f"/me/offers?day={day}&kinds=individuel,duo").json()
+    assert [g["session_id"] for g in off["groups"]] == [sid] and off["groups"][0]["spots_left"] == 1 and off["other_kinds"] == {}
+    assert pb.post("/me/book", json={"session_id": sid, "kinds": ["individuel", "duo"]}).status_code == 201
+    c, pc = player_client(client, name="Cyr", phone="20333333")
+    assert pc.post("/me/book", json={"session_id": sid}).status_code == 409  # complète: le duo reste à 2

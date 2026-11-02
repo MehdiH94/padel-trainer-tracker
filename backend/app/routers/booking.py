@@ -118,6 +118,7 @@ def booking_out(db: Session, coach: Coach, b: Booking) -> dict:
         "partners": [x.name for x in (db.get(Player, i) for i in svc.attendee_ids(s)) if x.id != p.id] if s else [],
         "club": s.club if s else "", "court_state": svc.court_state(db, s) if s else None,
         "accepted_kinds": [k for k in (b.accepted_kinds or b.kind).split(",") if k],  # formules acceptées par le joueur
+        "max_players": CAPACITY[b.kind],  # la séance ne pourra pas accueillir plus de joueurs que la formule choisie
         # prix convenu; les réservations d'avant les remises n'en ont pas: prix de la séance ou tarif du coach
         "price_millimes": b.price_millimes or b.charged_millimes or (s.price_millimes if s else 0) or base_price(coach, b.kind),
         "base_millimes": base_price(coach, b.kind),

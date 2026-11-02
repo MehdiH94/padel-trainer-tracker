@@ -51,7 +51,7 @@ function Offer({ o, me, kinds, onBooked, openCoach }) {
   const book = async () => {
     setBusy(true);
     try {
-      const body = o.type === "group" ? { session_id: o.session_id } : { kind: pick, start: o.start, coach_id: o.coach.id, kinds };
+      const body = o.type === "group" ? { session_id: o.session_id, kinds } : { kind: pick, start: o.start, coach_id: o.coach.id, kinds };
       onBooked({ ...(await api("/me/book", { method: "POST", body })), start: o.start });
     } catch (x) {
       toastError(x);
@@ -196,20 +196,38 @@ export function Book({ me, reload, go, coachParam }) {
       </div>
 
       <h2 className="step"><span>3</span> Comment voulez-vous jouer ?</h2>
-      <div className="mut small-p" style={{ marginTop: -4, marginBottom: 8 }}>Plusieurs choix possibles : vous verrez plus de propositions.</div>
-      <div className="kindcards">
+      <div className="multi-hint"><Icon name="checkCircle" size={16} /> <span><b>Cochez une ou plusieurs options.</b> Plus vous en cochez, plus vous aurez de propositions.</span></div>
+      <div className="kindcards" role="group" aria-label="Formules acceptées (plusieurs choix possibles)">
         {Object.entries(KIND).map(([k, v]) => (
-          <button key={k} className={"kindcard" + (kinds.includes(k) ? " on" : "")} aria-pressed={kinds.includes(k)} style={{ "--c": v.color }} onClick={() => toggleKind(k)}>
+          <button key={k} className={"kindcard" + (kinds.includes(k) ? " on" : "")} role="checkbox" aria-checked={kinds.includes(k)} style={{ "--c": v.color }} onClick={() => toggleKind(k)}>
             <span className="ki"><Icon name={v.icon} size={22} /></span>
             <b>{HOW[k]}</b>
             <small>{v.short}</small>
-            {kinds.includes(k) && <span className="tick"><Icon name="check" size={12} strokeWidth={3} /></span>}
+            <span className={"tick" + (kinds.includes(k) ? "" : " off")}>{kinds.includes(k) && <Icon name="check" size={12} strokeWidth={3} />}</span>
           </button>
         ))}
+      </div>
+      <div className="accept-summary">
+        Vous acceptez : <b>{kinds.map((k) => HOW[k].toLowerCase()).join(" ou ")}</b>
+        {kinds.length < 3 && <span className="mut"> · pas {["individuel", "duo", "groupe"].filter((k) => !kinds.includes(k)).map((k) => HOW[k].toLowerCase()).join(" ni ")}</span>}
       </div>
 
       {!day && <div className="card empty"><Icon name="calendar" size={26} /><b>Choisissez un jour</b><div>L'heure est facultative : on vous montre tout ce qui est possible ce jour-là.</div></div>}
       {day && offers === null && <Loading rows={2} />}
+      {offers && Object.keys(offers.other_kinds ?? {}).length > 0 && (
+        <div className="card reconsider" role="note">
+          <Icon name="users" size={20} />
+          <div style={{ flex: 1 }}>
+            <b>Ces séances ne correspondent pas à vos critères…</b>
+            <div className="small-p">
+              Ce jour-là, il existe aussi {Object.entries(offers.other_kinds).map(([k, n]) => `${n} séance${n > 1 ? "s" : ""} ${k === "duo" ? "à deux" : "en groupe"}`).join(" et ")} de votre niveau. Si vous reconsidérez votre choix :
+            </div>
+            <div className="actions" style={{ marginTop: 8 }}>
+              {Object.keys(offers.other_kinds).map((k) => <button key={k} className="small sec" onClick={() => toggleKind(k)}><Icon name="plus" size={14} /> Accepter aussi {HOW[k].toLowerCase()}</button>)}
+            </div>
+          </div>
+        </div>
+      )}
       {offers && !solo && (
         <>
           <h2 className="accent-h"><Icon name="users" size={16} /> Rejoindre un groupe déjà formé</h2>
