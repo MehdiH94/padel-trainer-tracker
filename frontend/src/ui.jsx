@@ -199,3 +199,28 @@ export function OfflineBar() {
   if (online) return null;
   return <div className="offline" role="status"><Icon name="wifiOff" size={16} /> Hors connexion · données du dernier chargement</div>;
 }
+
+// Choix d'une heure au format 24 h (pas de AM/PM), par pas de 30 min, aux heures où l'on joue au padel
+export const HOURS = Array.from({ length: 36 }, (_, i) => { const m = 6 * 60 + i * 30; return `${String(Math.floor(m / 60)).padStart(2, "0")}:${m % 60 ? "30" : "00"}`; }); // 06:00 → 23:30
+export function TimeSelect({ value, onChange, label, min, max, ...rest }) {
+  const list = HOURS.filter((h) => (!min || h >= min) && (!max || h <= max));
+  const opts = list.includes(value) || !value ? list : [...list, value].sort();
+  return (
+    <select aria-label={label} value={value} onChange={(e) => onChange(e.target.value)} {...rest}>
+      {opts.map((h) => <option key={h} value={h}>{h.replace(":", " h ").replace(" h 00", " h")}</option>)}
+    </select>
+  );
+}
+
+// Choix d'une date en toutes lettres (« mar. 3 nov. 2026 »): le champ date natif s'affiche au format du téléphone (ex. 11/02/2026)
+const ymdTunis = (d) => d.toLocaleDateString("fr-CA", { timeZone: "Africa/Tunis" });
+export function DateSelect({ value, onChange, label, from = 0, to = 180, ...rest }) {
+  const days = Array.from({ length: to - from + 1 }, (_, i) => ymdTunis(new Date(Date.now() + (from + i) * 86400000)));
+  const opts = days.includes(value) || !value ? days : [value, ...days];
+  const fmt = (ymd) => new Date(ymd + "T12:00:00Z").toLocaleDateString("fr-FR", { weekday: "short", day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
+  return (
+    <select aria-label={label} value={value} onChange={(e) => onChange(e.target.value)} {...rest}>
+      {opts.map((d) => <option key={d} value={d}>{d === days[-from] && from <= 0 ? "Aujourd'hui · " : ""}{fmt(d)}</option>)}
+    </select>
+  );
+}

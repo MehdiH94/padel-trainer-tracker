@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { api } from "./api.js";
 import Icon from "./Icon.jsx";
 import { toast, toastError } from "./feedback.jsx";
-import { KIND, Loading } from "./ui.jsx";
+import { KIND, Loading, TimeSelect } from "./ui.jsx";
 
 const DAYS = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"];
 const DUR = { individuel: "slot_minutes", duo: "duration_duo", groupe: "duration_groupe" }; // champ de durée par formule
@@ -104,14 +104,25 @@ export default function Settings({ onBack }) {
         {s.happy_hours.map((h, i) => (
           <div className="happy" key={i}>
             <select aria-label="Jour" value={h.weekday} onChange={(e) => setHappy(i, { weekday: +e.target.value })}>{DAYS.map((d, j) => <option key={j} value={j}>{d}</option>)}</select>
-            <input type="time" aria-label="Début" value={h.start_time} onChange={(e) => setHappy(i, { start_time: e.target.value })} />
-            <input type="time" aria-label="Fin" value={h.end_time} onChange={(e) => setHappy(i, { end_time: e.target.value })} />
+            <TimeSelect label="Début" value={h.start_time} onChange={(v) => setHappy(i, { start_time: v })} />
+            <TimeSelect label="Fin" value={h.end_time} onChange={(v) => setHappy(i, { end_time: v })} />
             <span className="inputunit pct"><input type="number" min="1" max="90" aria-label="Remise" value={h.discount_pct} onChange={(e) => setHappy(i, { discount_pct: +e.target.value })} /><em>%</em></span>
             <button className="small sec iconbtn" aria-label="Supprimer la happy hour" onClick={() => setS({ ...s, happy_hours: s.happy_hours.filter((_, j) => j !== i) })}><Icon name="trash" size={14} /></button>
           </div>
         ))}
         {!s.happy_hours.length && <div className="mut">Aucune happy hour.</div>}
         <button className="small sec" style={{ marginTop: 8 }} onClick={() => setS({ ...s, happy_hours: [...s.happy_hours, { weekday: 0, start_time: "10:00", end_time: "12:00", discount_pct: 20 }] })}><Icon name="plus" size={15} /> Ajouter une happy hour</button>
+      </div>
+
+      <h2>Créneaux proposés aux joueurs</h2>
+      <div className="card">
+        {[["terrains", "Seulement sur mes terrains réservés", "Les joueurs ne voient que les heures où vous avez un terrain libre (Planning › Terrains). Recommandé : tout ce qui est réservé a un terrain."],
+          ["disponibilites", "Sur toutes mes disponibilités", "Les joueurs voient toutes vos plages ci-dessous ; vous réservez le terrain après leur demande."]].map(([k, l, d]) => (
+          <label key={k} className="check mode">
+            <input type="radio" name="booking_mode" checked={(s.booking_mode ?? "terrains") === k} onChange={() => setS({ ...s, booking_mode: k })} />
+            <span><b>{l}</b><span className="mut small-p" style={{ display: "block" }}>{d}</span></span>
+          </label>
+        ))}
       </div>
 
       <h2>Validation et annulation</h2>
@@ -134,6 +145,7 @@ export default function Settings({ onBack }) {
       </div>
 
       <h2>Disponibilités</h2>
+      {(s.booking_mode ?? "terrains") === "terrains" && <p className="mut small-p" style={{ marginTop: -4 }}>En mode « terrains réservés », ce sont vos terrains qui fixent les créneaux proposés ; ces plages restent affichées sur votre page publique.</p>}
       <div className="card">
         {DAYS.map((name, d) => {
           const ws = dayWindows(d);
@@ -148,9 +160,9 @@ export default function Settings({ onBack }) {
               </div>
               {ws.map((w, i) => (
                 <div className="row" key={i} style={{ gap: 6, marginTop: 4 }}>
-                  <input style={{ margin: 0 }} type="time" value={w.start_time} onChange={(e) => setDay(d, ws.map((x, j) => (j === i ? { ...x, start_time: e.target.value } : x)))} />
+                  <TimeSelect label="Début" style={{ margin: 0 }} value={w.start_time} onChange={(v) => setDay(d, ws.map((x, j) => (j === i ? { ...x, start_time: v } : x)))} />
                   <Icon name="arrowR" size={16} />
-                  <input style={{ margin: 0 }} type="time" value={w.end_time} onChange={(e) => setDay(d, ws.map((x, j) => (j === i ? { ...x, end_time: e.target.value } : x)))} />
+                  <TimeSelect label="Fin" style={{ margin: 0 }} value={w.end_time} onChange={(v) => setDay(d, ws.map((x, j) => (j === i ? { ...x, end_time: v } : x)))} />
                 </div>
               ))}
             </div>

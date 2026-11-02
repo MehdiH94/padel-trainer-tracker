@@ -123,7 +123,12 @@ def create_sessions(
     db.flush()
     if club:
         for s in created:
-            courts.create_for_session(db, coach, club, s, already_booked=body.court_booked)
+            held = [cb for cb in courts.held_covering(db, coach, s.start, s.duration_min) if cb.club_id == club.id]
+            if held:  # un terrain déjà réservé à la main couvre le créneau: la séance l'utilise
+                courts.take_part(db, held[0], s)
+                s.court = s.court or held[0].court_label
+            else:
+                courts.create_for_session(db, coach, club, s, already_booked=body.court_booked)
     db.commit()
     if club:
         courts.send_due(db, coach, sms)  # envoie tout de suite celles qui ont lieu dans les 7 jours

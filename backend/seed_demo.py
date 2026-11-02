@@ -125,7 +125,7 @@ for n, items in billed.items():
 
 # Réglages de réservation: disponibilités lun-sam, validation manuelle, prix par type de séance
 c.put("/booking/settings", json={"auto_confirm": False, "slot_minutes": 60, "price_individuel": 60000, "price_duo": 40000, "price_groupe": 30000,
-      "cancel_hours": 24, "availability": [{"weekday": d, "start_time": st, "end_time": en} for d in range(6) for st, en in [("09:00", "13:00"), ("15:00", "21:00")]]})
+      "cancel_hours": 24, "booking_mode": "disponibilites", "availability": [{"weekday": d, "start_time": st, "end_time": en} for d in range(6) for st, en in [("09:00", "13:00"), ("15:00", "21:00")]]})
 
 # Comptes joueurs (mot de passe demo1234) et crédits prépayés
 accounts = {"Sami Ben Ali": 200000, "Ines Trabelsi": 120000, "Karim Jlassi": 0, "Rania Hammami": 300000, "Mehdi Bouazizi": 90000}
@@ -195,6 +195,9 @@ c.post("/sessions", json={"start": (today + timedelta(days=1, hours=21)).isoform
                           "price_millimes": 80000, "price_mode": "groupe", "repeat_weeks": 6,
                           "player_ids": [ids["Sami Ben Ali"], ids["Karim Jlassi"]]})
 print("OK", len(plan), "séances")
+
+# Désormais, les joueurs ne voient que les créneaux sur les terrains réservés du coach (réglage par défaut)
+c.put("/booking/settings", json={**c.get("/booking/settings").json(), "booking_mode": "terrains"})
 
 # Deux autres coachs fictifs (visibles par les joueurs dans « Réserver »)
 import seed_more_coaches  # noqa: E402

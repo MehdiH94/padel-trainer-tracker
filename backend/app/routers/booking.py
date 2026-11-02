@@ -45,6 +45,7 @@ class Settings(BaseModel):
     price_groupe: int
     cancel_hours: int = 24
     availability: list[Window]
+    booking_mode: str | None = None  # « terrains » ou « disponibilites » (None = inchangé)
     duration_duo: int | None = None  # durée par formule (None = comme la séance individuelle)
     duration_groupe: int | None = None
     happy_hours: list[HappyIn] | None = None  # None = inchangé
@@ -59,7 +60,7 @@ def settings_out(db: Session, coach: Coach) -> dict:
         "price_individuel": coach.price_individuel, "price_duo": coach.price_duo, "price_groupe": coach.price_groupe,
         "availability": [{"weekday": r.weekday, "start_time": r.start_time, "end_time": r.end_time} for r in rows],
         "bio": coach.bio, "specialties": [x for x in coach.specialties.split(",") if x], "name": coach.name,
-        "duration_duo": duration_for(coach, "duo"), "duration_groupe": duration_for(coach, "groupe"),
+        "duration_duo": duration_for(coach, "duo"), "duration_groupe": duration_for(coach, "groupe"), "booking_mode": coach.booking_mode,
         "happy_hours": [{"weekday": h.weekday, "start_time": h.start_time, "end_time": h.end_time, "discount_pct": h.discount_pct}
                         for h in db.scalars(select(HappyHour).where(HappyHour.coach_id == coach.id).order_by(HappyHour.weekday, HappyHour.start_time))],
     }
@@ -83,6 +84,10 @@ def put_settings(body: Settings, coach: Coach = Depends(current_coach), db: Sess
     if any(d is not None and not 15 <= d <= 240 for d in (body.duration_duo, body.duration_groupe)):
         raise HTTPException(422, "Durée invalide")
     coach.duration_duo, coach.duration_groupe = body.duration_duo, body.duration_groupe
+    if body.booking_mode is not None:
+        if body.booking_mode not in ("terrains", "disponibilites"):
+            raise HTTPException(422, "Mode de réservation invalide")
+        coach.booking_mode = body.booking_mode
     if body.happy_hours is not None:
         for old in db.scalars(select(HappyHour).where(HappyHour.coach_id == coach.id)):
             db.delete(old)

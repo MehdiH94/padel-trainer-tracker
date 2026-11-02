@@ -53,6 +53,7 @@ def open_week(c, auto_confirm=True):
     c.put("/booking/settings", json={
         "auto_confirm": auto_confirm, "slot_minutes": 60, "price_individuel": 60000, "price_duo": 40000, "price_groupe": 30000,
         "cancel_hours": 24, "availability": [{"weekday": d, "start_time": "09:00", "end_time": "21:00"} for d in range(7)],
+        "booking_mode": "disponibilites",
     })
 
 
@@ -1172,3 +1173,32 @@ def test_recurring_manual_courts(client):
     third = sorted((c for c in client.get("/court-bookings").json() if c["series_id"] == r["series_id"]), key=lambda c: c["start"])[2]
     assert client.delete(f"/court-bookings/{third['id']}?series=true").json()["deleted"] == 5
     assert len([c for c in client.get("/court-bookings").json() if c["series_id"] == r["series_id"]]) == 2
+
+
+
+def test_slots_only_on_reserved_courts_by_default(client):
+    from app.services.common import TUNIS
+    open_week(client)
+    st = client.get("/booking/settings").json()
+    client.put("/booking/settings", json={**st, "booking_mode": "terrains"})
+    p, pc = player_client(client)
+    assert pc.get("/me/slots").json() == []  # aucun terrain réservé: rien à proposer
+    club = mkclub(client)
+    day = (datetime.now(TUNIS) + timedelta(days=3)).date()
+    start = datetime.combine(day, datetime.min.time().replace(hour=8), TUNIS)
+    client.post("/court-bookings/manual", json={"club_id": club["id"], "start": start.isoformat(), "duration_min": 240})  # mardi 8 h-12 h
+    slots = pc.get("/me/slots").json()
+    local = [datetime.fromisoformat(x.replace("Z", "+00:00")).replace(tzinfo=timezone.utc).astimezone(TUNIS) for x in slots]
+    assert {t.date() for t in local} == {day} and [t.strftime("%H:%M") for t in local] == ["08:00", "09:00", "10:00", "11:00"]
+    off = pc.get(f"/me/offers?day={day.isoformat()}&kinds=individuel").json()
+    assert len(off["slots_with_court"]) == 4 and off["slots_other"] == []
+    # réservation de 9 h (validée: terrain libre): la séance prend 9 h-10 h, le reste du bloc reste libre
+    assert pc.post("/me/book", json={"kind": "individuel", "start": slots[1]}).json()["status"] == "confirmee"
+    left = [datetime.fromisoformat(x.replace("Z", "+00:00")).astimezone(TUNIS).strftime("%H:%M") for x in pc.get("/me/slots").json()]
+    assert left == ["08:00", "10:00", "11:00"]
+    free = sorted((c for c in client.get("/court-bookings").json() if c["free"]), key=lambda c: c["start"])
+    assert [(datetime.fromisoformat(c["start"].replace("Z", "+00:00")).astimezone(TUNIS).strftime("%H:%M"), c["duration_min"]) for c in free] == [("08:00", 60), ("10:00", 120)]
+    # le coach monte lui-même une séance à 10 h dans ce club: elle utilise le terrain libre (pas de doublon)
+    s10 = datetime.combine(day, datetime.min.time().replace(hour=10), TUNIS).isoformat()
+    client.post("/sessions", json={"start": s10, "club_id": club["id"], "court_booked": True})
+    assert sum(1 for c in client.get("/court-bookings").json() if c["free"]) == 2  # 8 h-9 h et 11 h-12 h

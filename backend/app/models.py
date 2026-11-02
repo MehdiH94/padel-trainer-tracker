@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from .db import Base
+from .db import Base, UTCDateTime
 
 
 def utcnow() -> datetime:
@@ -25,6 +25,9 @@ class Coach(Base):
     price_duo: Mapped[int] = mapped_column(Integer, default=0)
     price_groupe: Mapped[int] = mapped_column(Integer, default=0)
     cancel_hours: Mapped[int] = mapped_column(Integer, default=24)  # remboursement si annulation >= N heures avant
+    # Créneaux proposés aux joueurs: « terrains » = seulement sur ses terrains réservés libres (par défaut),
+    # « disponibilites » = toutes ses plages de disponibilité (il réserve le terrain après coup)
+    booking_mode: Mapped[str] = mapped_column(String(16), default="terrains")
     # Page publique vue par les joueurs
     bio: Mapped[str] = mapped_column(Text, default="")
     specialties: Mapped[str] = mapped_column(String(255), default="")  # thèmes séparés par des virgules
@@ -52,9 +55,9 @@ class Player(Base):
     # account_id = id de la fiche « compte »; None pour le compte lui-même et pour les joueurs sans compte.
     account_id: Mapped[int | None] = mapped_column(ForeignKey("players.id"), nullable=True, index=True)
     # Vérification de l'e-mail du compte (DP-002)
-    email_verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    email_verified_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
     email_token: Mapped[str | None] = mapped_column(String(48), nullable=True, unique=True)
-    email_token_sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    email_token_sent_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
 
 
 class SkillRating(Base):
@@ -65,7 +68,7 @@ class SkillRating(Base):
     player_id: Mapped[int] = mapped_column(ForeignKey("players.id"), index=True)
     stroke: Mapped[str] = mapped_column(String(40))
     score: Mapped[int] = mapped_column(Integer)
-    rated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    rated_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
 
 
 class Attendance(Base):
@@ -96,7 +99,7 @@ class TrainingSession(Base):
     __tablename__ = "sessions"
     id: Mapped[int] = mapped_column(primary_key=True)
     coach_id: Mapped[int] = mapped_column(ForeignKey("coaches.id"), index=True)
-    start: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    start: Mapped[datetime] = mapped_column(UTCDateTime, index=True)
     duration_min: Mapped[int] = mapped_column(Integer, default=60)
     kind: Mapped[str] = mapped_column(String(10), default="individuel")  # individuel/duo/groupe
     level: Mapped[str] = mapped_column(String(20), default="")
@@ -120,16 +123,16 @@ class CourtBooking(Base):
     coach_id: Mapped[int] = mapped_column(ForeignKey("coaches.id"), index=True)
     session_id: Mapped[int | None] = mapped_column(ForeignKey("sessions.id"), nullable=True, index=True)  # None = terrain libre
     club_id: Mapped[int] = mapped_column(ForeignKey("clubs.id"))
-    start: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    start: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
     duration_min: Mapped[int] = mapped_column(Integer, default=60)
     court_label: Mapped[str] = mapped_column(String(60), default="")
     source: Mapped[str] = mapped_column(String(10), default="sms")  # sms / manuel
     series_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)  # terrain réservé à la main qui se répète
     status: Mapped[str] = mapped_column(String(12), default="a_envoyer")  # a_envoyer/en_attente/confirmee/refusee/annulee
     message: Mapped[str] = mapped_column(Text, default="")
-    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    sent_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
     reply: Mapped[str] = mapped_column(Text, default="")
-    replied_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    replied_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
 
 
 class Payment(Base):
@@ -141,7 +144,7 @@ class Payment(Base):
     method: Mapped[str] = mapped_column(String(10), default="especes")  # especes/virement
     kind: Mapped[str] = mapped_column(String(10), default="seance")  # seance / credit (recharge prépayée)
     session_id: Mapped[int | None] = mapped_column(ForeignKey("sessions.id"), nullable=True)
-    paid_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    paid_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
 
 
 class CreditTx(Base):
@@ -154,7 +157,7 @@ class CreditTx(Base):
     amount_millimes: Mapped[int] = mapped_column(Integer)  # + recharge / remboursement, - réservation
     reason: Mapped[str] = mapped_column(String(20))  # recharge / reservation / remboursement / ajustement
     booking_id: Mapped[int | None] = mapped_column(ForeignKey("bookings.id"), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
 
 
 class Availability(Base):
@@ -177,16 +180,16 @@ class Booking(Base):
     player_id: Mapped[int] = mapped_column(ForeignKey("players.id"), index=True)
     kind: Mapped[str] = mapped_column(String(10), default="individuel")
     accepted_kinds: Mapped[str] = mapped_column(String(40), default="")  # formules acceptées par le joueur (affichées au coach)
-    start: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    start: Mapped[datetime] = mapped_column(UTCDateTime)
     duration_min: Mapped[int] = mapped_column(Integer, default=60)
     # en_attente (à traiter) / acceptee (terrain à confirmer) / confirmee / refusee / annulee
     status: Mapped[str] = mapped_column(String(12), default="en_attente")
-    notified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)  # joueur prévenu de la confirmation
+    notified_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)  # joueur prévenu de la confirmation
     charged_millimes: Mapped[int] = mapped_column(Integer, default=0)  # débité des crédits (0 = à régler sur place)
     price_millimes: Mapped[int] = mapped_column(Integer, default=0)  # prix actuel (formule réellement jouée, remise comprise)
     discount_pct: Mapped[int] = mapped_column(Integer, default=0)  # remise obtenue à la réservation (happy hour / promotion)
     session_id: Mapped[int | None] = mapped_column(ForeignKey("sessions.id"), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
 
 
 class ReminderLog(Base):
@@ -198,7 +201,7 @@ class ReminderLog(Base):
     player_id: Mapped[int] = mapped_column(ForeignKey("players.id"), index=True)
     kind: Mapped[str] = mapped_column(String(20))  # impaye / seance / invitation / credits
     channel: Mapped[str] = mapped_column(String(10))  # sms / whatsapp / email
-    sent_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    sent_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
 
 
 class Proposal(Base):
@@ -210,7 +213,7 @@ class Proposal(Base):
     session_id: Mapped[int] = mapped_column(ForeignKey("sessions.id"), index=True)
     player_id: Mapped[int] = mapped_column(ForeignKey("players.id"), index=True)
     status: Mapped[str] = mapped_column(String(10), default="proposee")  # proposee / acceptee / refusee
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
 
 
 class SessionReminder(Base):
@@ -225,7 +228,7 @@ class SessionReminder(Base):
     kind: Mapped[str] = mapped_column(String(4))  # 24h / 2h
     channel: Mapped[str] = mapped_column(String(10))  # whatsapp / sms / email
     message: Mapped[str] = mapped_column(Text, default="")
-    sent_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    sent_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
 
 
 class Exercise(Base):
@@ -265,4 +268,4 @@ class Promotion(Base):
     message: Mapped[str] = mapped_column(Text, default="")
     notified_count: Mapped[int] = mapped_column(Integer, default=0)
     active: Mapped[bool] = mapped_column(default=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)

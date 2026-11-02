@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "./api.js";
 import Icon from "./Icon.jsx";
-import { CATEGORIES, catOption, KIND } from "./ui.jsx";
+import { CATEGORIES, catOption, KIND, DateSelect, TimeSelect } from "./ui.jsx";
 
 const DURATIONS = [45, 60, 90, 120];
 
@@ -69,8 +69,8 @@ export default function SessionForm({ players, onDone }) {
       </Field>
 
       <div className="grid">
-        <Field label="Date"><input type="date" value={f.date} onChange={set("date")} required /></Field>
-        <Field label="Heure de début"><input type="time" value={f.time} onChange={set("time")} required /></Field>
+        <Field label="Date"><DateSelect label="Date" value={f.date} from={-60} to={180} onChange={(v) => setF({ ...f, date: v })} /></Field>
+        <Field label="Heure de début"><TimeSelect label="Heure de début" value={f.time} onChange={(v) => setF({ ...f, time: v })} /></Field>
       </div>
 
       <Field label="Durée">

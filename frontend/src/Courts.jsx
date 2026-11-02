@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { api, dayLabel, hhmm } from "./api.js";
 import Icon from "./Icon.jsx";
 import { confirmDialog, Modal, toast, toastError } from "./feedback.jsx";
-import { COURT_STATUS, Loading } from "./ui.jsx";
+import { COURT_STATUS, DateSelect, Loading, TimeSelect } from "./ui.jsx";
 
 const PLACEHOLDERS = "{date} {debut} {fin} {duree} {joueurs} {coach} {club}";
 const toDate = (iso) => new Date(iso + (iso.endsWith("Z") || /[+-]\d\d:\d\d$/.test(iso) ? "" : "Z"));
@@ -50,11 +50,11 @@ function countOccurrences(f) {
 
 function ManualForm({ clubs, onDone, onCancel }) {
   const today = new Date().toLocaleDateString("fr-CA", { timeZone: "Africa/Tunis" });
-  const [f, setF] = useState({ club_id: clubs[0]?.id ?? "", date: today, time: "18:00", duration_min: 60, court_label: "", repeat: "none", weekdays: [weekdayOf(today)], until: plusDays(today, 55) });
+  const [f, setF] = useState({ club_id: clubs[0]?.id ?? "", date: today, time: "18:00", duration_min: 60, court_label: "", repeat: "none", weekdays: [weekdayOf(today)], until: plusDays(today, 55) }); // 8 semaines par défaut
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
-  const setDate = (e) => setF({ ...f, date: e.target.value, weekdays: f.repeat === "weekly" && f.weekdays.length > 1 ? f.weekdays : [weekdayOf(e.target.value)], until: f.until < e.target.value ? plusDays(e.target.value, 55) : f.until });
+  const setDate = (e) => setF({ ...f, date: e.target.value, weekdays: f.repeat === "weekly" && f.weekdays.length > 1 ? f.weekdays : [weekdayOf(e.target.value)], until: plusDays(e.target.value, Math.max(1, Math.round((new Date(f.until + "T12:00:00Z") - new Date(f.date + "T12:00:00Z")) / 604800000)) * 7 - 1) }); // garde le nombre de semaines
   const toggleDay = (d) => setF({ ...f, weekdays: f.weekdays.includes(d) ? (f.weekdays.length > 1 ? f.weekdays.filter((x) => x !== d) : f.weekdays) : [...f.weekdays, d] });
   const count = countOccurrences(f);
   async function save(e) {
@@ -79,8 +79,8 @@ function ManualForm({ clubs, onDone, onCancel }) {
       <div className="mut small-p" style={{ marginBottom: 8 }}>Il sera proposé aux joueurs et utilisé automatiquement quand une demande tombe sur ce créneau.</div>
       <label className="field"><span className="mut">Club</span><select value={f.club_id} onChange={set("club_id")}>{clubs.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></label>
       <div className="grid">
-        <label className="field"><span className="mut">{f.repeat === "none" ? "Date" : "À partir du"}</span><input type="date" value={f.date} min={today} onChange={setDate} required /></label>
-        <label className="field"><span className="mut">Début</span><input type="time" value={f.time} onChange={set("time")} required /></label>
+        <label className="field"><span className="mut">{f.repeat === "none" ? "Date" : "À partir du"}</span><DateSelect label="Date" value={f.date} to={180} onChange={(v) => setDate({ target: { value: v } })} /></label>
+        <label className="field"><span className="mut">Début</span><TimeSelect label="Début" value={f.time} onChange={(v) => setF({ ...f, time: v })} /></label>
         <label className="field"><span className="mut">Durée</span>
           <select value={f.duration_min} onChange={set("duration_min")}>{[60, 90, 120, 180, 240].map((m) => <option key={m} value={m}>{m % 60 ? `${Math.floor(m / 60)} h ${m % 60}` : `${m / 60} h`}</option>)}</select>
         </label>
@@ -99,7 +99,11 @@ function ManualForm({ clubs, onDone, onCancel }) {
         </div>
       )}
       {f.repeat !== "none" && (
-        <label className="field"><span className="mut">Jusqu'au (inclus, 6 mois au plus)</span><input type="date" value={f.until} min={f.date} max={plusDays(f.date, 183)} onChange={set("until")} required /></label>
+        <label className="field"><span className="mut">Pendant</span>
+          <select value={Math.round((new Date(f.until + "T12:00:00Z") - new Date(f.date + "T12:00:00Z")) / 604800000) || 1} onChange={(e) => setF({ ...f, until: plusDays(f.date, +e.target.value * 7 - 1) })}>
+            {[1, 2, 4, 8, 12, 16, 26].map((w) => <option key={w} value={w}>{w} semaine{w > 1 ? "s" : ""} (jusqu'au {new Date(plusDays(f.date, w * 7 - 1) + "T12:00:00Z").toLocaleDateString("fr-FR", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" })})</option>)}
+          </select>
+        </label>
       )}
       {f.repeat !== "none" && <div className="multi-hint"><Icon name="repeat" size={16} /> <span><b>{count} terrain{count > 1 ? "s" : ""}</b> seront ajoutés, de {f.time} pour {f.duration_min} min. Les créneaux déjà saisis sont ignorés.</span></div>}
       {err && <div className="err" role="alert">{err}</div>}
@@ -190,12 +194,127 @@ function PromoForm({ cb, onClose, onDone }) {
   );
 }
 
+const TZ = "Africa/Tunis";
+const DAY_NAMES = ["lundis", "mardis", "mercredis", "jeudis", "vendredis", "samedis", "dimanches"];
+const localDay = (iso) => toDate(iso).toLocaleDateString("fr-CA", { timeZone: TZ });
+const weekdayOfIso = (iso) => (new Date(localDay(iso) + "T12:00:00Z").getUTCDay() + 6) % 7;
+const h24 = (iso) => hhmm(iso).replace(":", " h ").replace(" h 00", " h");
+const longDate = (iso) => toDate(iso).toLocaleDateString("fr-FR", { day: "numeric", month: "short", year: "numeric", timeZone: TZ });
+
+// Regroupe les terrains d'une même série (même heure, même durée) pour les afficher une seule fois
+function groupFree(free) {
+  const groups = new Map();
+  for (const cb of free) {
+    const key = cb.series_id ? `${cb.series_id}|${hhmm(cb.start)}|${cb.duration_min}|${cb.club_id}` : `one-${cb.id}`;
+    if (!groups.has(key)) groups.set(key, { key, items: [] });
+    groups.get(key).items.push(cb);
+  }
+  return [...groups.values()].sort((a, b) => toDate(a.items[0].start) - toDate(b.items[0].start));
+}
+
+// « Tous les mardis » / « Tous les lundis et jeudis » / « Tous les jours »
+function frequency(items) {
+  const days = [...new Set(items.map((cb) => weekdayOfIso(cb.start)))].sort();
+  const daily = days.length === 7 || (items.length > 2 && items.every((cb, i) => i === 0 || (toDate(cb.start) - toDate(items[i - 1].start)) <= 86400000 + 3600000));
+  if (daily) return "Tous les jours";
+  const names = days.map((d) => DAY_NAMES[d]);
+  return "Tous les " + (names.length > 1 ? names.slice(0, -1).join(", ") + " et " + names.at(-1) : names[0]);
+}
+
+function PromoLine({ cb, promo, onPromo, onStopPromo }) {
+  return promo ? (
+    <div className="promo-on">
+      <span className="promo-tag">−{promo.discount_pct} %</span>
+      <span>Promotion en cours · {promo.notified_count} joueur{promo.notified_count > 1 ? "s" : ""} prévenu{promo.notified_count > 1 ? "s" : ""}</span>
+      <button className="small sec" onClick={() => onStopPromo(promo)}>Arrêter</button>
+    </div>
+  ) : (
+    <button className="small sec" style={{ marginTop: 10 }} onClick={() => onPromo(cb)}><Icon name="sparkles" size={15} /> Proposer une promotion</button>
+  );
+}
+
+function FreeCard({ cb, promo, onRemove, onPromo, onStopPromo }) {
+  return (
+    <div className="card">
+      <div className="row">
+        <div>
+          <b style={{ textTransform: "capitalize" }}>{dayLabel(cb.start)} · {h24(cb.start)} – {h24(new Date(toDate(cb.start).getTime() + cb.duration_min * 60000).toISOString())}</b>
+          <div className="mut">{cb.club_name}{cb.court_label && ` · ${cb.court_label}`}{cb.series_id && <> · <Icon name="repeat" size={12} /> régulier</>}</div>
+        </div>
+        <button className="small sec iconbtn" title="Supprimer" aria-label="Supprimer" onClick={() => onRemove(cb)}><Icon name="trash" size={15} /></button>
+      </div>
+      <PromoLine cb={cb} promo={promo} onPromo={onPromo} onStopPromo={onStopPromo} />
+    </div>
+  );
+}
+
+// Terrain réservé régulièrement: une seule carte avec la fréquence, les dates à la demande
+function SeriesCard({ g, promos, onRemove, onRemoveSeries, onPromo, onStopPromo }) {
+  const [open, setOpen] = useState(false);
+  const first = g.items[0], last = g.items.at(-1);
+  const end = new Date(toDate(first.start).getTime() + first.duration_min * 60000).toISOString();
+  return (
+    <div className="card series">
+      <div className="row" style={{ alignItems: "flex-start" }}>
+        <div>
+          <b><Icon name="repeat" size={15} /> {frequency(g.items)} · {h24(first.start)} – {h24(end)}</b>
+          <div className="mut">{first.club_name}{first.court_label && ` · ${first.court_label}`}</div>
+          <div className="mut small-p">Jusqu'au {longDate(last.start)} · {g.items.length} créneau{g.items.length > 1 ? "x" : ""} libre{g.items.length > 1 ? "s" : ""} · prochain : <span style={{ textTransform: "capitalize" }}>{dayLabel(first.start)}</span></div>
+        </div>
+      </div>
+      <div className="actions">
+        <button className="small sec" aria-expanded={open} onClick={() => setOpen(!open)}><Icon name={open ? "chevD" : "chevR"} size={14} /> {open ? "Masquer les dates" : "Voir les dates"}</button>
+        <button className="small sec danger" onClick={() => onRemoveSeries(first)}><Icon name="trash" size={14} /> Supprimer la série</button>
+      </div>
+      {open && (
+        <div className="series-dates">
+          {g.items.map((cb) => {
+            const promo = promos.find((p) => p.court_booking_id === cb.id && p.active);
+            return (
+              <div key={cb.id} className="series-row">
+                <span style={{ textTransform: "capitalize", flex: 1 }}>{dayLabel(cb.start)}{promo && <span className="promo-tag" style={{ marginLeft: 6 }}>−{promo.discount_pct} %</span>}</span>
+                {!promo && <button className="small sec iconbtn" title="Promotion" aria-label="Proposer une promotion" onClick={() => onPromo(cb)}><Icon name="sparkles" size={14} /></button>}
+                {promo && <button className="small sec" onClick={() => onStopPromo(promo)}>Arrêter</button>}
+                <button className="small sec iconbtn" title="Supprimer cette date" aria-label="Supprimer cette date" onClick={() => onRemove(cb)}><Icon name="trash" size={14} /></button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Agenda des 14 prochains jours: où et quand un terrain est libre
+function FreeAgenda({ free }) {
+  const days = Array.from({ length: 14 }, (_, i) => new Date(Date.now() + i * 86400000).toLocaleDateString("fr-CA", { timeZone: TZ }));
+  return (
+    <div className="card agenda">
+      {days.map((d) => {
+        const items = free.filter((cb) => localDay(cb.start) === d).sort((a, b) => toDate(a.start) - toDate(b.start));
+        const label = new Date(d + "T12:00:00Z").toLocaleDateString("fr-FR", { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" });
+        return (
+          <div key={d} className={"agenda-day" + (items.length ? "" : " empty-day")}>
+            <span className="agenda-date">{label}</span>
+            <span className="agenda-slots">
+              {items.length ? items.map((cb) => (
+                <span key={cb.id} className="court-badge ok">{h24(cb.start)} – {h24(new Date(toDate(cb.start).getTime() + cb.duration_min * 60000).toISOString())} · {cb.club_name}</span>
+              )) : <span className="mut small-p">Aucun terrain libre</span>}
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export default function Courts({ onBack }) {
   const [list, setList] = useState(null);
   const [clubs, setClubs] = useState([]);
   const [editing, setEditing] = useState(null); // club, "new" ou null
   const [filter, setFilter] = useState("todo");
   const [adding, setAdding] = useState(false);
+  const [freeView, setFreeView] = useState("list"); // terrains libres: par série ou agenda jour par jour
   const [removing, setRemoving] = useState(null); // terrain d'une série: celui-ci ou toute la suite
   const [msg, setMsg] = useState("");
   const [promos, setPromos] = useState([]);
@@ -256,29 +375,15 @@ export default function Courts({ onBack }) {
           <p className="mut">Terrains réservés par vos soins, pas encore attribués à une séance.</p>
           {adding && <ManualForm clubs={clubs} onCancel={() => setAdding(false)} onDone={() => { setAdding(false); load(); }} />}
           {free.length === 0 && !adding && <div className="card mut">Aucun terrain libre.</div>}
-          {free.map((cb) => {
-            const promo = promos.find((p) => p.court_booking_id === cb.id && p.active);
-            return (
-              <div className="card" key={cb.id}>
-                <div className="row">
-                  <div>
-                    <b style={{ textTransform: "capitalize" }}>{dayLabel(cb.start)} · {hhmm(cb.start)}–{endTime(cb)}</b>
-                    <div className="mut">{cb.club_name}{cb.court_label && ` · ${cb.court_label}`}{cb.series_id && <> · <Icon name="repeat" size={12} /> régulier</>}</div>
-                  </div>
-                  <button className="small sec iconbtn" title="Supprimer" aria-label="Supprimer" onClick={() => remove(cb)}><Icon name="trash" size={15} /></button>
-                </div>
-                {promo ? (
-                  <div className="promo-on">
-                    <span className="promo-tag">−{promo.discount_pct} %</span>
-                    <span>Promotion en cours · {promo.notified_count} joueur{promo.notified_count > 1 ? "s" : ""} prévenu{promo.notified_count > 1 ? "s" : ""}</span>
-                    <button className="small sec" onClick={() => stopPromo(promo)}>Arrêter</button>
-                  </div>
-                ) : (
-                  <button className="small sec" style={{ marginTop: 10 }} onClick={() => setPromoFor(cb)}><Icon name="sparkles" size={15} /> Proposer une promotion</button>
-                )}
-              </div>
-            );
-          })}
+          {free.length > 0 && (
+            <div className="seg" style={{ marginBottom: 10 }}>
+              <button className={freeView === "list" ? "on" : ""} onClick={() => setFreeView("list")}><Icon name="repeat" size={14} /> Par série</button>
+              <button className={freeView === "agenda" ? "on" : ""} onClick={() => setFreeView("agenda")}><Icon name="calendar" size={14} /> Agenda</button>
+            </div>
+          )}
+          {freeView === "agenda" ? <FreeAgenda free={free} /> : groupFree(free).map((g) => g.items.length > 1
+            ? <SeriesCard key={g.key} g={g} promos={promos} onRemove={remove} onRemoveSeries={(cb) => doRemove(cb, true)} onPromo={setPromoFor} onStopPromo={stopPromo} />
+            : <FreeCard key={g.key} cb={g.items[0]} promo={promos.find((p) => p.court_booking_id === g.items[0].id && p.active)} onRemove={remove} onPromo={setPromoFor} onStopPromo={stopPromo} />)}
           {promoFor && <PromoForm cb={promoFor} onClose={() => setPromoFor(null)} onDone={() => { setPromoFor(null); load(); }} />}
           {!adding && <button className="small" onClick={() => setAdding(true)}><Icon name="plus" size={15} /> Ajouter un terrain déjà réservé (une fois ou régulièrement)</button>}
           {removing && (

@@ -54,6 +54,19 @@ def create_free_court(db: Session, coach: Coach, club: Club, start: datetime, du
     return cb
 
 
+def take_part(db: Session, cb: CourtBooking, s: TrainingSession) -> CourtBooking:
+    """Une séance utilise une partie d'un terrain réservé (ex. 9 h-10 h dans un bloc 8 h-12 h): le terrain est
+    découpé, la séance garde son heure, le temps avant et après reste libre pour d'autres séances."""
+    start, end = aware(s.start), aware(s.start) + timedelta(minutes=s.duration_min)
+    cb_start, cb_end = aware(cb.start), aware(cb.start) + timedelta(minutes=cb.duration_min)
+    for a, b in ((cb_start, start), (end, cb_end)):
+        if b > a:
+            db.add(CourtBooking(coach_id=cb.coach_id, club_id=cb.club_id, start=a, duration_min=int((b - a).total_seconds() // 60),
+                                court_label=cb.court_label, source=cb.source, status="confirmee", series_id=cb.series_id))
+    cb.session_id, cb.start, cb.duration_min = s.id, start, s.duration_min
+    return cb
+
+
 def held_covering(db: Session, coach: Coach, start: datetime, duration_min: int) -> list[CourtBooking]:
     """Terrains confirmés et libres qui couvrent entièrement [start, start+durée]."""
     start, end = aware(start), aware(start) + timedelta(minutes=duration_min)
