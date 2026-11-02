@@ -83,9 +83,15 @@ def list_sessions(
         q = q.where(TrainingSession.start >= start)
     if end:
         q = q.where(TrainingSession.start < end)
-    court = {cb.session_id: cb.status for cb in db.scalars(select(CourtBooking).where(CourtBooking.coach_id == coach.id))}
+    court = {cb.session_id: cb for cb in db.scalars(select(CourtBooking).where(CourtBooking.coach_id == coach.id, CourtBooking.session_id.is_not(None)))}
     paid = session_payments(db, coach.id)
-    return [to_out(s, court.get(s.id), paid) for s in db.scalars(q.order_by(TrainingSession.start))]
+    out = []
+    for s in db.scalars(q.order_by(TrainingSession.start)):
+        cb = court.get(s.id)
+        o = to_out(s, cb.status if cb else None, paid)
+        o.court = o.court or (cb.court_label if cb else "")  # terrain affiché sur le planning et l'accueil
+        out.append(o)
+    return out
 
 
 @router.post("", response_model=list[SessionOut], status_code=201)

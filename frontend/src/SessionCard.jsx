@@ -2,9 +2,9 @@ import { useState } from "react";
 import { hhmm, tnd } from "./api.js";
 import InvitePlayers from "./InvitePlayers.jsx";
 import Icon from "./Icon.jsx";
-import { AvatarStack, COURT_STATUS, KIND, STATUS } from "./ui.jsx";
+import { AvatarStack, COURT_STATUS, KIND, PlayerTags, STATUS, Where } from "./ui.jsx";
 
-export default function SessionCard({ s, name, onStatus, onDuplicate, onPrepare, onChanged }) {
+export default function SessionCard({ s, name, byId, onStatus, onDuplicate, onPrepare, onChanged }) {
   const [inviting, setInviting] = useState(false);
   const short = s.status === "prevue" && s.player_ids.length < s.min_players; // pas encore assez de joueurs
   const canInvite = s.status === "prevue" && s.open && s.max_players > s.player_ids.length;
@@ -18,8 +18,9 @@ export default function SessionCard({ s, name, onStatus, onDuplicate, onPrepare,
         <div>
           <div className="time">{hhmm(s.start)} <span className="mut">→ {hhmm(end)}</span></div>
           <div className="mut">
-            {k.label}{s.club && ` · ${s.club}`}{s.recurrence_id && <> · <Icon name="repeat" size={13} /></>}
+            {k.label}{s.recurrence_id && <> · <Icon name="repeat" size={13} /></>}
           </div>
+          <Where s={s} />
         </div>
         <span className={"badge " + s.status}>{STATUS[s.status]}</span>
       </div>
@@ -32,7 +33,7 @@ export default function SessionCard({ s, name, onStatus, onDuplicate, onPrepare,
       <div className="row" style={{ marginTop: 10 }}>
         {names.length ? <AvatarStack names={names} /> : <span className="mut">Aucun joueur</span>}
         <div style={{ textAlign: "right" }}>
-          <div className="who">{names.join(", ")}</div>
+          <div className="who">{byId ? <PlayerTags ids={s.player_ids} byId={byId} empty="" /> : names.join(", ")}</div>
           {s.price_millimes > 0 && (
             <div className="mut">{tnd(s.price_millimes)}{s.price_mode === "groupe" ? " (total)" : s.kind !== "individuel" ? " / joueur" : ""}</div>
           )}

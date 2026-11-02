@@ -2,6 +2,7 @@ import { useState } from "react";
 import { api, tnd } from "./api.js";
 import Icon from "./Icon.jsx";
 import { toast } from "./feedback.jsx";
+import { PlayerTag } from "./ui.jsx";
 
 // Reste à régler par un joueur pour une séance effectuée
 export const leftToPay = (x) => Math.max(0, x.due_millimes - x.paid_millimes);
@@ -16,7 +17,7 @@ export function PaySummary({ s }) {
 }
 
 // Séance effectuée: ce que chaque joueur a réglé, et encaissement du reste
-export default function SessionPayments({ s, name, onPaid }) {
+export default function SessionPayments({ s, name, byId, onPaid }) {
   const [form, setForm] = useState(null); // { player_id, amount, method }
   const [err, setErr] = useState("");
   async function save(e) {
@@ -38,7 +39,7 @@ export default function SessionPayments({ s, name, onPaid }) {
         return (
           <div key={x.player_id}>
             <div className="payrow">
-              <b>{name(x.player_id)}</b>
+              <b>{byId?.(x.player_id) ? <PlayerTag p={byId(x.player_id)} /> : name(x.player_id)}</b>
               {x.credit_millimes > 0 ? (
                 <span className="paytag ok">Payé en crédits · {tnd(x.credit_millimes)}</span>
               ) : (

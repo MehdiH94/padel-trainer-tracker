@@ -5,7 +5,7 @@ import SessionPayments from "./SessionPayments.jsx";
 import Icon from "./Icon.jsx";
 import { toast, toastError } from "./feedback.jsx";
 import { sessionStatus } from "./sessionActions.js";
-import { Avatar, AvatarStack, BarChart, COURT_STATUS, InstallCard, KIND, Loading } from "./ui.jsx";
+import { Avatar, AvatarStack, BarChart, COURT_STATUS, InstallCard, KIND, Loading, PlayerTag, PlayerTags, Where } from "./ui.jsx";
 
 const TZ = "Africa/Tunis";
 const ymd = (d) => d.toLocaleDateString("fr-CA", { timeZone: TZ });
@@ -26,7 +26,7 @@ function phase(s, now) {
 }
 
 // Panneau d'une séance terminée: un retour par joueur
-function DonePanel({ s, name, strokes, onSaved, onClose }) {
+function DonePanel({ s, name, byId, strokes, onSaved, onClose }) {
   const [list, setList] = useState(null);
   const [who, setWho] = useState(null);
   const load = () => api(`/sessions/${s.id}/feedback`).then((l) => { setList(l); setWho((w) => w ?? l[0]?.player_id); });
@@ -42,18 +42,18 @@ function DonePanel({ s, name, strokes, onSaved, onClose }) {
       {s.payments?.length > 0 && (
         <>
           <div className="mut" style={{ marginTop: 8 }}>Règlements</div>
-          <SessionPayments s={s} name={name} onPaid={onSaved} />
+          <SessionPayments s={s} name={name} byId={byId} onPaid={onSaved} />
         </>
       )}
       {list.length > 1 && (
         <div className="chips" style={{ margin: "8px 0" }}>
           {list.map((x) => {
             const filled = x.worked_on.length || x.note || x.to_improve;
-            return <button key={x.player_id} className={"chip small" + (cur.player_id === x.player_id ? " on" : "")} onClick={() => setWho(x.player_id)}>{x.name.split(" ")[0]}{filled ? "" : " •"}</button>;
+            return <button key={x.player_id} className={"chip small" + (cur.player_id === x.player_id ? " on" : "")} onClick={() => setWho(x.player_id)}><PlayerTag p={byId?.(x.player_id) ?? x} first />{filled ? "" : " •"}</button>;
           })}
         </div>
       )}
-      {list.length === 1 && <div className="mut" style={{ margin: "4px 0" }}>{cur.name}</div>}
+      {list.length === 1 && <div className="mut" style={{ margin: "4px 0" }}><PlayerTag p={byId?.(cur.player_id) ?? cur} /></div>}
       {cur && <FeedbackEditor key={cur.player_id} h={cur} playerId={cur.player_id} strokes={strokes} onSaved={() => { load(); onSaved(); }} />}
     </div>
   );
@@ -218,10 +218,11 @@ export default function Home({ go, openPlayer, summary }) {
               <span>{ph.label}</span>
             </div>
             <div className="time" style={{ fontSize: "1.7rem", margin: "6px 0 2px" }}>{hhmm(focus.start)} <span style={{ opacity: 0.7, fontSize: "1rem" }}>→ {hhmm(endOf(focus).toISOString())}</span></div>
-            <div style={{ opacity: 0.9 }}>{KIND[focus.kind]?.label}{focus.club && ` · ${focus.club}`}</div>
+            <div style={{ opacity: 0.9 }}>{KIND[focus.kind]?.label}</div>
+            <Where s={focus} light />
             <div className="row" style={{ marginTop: 10, justifyContent: "flex-start", flexWrap: "wrap" }}>
               {ps.map((p) => (
-                <button key={p.id} className="who-btn" onClick={() => openPlayer(p.id)}><Avatar name={p.name} size={28} />{p.name.split(" ")[0]}</button>
+                <button key={p.id} className="who-btn" onClick={() => openPlayer(p.id)}><Avatar name={p.name} size={28} /><PlayerTag p={p} first /></button>
               ))}
             </div>
             {ps[0] && <div className="actions"><a className="btnlink light" href={`tel:${ps[0].phone}`}><Icon name="phone" size={16} /> Appeler</a><button className="small light" onClick={() => setStatus(focus.id, "effectuee")}><Icon name="check" size={15} /> Terminée</button></div>}
@@ -240,10 +241,11 @@ export default function Home({ go, openPlayer, summary }) {
               <div className="tl-dot" style={{ background: KIND[s.kind]?.color }} />
               <div className="card tl-card">
                 <div className="row">
-                  <b>{s.player_ids.map(name).join(", ") || "Sans joueur"}</b>
+                  <b><PlayerTags ids={s.player_ids} byId={byId} empty="Sans joueur" /></b>
                   <span className={"chip-state " + ph.key}>{ph.label}</span>
                 </div>
-                <div className="mut">{KIND[s.kind]?.label}{s.club && ` · ${s.club}`}</div>
+                <div className="mut">{KIND[s.kind]?.label}</div>
+                <Where s={s} />
                 {s.court_status && <span className={"court-badge " + COURT_STATUS[s.court_status].cls}><Icon name="pin" size={12} /> {COURT_STATUS[s.court_status].label}</span>}
                 <div className="actions">
                   <button className="small sec" onClick={() => go(`session/${s.id}`)}><Icon name={s.has_plan ? "checkCircle" : "sparkles"} size={15} /> {s.has_plan ? "Plan prêt" : "Préparer"}</button>
@@ -270,7 +272,7 @@ export default function Home({ go, openPlayer, summary }) {
             ))}
           </div>
           {openDone && finished.find((s) => s.id === openDone) && (
-            <DonePanel s={finished.find((s) => s.id === openDone)} name={name} strokes={strokes} onSaved={load} onClose={() => setOpenDone(null)} />
+            <DonePanel s={finished.find((s) => s.id === openDone)} name={name} byId={byId} strokes={strokes} onSaved={load} onClose={() => setOpenDone(null)} />
           )}
         </>
       )}

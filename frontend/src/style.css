@@ -514,3 +514,16 @@ main > .row:first-child > .row { flex-wrap: wrap; justify-content: flex-end; }
 .cal-pill { color: #fff; font-size: .78rem; font-weight: 700; padding: 3px 10px; border-radius: 99px; }
 .cal-pill.libre { color: #475569; }
 @media (prefers-color-scheme: dark) { .cal-block.libre, .cal-dot.libre, .cal-pill.libre { background: #1b2433; color: #cbd5e1; border-color: #94a3b8; } }
+
+/* Joueurs avec leur niveau, lieu de la séance */
+.ptags { display: inline-flex; flex-wrap: wrap; gap: 4px 10px; align-items: center; }
+.ptag { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+.ptag .cat { padding: 1px 6px; font-size: .68rem; }
+.where { display: inline-flex; align-items: center; gap: 4px; font-size: .82rem; color: var(--txt); font-weight: 600; }
+.where svg { color: var(--brand); flex: none; }
+.where.light, .where.light svg { color: inherit; opacity: .95; }
+.sess .who .ptags { justify-content: flex-end; }
+.sess-block { color: #fff; }
+.sess-block small { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.sess-block.effectuee { opacity: .55; }
+.focus .ptag .cat { background: var(--card) !important; }

@@ -224,3 +224,25 @@ export function DateSelect({ value, onChange, label, from = 0, to = 180, ...rest
     </select>
   );
 }
+
+// Nom d'un joueur toujours suivi de son niveau (first = prénom seulement)
+export function PlayerTag({ p, first }) {
+  if (!p) return null;
+  return <span className="ptag">{first ? p.name.split(" ")[0] : p.name} {p.category && <CategoryBadge category={p.category} />}</span>;
+}
+
+export function PlayerTags({ ids, byId, first, empty = "Aucun joueur" }) {
+  const ps = ids.map(byId).filter(Boolean);
+  if (!ps.length) return <span className="mut">{empty}</span>;
+  return <span className="ptags">{ps.map((p) => <PlayerTag key={p.id} p={p} first={first} />)}</span>;
+}
+
+// Lieu de la séance: club et terrain
+export function Where({ s, light }) {
+  if (!s.club && !s.court) return null;
+  return (
+    <span className={"where" + (light ? " light" : "")}>
+      <Icon name="pin" size={12} /> {s.club || "Club à préciser"} · {s.court || "terrain à préciser"}
+    </span>
+  );
+}

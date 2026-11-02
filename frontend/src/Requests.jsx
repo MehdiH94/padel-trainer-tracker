@@ -3,7 +3,7 @@ import { api, dayLabel, hhmm, tnd } from "./api.js";
 import Icon from "./Icon.jsx";
 import { confirmDialog } from "./feedback.jsx";
 import InvitePlayers from "./InvitePlayers.jsx";
-import { Avatar, CategoryBadge, ContactLinks, KIND, Loading } from "./ui.jsx";
+import { Avatar, CategoryBadge, ContactLinks, KIND, Loading, PlayerTag } from "./ui.jsx";
 
 const hm = (iso, min) => `${hhmm(iso)} – ${hhmm(new Date(new Date(iso + (iso.endsWith("Z") ? "" : "Z")).getTime() + min * 60000).toISOString())}`;
 
@@ -15,7 +15,7 @@ function Head({ r }) {
         <div className="row g10">
           <Avatar name={r.name} size={42} />
           <div>
-            <b>{r.name}</b>
+            <b><PlayerTag p={r} /></b>
             <div className="mut"><CategoryBadge category={r.category} gender={r.gender} /></div>
           </div>
         </div>
@@ -139,7 +139,7 @@ function ToNotify({ r, reload }) {
   return (
     <div className="card req done">
       <div className="row">
-        <div className="row g10"><Avatar name={r.name} size={38} /><div><b>{r.name}</b><div className="mut" style={{ textTransform: "capitalize" }}>{dayLabel(r.start)} · {hhmm(r.start)}</div></div></div>
+        <div className="row g10"><Avatar name={r.name} size={38} /><div><b><PlayerTag p={r} /></b><div className="mut" style={{ textTransform: "capitalize" }}>{dayLabel(r.start)} · {hhmm(r.start)}</div></div></div>
         <span className="court-badge ok"><Icon name="checkCircle" size={13} /> Confirmée</span>
       </div>
       <textarea className="msg" rows={3} value={text} onChange={(e) => setText(e.target.value)} />
