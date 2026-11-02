@@ -12,7 +12,8 @@ from ..models import Coach, CreditTx, Payment, Player
 from ..schemas import PlayerIn, PlayerOut
 from sqlalchemy.orm import object_session
 
-from ..services.accounts import account_of, has_account
+from ..schemas import normalize_tn_phone
+from ..services.accounts import account_of, contact_conflicts, has_account
 from ..services.finance import credit_balance, settle
 
 router = APIRouter(prefix="/players", tags=["players"])
@@ -47,8 +48,25 @@ def list_players(coach: Coach = Depends(current_coach), db: Session = Depends(ge
     return [player_out(p, balances.get(p.id, 0)) for p in db.scalars(select(Player).where(Player.coach_id == coach.id).order_by(Player.name))]
 
 
+def _check_contact(db: Session, coach: Coach, email: str | None, phone: str, exclude_id: int | None = None) -> None:
+    errors = contact_conflicts(db, coach.id, email, phone, exclude_id)
+    if errors["email"] or errors["phone"]:
+        raise HTTPException(409, errors["email"] or errors["phone"])
+
+
+@router.get("/check")
+def check_contact(email: str = "", phone: str = "", exclude: int | None = None, coach: Coach = Depends(current_coach), db: Session = Depends(get_db)):
+    """Vérification pendant la saisie: e-mail ou téléphone déjà utilisés ?"""
+    try:
+        phone = normalize_tn_phone(phone) if phone.strip() else ""
+    except ValueError:
+        return {"email": None, "phone": "Numéro tunisien invalide (8 chiffres attendus)"}
+    return contact_conflicts(db, coach.id, email, phone, exclude)
+
+
 @router.post("", response_model=PlayerOut, status_code=201)
 def create_player(body: PlayerIn, coach: Coach = Depends(current_coach), db: Session = Depends(get_db)):
+    _check_contact(db, coach, body.email, body.phone)
     # le lien d'inscription pré-rempli est créé tout de suite: le coach n'a plus qu'à le copier
     p = Player(coach_id=coach.id, invite_token=secrets.token_urlsafe(16), **body.model_dump())
     db.add(p)
@@ -59,6 +77,7 @@ def create_player(body: PlayerIn, coach: Coach = Depends(current_coach), db: Ses
 @router.put("/{player_id}", response_model=PlayerOut)
 def update_player(player_id: int, body: PlayerIn, coach: Coach = Depends(current_coach), db: Session = Depends(get_db)):
     p = get_owned_player(db, coach, player_id)
+    _check_contact(db, coach, None if p.password_hash else body.email, body.phone, p.id)
     data = body.model_dump()
     if p.password_hash:  # l'email d'un compte actif sert à la connexion: on ne le change pas ici
         data.pop("email")

@@ -44,7 +44,14 @@ def client():
     app.dependency_overrides.clear()
 
 
-def mkplayer(c, phone="22 123 456", name="Sami", **extra):
+_phones = iter(range(30000000, 39999999))
+
+
+def mkplayer(c, phone=None, name="Sami", **extra):
+    """Sans numéro précisé: 22 123 456 pour le premier joueur du coach, puis un numéro libre (un numéro par joueur)."""
+    if phone is None:
+        taken = {x["phone"] for x in c.get("/players").json()}
+        phone = "22 123 456" if "+21622123456" not in taken else str(next(_phones))
     return c.post("/players", json={"name": name, "phone": phone, **extra}).json()
 
 
@@ -1490,3 +1497,38 @@ def test_admin_manages_players_coaches_and_clubs(client, monkeypatch):
     assert boss.delete("/admin/clubs/padel arena sousse").json()["ok"]
     assert "Padel Arena Sousse" not in [c["name"] for c in other.get("/clubs/catalog").json()["known"]]
     assert boss.delete(f"/admin/coaches/{next(c['id'] for c in boss.get('/admin/coaches').json() if c['email'] == 'boss@padel.tn')}").status_code == 409
+
+
+def test_player_contact_must_be_unique(client):
+    p, pc = player_client(client, name="Sami")
+    mine = pc.get("/me").json()["email"]
+    # e-mail déjà pris (joueur, ou compte coach, quelle que soit la casse) ou téléphone déjà dans mes joueurs: refusé
+    r = client.post("/players", json={"name": "Neuf", "phone": "20 999 000", "email": mine.upper()})
+    assert r.status_code == 409 and "Sami" in r.json()["detail"]
+    r = client.post("/players", json={"name": "Neuf", "phone": "20 999 000", "email": "A@B.tn"})
+    assert r.status_code == 409 and "coach" in r.json()["detail"]
+    r = client.post("/players", json={"name": "Neuf", "phone": "22 123 456"})
+    assert r.status_code == 409 and "numéro" in r.json()["detail"]
+    # vérification pendant la saisie
+    chk = client.get("/players/check", params={"email": mine, "phone": "22123456"}).json()
+    assert chk["email"] and chk["phone"]
+    assert client.get("/players/check", params={"email": "libre@x.tn", "phone": "20 999 000"}).json() == {"email": None, "phone": None}
+    assert client.get("/players/check", params={"email": mine, "phone": "22123456", "exclude": p["id"]}).json() == {"email": None, "phone": None}
+    # un autre coach peut avoir le même numéro (même personne chez deux coachs)
+    assert register("other@b.tn").post("/players", json={"name": "Sami", "phone": "22 123 456"}).status_code == 201
+
+
+def test_signup_never_fails_when_email_sending_fails(client, monkeypatch):
+    """SMTP mal réglé: l'inscription aboutit quand même (l'e-mail est seulement journalisé comme non envoyé)."""
+    import smtplib
+    monkeypatch.setenv("SMTP_HOST", "smtp.invalid")
+    monkeypatch.setenv("REQUIRE_EMAIL_VERIFICATION", "0")
+    monkeypatch.setattr(smtplib, "SMTP", lambda *a, **k: (_ for _ in ()).throw(OSError("serveur injoignable")))
+    p = client.post("/players", json={"name": "Lina", "phone": "20 777 888", "email": "a@b.tn"})
+    assert p.status_code == 409  # e-mail du coach: refusé dès la création
+    p = client.post("/players", json={"name": "Lina", "phone": "20 777 888"}).json()
+    anon = TestClient(app)
+    r = anon.post(f"/auth/invite/{p['invite_path'].split('/')[-1]}", json={"email": "a@b.tn", "password": "secret1"})
+    assert r.status_code == 409 and "déjà utilisée" in r.json()["detail"]
+    r = anon.post(f"/auth/invite/{p['invite_path'].split('/')[-1]}", json={"email": "lina@x.tn", "password": "secret1"})
+    assert r.status_code == 200 and r.json()["role"] == "player"

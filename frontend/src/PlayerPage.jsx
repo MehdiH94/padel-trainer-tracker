@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, dayLabel, hhmm, shortDate, tnd } from "./api.js";
+import { api, dayLabel, hhmm, shortDate, tnd, useContactCheck } from "./api.js";
 import FeedbackEditor from "./FeedbackEditor.jsx";
 import Icon from "./Icon.jsx";
 import InviteLink from "./InviteLink.jsx";
@@ -38,6 +38,7 @@ function EditForm({ player, onSave, onCancel }) {
     contact_channel: player.contact_channel ?? "",
   });
   const [err, setErr] = useState("");
+  const taken = useContactCheck(player.has_account ? "" : f.email, f.phone, player.id); // déjà utilisés par un autre joueur ?
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
   async function submit(e) {
     e.preventDefault();
@@ -52,8 +53,8 @@ function EditForm({ player, onSave, onCancel }) {
       <b>Modifier la fiche</b>
       <label className="field"><span className="mut">Nom complet</span><input value={f.name} onChange={set("name")} required /></label>
       <div className="grid">
-        <label className="field"><span className="mut">Téléphone</span><input inputMode="tel" value={f.phone} onChange={set("phone")} required /></label>
-        <label className="field"><span className="mut">E-mail{player.has_account && " (compte actif)"}</span><input type="email" value={f.email} onChange={set("email")} disabled={player.has_account} /></label>
+        <label className="field"><span className="mut">Téléphone</span><input inputMode="tel" value={f.phone} onChange={set("phone")} required aria-invalid={!!taken.phone} />{taken.phone && <small className="err">{taken.phone}</small>}</label>
+        <label className="field"><span className="mut">E-mail{player.has_account && " (compte actif)"}</span><input type="email" value={f.email} onChange={set("email")} disabled={player.has_account} aria-invalid={!!taken.email} />{taken.email && <small className="err">{taken.email}</small>}</label>
         <label className="field"><span className="mut">Genre</span><select value={f.gender} onChange={set("gender")}><option value="M">Homme</option><option value="F">Dame</option></select></label>
         <label className="field"><span className="mut">Classement</span><select value={f.category} onChange={set("category")}>{CATEGORIES.map((c) => <option key={c} value={c}>{catOption(c)}</option>)}</select></label>
         <label className="field"><span className="mut">Main forte</span><select value={f.dominant_hand} onChange={set("dominant_hand")}><option value="droitier">Droitier</option><option value="gaucher">Gaucher</option></select></label>
@@ -63,7 +64,7 @@ function EditForm({ player, onSave, onCancel }) {
       <label className="field"><span className="mut">Objectifs</span><input value={f.goals} onChange={set("goals")} placeholder="ex. préparer un tournoi de club" /></label>
       <label className="field"><span className="mut">Notes du coach (privées)</span><textarea className="msg" rows={3} value={f.notes} onChange={set("notes")} placeholder="blessures, disponibilités, caractère…" /></label>
       {err && <div className="err">{err}</div>}
-      <div className="actions"><button>Enregistrer</button><button type="button" className="sec" onClick={onCancel}>Annuler</button></div>
+      <div className="actions"><button disabled={!!(taken.email || taken.phone)}>Enregistrer</button><button type="button" className="sec" onClick={onCancel}>Annuler</button></div>
     </form>
   );
 }

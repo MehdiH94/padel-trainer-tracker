@@ -15,7 +15,7 @@ from ..models import Attendance, Club, Coach, CourtBooking, Player, Promotion, T
 from ..services.common import aware
 from ..schemas import PlayerIn
 from ..services import admin_ops, signups
-from ..services.accounts import account_of, has_account
+from ..services.accounts import account_of, contact_conflicts, has_account
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -87,6 +87,9 @@ def add_player(body: AdminPlayerIn, admin: Coach = Depends(current_admin), db: S
     """Ajoute un élève chez un coach; le lien d'inscription pré-rempli est créé (comme quand le coach l'ajoute)."""
     if not db.get(Coach, body.coach_id):
         raise HTTPException(404, "Coach introuvable")
+    errors = contact_conflicts(db, body.coach_id, body.email, body.phone)
+    if errors["email"] or errors["phone"]:
+        raise HTTPException(409, errors["email"] or errors["phone"])
     p = Player(invite_token=secrets.token_urlsafe(16), **body.model_dump())
     db.add(p)
     try:

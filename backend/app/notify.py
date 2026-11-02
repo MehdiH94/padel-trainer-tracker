@@ -33,12 +33,23 @@ def channel_for(player: Player, email: str | None) -> str:
 OUTBOX: list[tuple[str, str, str]] = []  # e-mails demandés (destinataire, sujet, texte): trace pour les tests et le dev
 
 
-def send_email(to: str, subject: str, body: str) -> None:
+def send_email(to: str, subject: str, body: str) -> bool:
+    """Envoie un e-mail. Un échec (SMTP mal réglé, serveur injoignable) est journalisé mais ne bloque jamais
+    l'action en cours (inscription, réservation…). Retourne True si l'e-mail est parti."""
     OUTBOX.append((to, subject, body))
     host = os.getenv("SMTP_HOST")
     if not host:
         log.info("E-mail (non envoyé, SMTP non réglé) -> %s: %s", to, body)
-        return
+        return False
+    try:
+        _smtp_send(host, to, subject, body)
+        return True
+    except Exception:
+        log.exception("E-mail non envoyé à %s (%s): vérifier SMTP_HOST, SMTP_USER, SMTP_PASSWORD", to, subject)
+        return False
+
+
+def _smtp_send(host: str, to: str, subject: str, body: str) -> None:
     sender = os.getenv("SMTP_FROM") or os.getenv("SMTP_USER", "")
     msg = EmailMessage()
     msg["From"], msg["To"], msg["Subject"] = sender, to, subject

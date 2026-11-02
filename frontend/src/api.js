@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 const TZ = "Africa/Tunis";
 
 export const getToken = () => localStorage.getItem("token");
@@ -68,4 +68,22 @@ export function useLive(load, ms = 15000) {
       window.removeEventListener("online", run);
     };
   }, [ms]);
+}
+
+
+// Pendant la saisie d'un joueur: e-mail ou téléphone déjà utilisés ? (vérifié un instant après la frappe)
+export function useContactCheck(email, phone, exclude) {
+  const [errs, setErrs] = useState({ email: null, phone: null });
+  useEffect(() => {
+    const digits = (phone || "").replace(/\D/g, "");
+    const mail = (email || "").includes("@") ? email.trim() : "";
+    const tel = digits.length >= 8 ? phone : ""; // numéro complet seulement
+    if (!mail && !tel) { setErrs({ email: null, phone: null }); return undefined; }
+    const t = setTimeout(() => {
+      const q = new URLSearchParams({ email: mail, phone: tel, ...(exclude ? { exclude } : {}) });
+      api(`/players/check?${q}`).then(setErrs).catch(() => {});
+    }, 450);
+    return () => clearTimeout(t);
+  }, [email, phone, exclude]);
+  return errs;
 }

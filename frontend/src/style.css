@@ -562,3 +562,6 @@ main > .row:first-child > .row { flex-wrap: wrap; justify-content: flex-end; }
 .cal-block.libre .club-code { background: var(--soft); }
 .club-legend { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: .74rem; color: var(--mut); margin: 6px 0; }
 .club-legend .club-code { color: var(--txt); background: var(--soft); border-radius: 4px; padding: 0 5px; }
+/* Champ en erreur (e-mail ou téléphone déjà utilisés) */
+input[aria-invalid="true"] { border-color: var(--red); box-shadow: 0 0 0 3px var(--red-l); }
+small.err { display: block; margin: 4px 0 0; font-size: .8rem; }
