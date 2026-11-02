@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from ..auth import current_coach, current_player
 from ..db import get_db
 from ..models import Club, Coach, CourtBooking, Player, Promotion
-from ..notify import Notifier
+from ..notify import Notifier, channel_for
 from ..services.accounts import account_of, contact_email, linked
 from ..services.common import TUNIS, aware
 from ..services.courts import JOURS
@@ -95,7 +95,7 @@ def create_promotion(body: PromoIn, coach: Coach = Depends(current_coach), db: S
     # Prévenir les joueurs par le moyen qu'ils ont choisi (SMS par défaut)
     notifier, sent = Notifier(sms), 0
     for pl in recipients(db, coach):
-        channel = pl.contact_channel or "sms"
+        channel = channel_for(pl, contact_email(db, pl))  # e-mail en version bêta
         if channel == "email" and not contact_email(db, pl):
             channel = "sms"
         try:

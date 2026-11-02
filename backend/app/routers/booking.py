@@ -215,6 +215,8 @@ def court_ok(booking_id: int, coach: Coach = Depends(current_coach), db: Session
     if b.status != "acceptee":
         raise HTTPException(409, "Cette réservation n'attend pas de terrain")
     b.status = "confirmee"
+    db.flush()
+    svc.announce_confirmed(db, db.get(TrainingSession, b.session_id))  # e-mail de confirmation au joueur
     db.commit()
     return booking_out(db, coach, b)
 

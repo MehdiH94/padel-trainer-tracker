@@ -1,5 +1,8 @@
 """Envoi d'un message au joueur par le moyen qu'il a choisi (WhatsApp, SMS ou e-mail).
 
+Version bêta: tous les messages aux joueurs partent par e-mail (`NOTIFY_EMAIL_ONLY`, activé par défaut;
+mettre 0 pour revenir au choix du joueur quand WhatsApp et SMS seront branchés).
+
 - SMS: passe par le fournisseur SMS (`FakeSmsProvider` en dev: journalise seulement).
 - E-mail: envoyé par SMTP si `SMTP_HOST` est réglé, sinon journalisé seulement.
 - WhatsApp: aucune passerelle branchée pour l'instant, le message est journalisé seulement.
@@ -14,6 +17,17 @@ from .models import Player
 from .sms.base import SmsProvider
 
 log = logging.getLogger("notify")
+
+
+EMAIL_ONLY = os.getenv("NOTIFY_EMAIL_ONLY", "1") != "0"
+
+
+def channel_for(player: Player, email: str | None) -> str:
+    """Moyen utilisé pour ce joueur: e-mail en version bêta, sinon celui qu'il a choisi (SMS par défaut)."""
+    if EMAIL_ONLY:
+        return "email"
+    channel = player.contact_channel or "sms"
+    return "sms" if channel == "email" and not email else channel
 
 
 OUTBOX: list[tuple[str, str, str]] = []  # e-mails demandés (destinataire, sujet, texte): trace pour les tests et le dev
@@ -49,8 +63,13 @@ class Notifier:
         self.sms = sms
 
     def send(self, player: Player, channel: str, subject: str, body: str, email: str | None = None) -> None:
+        channel = "email" if EMAIL_ONLY else channel
         if channel == "email":
             to = email or player.email
+            if not to:  # joueur sans compte (pas d'e-mail): rien à envoyer, le coach le prévient lui-même
+                log.info("Pas d'e-mail pour le joueur %s: message non envoyé: %s", player.id, body)
+                Notifier.sent.append(("aucun", player.phone, body))
+                return
             send_email(to, subject, body)
         elif channel == "sms":
             self.sms.send(player.phone, body)

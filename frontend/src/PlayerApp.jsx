@@ -5,7 +5,7 @@ import { confirmDialog, Modal, toast, toastError } from "./feedback.jsx";
 import { Book, CoachPage } from "./PlayerBook.jsx";
 import { VerifyBanner } from "./VerifyEmail.jsx";
 import { useRoute } from "./router.js";
-import { Avatar, CategoryBadge, CHANNELS, ChannelPicker, InstallCard, KIND, Loading, OfflineBar, RadarChart } from "./ui.jsx";
+import { Avatar, CategoryBadge, InstallCard, KIND, Loading, OfflineBar, RadarChart } from "./ui.jsx";
 
 const TZ = "Africa/Tunis";
 const REASONS = { recharge: "Recharge", reservation: "Réservation", remboursement: "Remboursement", ajustement: "Ajustement", seance: "Séance effectuée", seance_annulee: "Séance effectuée" };
@@ -63,25 +63,6 @@ async function cancelBooking(b, reload) {
 }
 
 // Choix du moyen de contact pour les rappels: imposé à la première connexion, modifiable ensuite
-function ContactChoice({ me, reload, onClose }) {
-  const [ch, setCh] = useState(me.contact_channel ?? "");
-  const [err, setErr] = useState("");
-  const save = () => api("/me/contact", { method: "PUT", body: { contact_channel: ch } }).then(() => { toast("Préférence enregistrée"); reload(); onClose?.(); }).catch((x) => setErr(x.message));
-  return (
-    <Modal onClose={onClose} label="Rappels de séance">
-        <b className="sheet-title">{me.contact_channel ? "Mes rappels de séance" : `Bienvenue ${me.name.split(" ")[0]} !`}</b>
-        <p className="mut">Vous recevrez un rappel automatique 24 h puis 2 h avant chaque séance. Comment voulez-vous être contacté ?</p>
-        <ChannelPicker value={ch} onChange={setCh} />
-        {ch === "email" && !me.email && <div className="err">Aucun e-mail sur votre compte : les rappels partiront par SMS.</div>}
-        {err && <div className="err">{err}</div>}
-        <div className="actions">
-          <button disabled={!ch} onClick={save}>Valider</button>
-          {onClose && <button className="sec" onClick={onClose}>Annuler</button>}
-        </div>
-    </Modal>
-  );
-}
-
 // ---------------------------------------------------------------- Accueil
 // Promotion d'un coach: ouvre la réservation sur ce coach et ce jour
 function bookPromo(p, go) {
@@ -148,7 +129,6 @@ function CancelBox({ s, reload }) {
 }
 
 function Home({ me, sessions, progress, credits, proposals, promos, go, reload }) {
-  const [contact, setContact] = useState(false);
   const next = sessions.upcoming[0];
   // Pas de solde global: chaque coach a ses crédits (avance versée) et ses impayés (en rouge)
   const wallets = me.wallets.filter((w) => w.credits_millimes > 0 || w.due_millimes > 0);
@@ -179,10 +159,8 @@ function Home({ me, sessions, progress, credits, proposals, promos, go, reload }
         </div>
       </div>
 
-      {contact && <ContactChoice me={me} reload={reload} onClose={() => setContact(false)} />}
-      {me.contact_channel && (
-        <button className="link" onClick={() => setContact(true)}><Icon name="bell" size={14} /> Rappels de séance par {CHANNELS[me.contact_channel][0]} · modifier</button>
-      )}
+      {/* Version bêta: rappels et confirmations uniquement par e-mail (le choix WhatsApp / SMS reviendra) */}
+      <div className="mut small-p"><Icon name="bell" size={14} /> Rappels et confirmations par e-mail{me.email ? ` (${me.email})` : ""}</div>
 
       <VerifyBanner me={me} />
       <InstallCard />
@@ -409,7 +387,6 @@ export default function PlayerApp() {
         {tab === "coach" && <CoachPage id={+sub} go={setTab} onBack={() => (history.length > 1 ? history.back() : setTab("book"))} />}
         {tab === "mine" && <Mine {...props} />}
       </main>
-      {!data.me.contact_channel && <ContactChoice me={data.me} reload={load} />}
       <nav>
         {TABS.map(([k, icon, label]) => (
           <button key={k} className={(tab === "coach" ? "book" : tab) === k ? "on" : ""} aria-current={tab === k ? "page" : undefined} onClick={() => setTab(k)}>

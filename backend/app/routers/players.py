@@ -95,6 +95,12 @@ def recharge(player_id: int, body: CreditIn, coach: Coach = Depends(current_coac
     db.add(CreditTx(coach_id=coach.id, player_id=p.id, amount_millimes=body.amount_millimes, reason="recharge"))
     db.flush()
     settle(db, coach.id, [p.id])  # la recharge règle d'abord les séances effectuées encore dues
+    from ..services.booking import notify  # reçu envoyé au joueur
+    from ..services.finance import net_balance
+    net = net_balance(db, p)
+    notify(db, [p], "Recharge de crédits", lambda x: (
+        f"Bonjour {x.name.split()[0]}, {coach.name} a enregistré une recharge de {body.amount_millimes / 1000:.3f} TND. "
+        + (f"Votre solde chez {coach.name} : {net / 1000:.3f} TND." if net >= 0 else f"Reste à régler à {coach.name} : {-net / 1000:.3f} TND.")))
     db.commit()
     return {"balance_millimes": credit_balance(db, p.id)}
 

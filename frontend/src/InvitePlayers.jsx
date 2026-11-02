@@ -4,8 +4,6 @@ import Icon from "./Icon.jsx";
 import { Modal, toast, toastError } from "./feedback.jsx";
 import { Avatar, CategoryBadge } from "./ui.jsx";
 
-const VIA = { whatsapp: "WhatsApp", sms: "SMS", email: "e-mail" };
-
 // Le coach prévient ses joueurs qu'il reste de la place: joueurs déjà entraînés chez lui, de niveau compatible,
 // tous cochés au départ (il décoche ceux qu'il veut exclure). Chacun reçoit un message et une proposition dans son appli.
 export default function InvitePlayers({ sessionId, onClose, onDone }) {
@@ -46,7 +44,7 @@ export default function InvitePlayers({ sessionId, onClose, onDone }) {
               <label key={p.id} className="searchrow pick">
                 <input type="checkbox" checked={chosen.includes(p.id)} onChange={() => toggle(p.id)} />
                 <Avatar name={p.name} size={30} />
-                <span>{p.name}<small>par {VIA[p.contact_channel] ?? "SMS"}{p.has_account ? "" : " · sans compte"}</small></span>
+                <span>{p.name}<small>{p.has_account ? "par e-mail" : "sans compte : pas d'e-mail"}</small></span>
                 <CategoryBadge category={p.category} />
               </label>
             ))}

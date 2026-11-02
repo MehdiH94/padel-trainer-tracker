@@ -110,8 +110,11 @@ def mark_confirmed(db: Session, cb: CourtBooking) -> None:
     (le coach doit alors prévenir les joueurs)."""
     if not cb.session_id:
         return
+    from .booking import announce_confirmed  # import local: booking importe ce module
     for b in db.scalars(select(Booking).where(Booking.session_id == cb.session_id, Booking.status == "acceptee")):
         b.status = "confirmee"
+    db.flush()
+    announce_confirmed(db, db.get(TrainingSession, cb.session_id))  # e-mail de confirmation aux joueurs
 
 
 def release_or_cancel(db: Session, coach: Coach, s: TrainingSession, sms: SmsProvider | None) -> None:

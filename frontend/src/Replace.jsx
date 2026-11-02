@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { api, dayLabel, getRole, getToken, hhmm, setSession, tnd } from "./api.js";
 import Icon from "./Icon.jsx";
-import { CATEGORIES, CategoryBadge, ChannelPicker, KIND, catOption } from "./ui.jsx";
+import { CATEGORIES, CategoryBadge, KIND, catOption } from "./ui.jsx";
 
 // Lien « remplacez-moi »: un joueur qui ne peut plus annuler cède sa place. Le remplaçant se connecte
 // (ou crée son compte chez ce coach) et prend la place; il paie avec ses crédits chez ce coach.
@@ -10,7 +10,7 @@ export default function Replace({ token }) {
   const [error, setError] = useState("");
   const [mode, setMode] = useState(getToken() && getRole() === "player" ? "connecte" : "login");
   const [done, setDone] = useState(false);
-  const [f, setF] = useState({ email: "", password: "", name: "", phone: "", gender: "M", category: "P100-", contact_channel: "" });
+  const [f, setF] = useState({ email: "", password: "", name: "", phone: "", gender: "M", category: "P100-", contact_channel: "email" });
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
   useEffect(() => {
     api(`/replace/${token}`).then(setInfo).catch((x) => setError(x.message));
@@ -22,7 +22,6 @@ export default function Replace({ token }) {
     try {
       if (mode === "login") setSession(await api("/auth/login", { method: "POST", body: { email: f.email, password: f.password } }));
       if (mode === "signup") {
-        if (!f.contact_channel) return setError("Choisissez comment recevoir vos rappels de séance.");
         setSession(await api(`/replace/${token}/signup`, { method: "POST", body: { ...f, base: location.origin } }));
       } else {
         if (getRole() !== "player") return setError("Connectez-vous avec un compte joueur.");
@@ -79,12 +78,7 @@ export default function Replace({ token }) {
                 )}
                 <label className="field"><span className="mut">E-mail</span><input type="email" autoComplete="email" value={f.email} onChange={set("email")} required /></label>
                 <label className="field"><span className="mut">Mot de passe{mode === "signup" && " (6 caractères minimum)"}</span><input type="password" autoComplete={mode === "signup" ? "new-password" : "current-password"} value={f.password} onChange={set("password")} required minLength={mode === "signup" ? 6 : undefined} /></label>
-                {mode === "signup" && (
-                  <>
-                    <p className="mut" style={{ margin: "6px 0 0" }}>Rappel de vos séances 24 h et 2 h avant, par :</p>
-                    <ChannelPicker value={f.contact_channel} onChange={(c) => setF({ ...f, contact_channel: c })} />
-                  </>
-                )}
+                {mode === "signup" && <p className="mut small-p" style={{ margin: "6px 0 0" }}><Icon name="bell" size={13} /> Rappels de séance (24 h et 2 h avant) et confirmations envoyés par e-mail.</p>}
                 <button style={{ width: "100%", marginTop: 8 }}>{mode === "signup" ? "Créer mon compte et prendre la place" : "Me connecter et prendre la place"}</button>
               </>
             )}

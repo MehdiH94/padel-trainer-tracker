@@ -181,10 +181,9 @@ def test_booking_auto_confirmed_when_a_court_is_free(client):
     s = client.get("/sessions").json()[0]
     assert s["player_ids"] == [p["id"]] and s["club"] == "Padel Club La Marsa" and s["open"] is False
     assert client.get("/court-bookings").json()[0]["free"] is False  # le terrain est attribué
-    # confirmée mais le joueur n'a pas encore été prévenu
-    todo = client.get("/booking/requests").json()
-    assert todo[0]["status"] == "confirmee" and "confirmée" in todo[0]["message"]
-    client.post(f"/booking/requests/{todo[0]['id']}/notified")
+    # confirmée: le joueur reçoit l'e-mail de confirmation, le coach n'a plus rien à envoyer
+    from app.notify import OUTBOX
+    assert any(to == f"p{p['id']}@x.tn" and "confirmée" in subj for to, subj, _ in OUTBOX)
     assert client.get("/booking/requests").json() == []
     # séance payée en crédits: rien à facturer
     client.patch(f"/sessions/{s['id']}", json={"status": "effectuee"})
@@ -210,9 +209,12 @@ def test_no_court_request_waits_for_coach_then_court_confirmed(client):
     assert client.get("/booking/summary").json() == {"pending": 0, "waiting_court": 1, "to_notify": 0, "waiting_players": 0}
     cb = client.get("/court-bookings").json()[0]
     assert cb["status"] == "en_attente" and cb["players"] == ["Sami"]
-    # le club confirme: la réservation devient « confirmée », le coach doit prévenir le joueur
+    # le club confirme: la réservation devient « confirmée », le joueur est prévenu par e-mail
+    from app.notify import OUTBOX
+    OUTBOX.clear()
     client.post(f"/court-bookings/{cb['id']}/reply", json={"text": "OUI c'est bon"})
-    assert client.get("/booking/summary").json() == {"pending": 0, "waiting_court": 0, "to_notify": 1, "waiting_players": 0}
+    assert client.get("/booking/summary").json() == {"pending": 0, "waiting_court": 0, "to_notify": 0, "waiting_players": 0}
+    assert [subj for _, subj, _ in OUTBOX] == ["Votre séance de padel est confirmée"]
 
 
 def test_pending_request_shows_free_court_and_accepts_with_it(client):
@@ -597,10 +599,11 @@ def test_contact_channel_at_signup_and_first_login(client):
     q = mkplayer(client, phone="22 999 888", name="Nour")
     t2 = client.post(f"/players/{q['id']}/invite").json()["token"]
     r2 = TestClient(app).post(f"/auth/invite/{t2}", json={"email": "n@x.tn", "password": "secret1"}).json()
-    assert login_as(TestClient(app), r2["token"]).get("/me").json()["contact_channel"] is None
+    assert login_as(TestClient(app), r2["token"]).get("/me").json()["contact_channel"] == "email"  # version bêta: e-mail par défaut
 
 
-def test_automatic_reminders_24h_and_2h(client):
+def test_automatic_reminders_24h_and_2h(client, monkeypatch):
+    monkeypatch.setattr('app.notify.EMAIL_ONLY', False)  # choix du joueur (WhatsApp, SMS, e-mail): version après la bêta
     from app.models import SessionReminder
     from app.notify import Notifier
     from app.services.session_reminders import send_due
@@ -838,7 +841,8 @@ def test_durations_happy_hours_and_multiple_kinds(client):
     assert r["status"] == "en_attente" and r["charged_millimes"] == 0  # validation par le coach, rien de débité avant
 
 
-def test_promotion_on_reserved_court_notifies_players(client):
+def test_promotion_on_reserved_court_notifies_players(client, monkeypatch):
+    monkeypatch.setattr('app.notify.EMAIL_ONLY', False)  # choix du joueur (WhatsApp, SMS, e-mail): version après la bêta
     from app.notify import Notifier
     open_week(client)
     p, pc = player_client(client, contact_channel="whatsapp")
@@ -1100,7 +1104,8 @@ def test_six_hours_before_players_can_reconsider(client):
     assert pc2.post(f"/me/bookings/{r2['id']}/cancel").json()["refunded"] is True
 
 
-def test_coach_invites_players_who_trained_with_him(client):
+def test_coach_invites_players_who_trained_with_him(client, monkeypatch):
+    monkeypatch.setattr('app.notify.EMAIL_ONLY', False)  # choix du joueur (WhatsApp, SMS, e-mail): version après la bêta
     from app.notify import Notifier
     open_week(client)
     host = mkplayer(client, name="Host", category="P250-")
@@ -1391,3 +1396,26 @@ def test_coach_made_session_can_be_cancelled_or_handed_over(client):
     assert ali.post(f"/replace/{token}/take").status_code == 200
     names = {pl["id"]: pl["name"] for pl in client.get("/players").json()}
     assert sorted(names[i] for i in next(x for x in client.get("/sessions").json() if x["id"] == s2["id"])["player_ids"]) == ["Ali", "Rim"]
+
+
+def test_beta_everything_by_email(client):
+    """Version bêta: tous les messages aux joueurs partent par e-mail, quel que soit leur choix; le coach reçoit
+    aussi les siens (demande, annulation)."""
+    from app.notify import OUTBOX, Notifier
+    open_week(client, auto_confirm=False)
+    p, pc = player_client(client, contact_channel="whatsapp")
+    OUTBOX.clear()
+    Notifier.sent.clear()
+    r = pc.post("/me/book", json={"kind": "individuel", "start": _future_slot(pc, 60)}).json()
+    assert ("a@b.tn", "Nouvelle demande de Sami") in [(to, subj) for to, subj, _ in OUTBOX]  # e-mail au coach
+    client.post(f"/booking/requests/{r['id']}/accept", json={})
+    assert all(ch == "email" for ch, _, _ in Notifier.sent) and Notifier.sent
+    assert any(subj == "Votre séance de padel est confirmée" for _, subj, _ in OUTBOX)
+    pc.post(f"/me/bookings/{r['id']}/cancel")
+    assert any(subj == "Sami a annulé" for _, subj, _ in OUTBOX)
+    # refus et recharge: e-mails aussi
+    r2 = pc.post("/me/book", json={"kind": "individuel", "start": _future_slot(pc, 80)}).json()
+    client.post(f"/booking/requests/{r2['id']}/refuse")
+    client.post(f"/players/{p['id']}/credits", json={"amount_millimes": 50000})
+    subjects = [subj for to, subj, _ in OUTBOX if to == f"p{p['id']}@x.tn"]
+    assert "Votre demande de séance n'a pas pu être acceptée" in subjects and "Recharge de crédits" in subjects

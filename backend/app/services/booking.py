@@ -206,6 +206,7 @@ def request_join(db: Session, coach: Coach, player: Player, s: TrainingSession, 
     db.flush()
     if force_accept or coach.auto_confirm:
         accept(db, coach, b, sms)
+    _tell_coach_new(db, coach, player, b)
     db.commit()
     return b
 
@@ -231,8 +232,18 @@ def request_new(db: Session, coach: Coach, player: Player, kind: str, start: dat
     held = courts.held_covering(db, coach, b.start, b.duration_min)
     if coach.auto_confirm and held:
         accept(db, coach, b, sms, court=held[0])  # terrain disponible: validation automatique
+    _tell_coach_new(db, coach, player, b)
     db.commit()
     return b
+
+
+def _tell_coach_new(db: Session, coach: Coach, player: Player, b: Booking) -> None:
+    t = aware(b.start).astimezone(TUNIS)
+    when = f"{courts.JOURS[t.weekday()]} {t:%d/%m} à {t:%H}h{t:%M}"
+    if b.status == "en_attente":
+        notify_coach(db, coach.id, f"Nouvelle demande de {player.name}", f"{player.name} ({player.category}) demande une séance le {when}. Acceptez ou refusez-la dans l'onglet Demandes.")
+    else:
+        notify_coach(db, coach.id, f"Nouvelle réservation de {player.name}", f"{player.name} ({player.category}) a réservé la séance du {when} (validée automatiquement).")
 
 
 def accept(db: Session, coach: Coach, b: Booking, sms: SmsProvider | None = None, *, court: CourtBooking | None = None, club: Club | None = None) -> None:
@@ -253,6 +264,7 @@ def accept(db: Session, coach: Coach, b: Booking, sms: SmsProvider | None = None
         s.attendances.append(Attendance(player_id=player.id, credit_paid_millimes=b.charged_millimes, accepted_kinds=",".join(mine)))
         b.status = "acceptee"
         refresh(db, s)
+        _announce_accepted(db, coach, b, s)
         return
     if not b.price_millimes:
         b.price_millimes = price_for(coach, b.kind)
@@ -281,6 +293,19 @@ def accept(db: Session, coach: Coach, b: Booking, sms: SmsProvider | None = None
     else:
         b.status = "acceptee"
     refresh(db, s)  # pas encore assez de joueurs: « en attente d'autres joueurs »
+    _announce_accepted(db, coach, b, s)
+
+
+def _announce_accepted(db: Session, coach: Coach, b: Booking, s: TrainingSession) -> None:
+    """Demande acceptée mais pas encore confirmée (terrain à réserver, ou groupe à compléter): le joueur est prévenu."""
+    if b.status == "acceptee":
+        why = "le terrain est en cours de réservation, vous recevrez la confirmation"
+    elif b.status == "attente_joueurs":
+        why = f"elle sera confirmée dès que le groupe sera complet ({len(s.attendances)}/{groups.min_needed(s)} joueurs pour l'instant)"
+    else:
+        return
+    notify(db, [db.get(Player, b.player_id)], "Votre demande de séance est acceptée", lambda p: (
+        f"Bonjour {p.name.split()[0]}, {coach.name} a accepté votre demande pour la séance du {_when(s)} : {why}."))
 
 
 def _when(s: TrainingSession) -> str:
@@ -294,16 +319,42 @@ def notify(db: Session, players: list[Player], subject: str, body_for) -> int:
     from ..sms import get_sms_provider
     from .accounts import contact_email
     notifier, sent = Notifier(get_sms_provider()), 0
+    from ..notify import channel_for
     for p in players:
-        channel = p.contact_channel or "sms"
-        if channel == "email" and not contact_email(db, p):
-            channel = "sms"
+        channel = channel_for(p, contact_email(db, p))  # e-mail en version bêta
         try:
             notifier.send(p, channel, subject, body_for(p), email=contact_email(db, p))
             sent += 1
         except Exception:  # un envoi raté ne bloque pas les autres
             continue
     return sent
+
+
+def _court_txt(s: TrainingSession) -> str:
+    return f" · {s.court}" if s.court else ""
+
+
+def notify_coach(db: Session, coach_id: int, subject: str, body: str) -> None:
+    """Message au coach (e-mail de son compte)."""
+    from ..notify import send_email
+    coach = db.get(Coach, coach_id)
+    try:
+        send_email(coach.email, subject, body + "\n\n— Padel Coach")
+    except Exception:  # un envoi raté ne bloque jamais l'action
+        pass
+
+
+def announce_confirmed(db: Session, s: TrainingSession) -> None:
+    """Réservations confirmées pas encore annoncées au joueur: e-mail de confirmation, puis marquées « prévenu »."""
+    db.flush()  # statuts qui viennent de changer
+    todo = list(db.scalars(select(Booking).where(Booking.session_id == s.id, Booking.status == "confirmee", Booking.notified_at.is_(None))))
+    if not todo:
+        return
+    coach = db.get(Coach, s.coach_id)
+    notify(db, [db.get(Player, b.player_id) for b in todo], "Votre séance de padel est confirmée", lambda p: (
+        f"Bonjour {p.name.split()[0]}, votre séance de padel du {_when(s)}{_court_txt(s)} avec {coach.name} est confirmée. À bientôt !"))
+    for b in todo:
+        b.notified_at = datetime.now(timezone.utc)
 
 
 def refresh(db: Session, s: TrainingSession) -> None:
@@ -326,6 +377,7 @@ def refresh(db: Session, s: TrainingSession) -> None:
             newly.append(b)
             b.notified_at = datetime.now(timezone.utc)  # prévenu automatiquement ci-dessous
         b.status = new
+    announce_confirmed(db, s)
     if newly:
         others = len(s.attendances) - 1
         notify(db, [db.get(Player, b.player_id) for b in newly], "Votre séance de padel est confirmée", lambda p: (
@@ -404,6 +456,11 @@ def refuse(db: Session, b: Booking) -> None:
         raise BookingError("Demande déjà traitée")
     b.status = "refusee"
     _refund(db, b)
+    coach = db.get(Coach, b.coach_id)
+    t = aware(b.start).astimezone(TUNIS)
+    notify(db, [db.get(Player, b.player_id)], "Votre demande de séance n'a pas pu être acceptée", lambda p: (
+        f"Bonjour {p.name.split()[0]}, {coach.name} ne peut pas assurer la séance du {courts.JOURS[t.weekday()]} {t:%d/%m} à {t:%H}h{t:%M}. "
+        f"{'Vos crédits vous ont été rendus. ' if b.charged_millimes else ''}Vous pouvez choisir un autre créneau dans l'application."))
 
 
 def _release(db: Session, b: Booking) -> None:
@@ -471,6 +528,9 @@ def cancel_booking(db: Session, coach: Coach, b: Booking) -> bool:
     if not was_pending:
         _release(db, b)
     _refund(db, b)
+    t = aware(b.start).astimezone(TUNIS)
+    who = db.get(Player, b.player_id).name
+    notify_coach(db, b.coach_id, f"{who} a annulé", f"{who} a annulé {'sa demande pour ' if was_pending else ''}la séance du {courts.JOURS[t.weekday()]} {t:%d/%m} à {t:%H}h{t:%M}.")
     return True
 
 
@@ -505,13 +565,18 @@ def replace(db: Session, b: Booking, newcomer: Player) -> Booking:
     _refund(db, b)
     b.status, b.replace_token = "remplacee", None
     leaving = db.get(Player, b.player_id)
+    notify_coach(db, b.coach_id, f"{newcomer.name} remplace {leaving.name}", f"{newcomer.name} ({newcomer.category}) a pris la place de {leaving.name} à la séance du {_when(s)}.")
     notify(db, [leaving], "Vous avez été remplacé", lambda p: f"Bonjour {p.name.split()[0]}, {newcomer.name} a pris votre place à la séance du {_when(s)}. "
            f"{'Vos crédits vous ont été rendus.' if b.charged_millimes else ''}".strip())
     return nb
 
 
 def coach_cancel_session(db: Session, s: TrainingSession) -> None:
-    """Le coach annule une séance: toutes les réservations payées avec des crédits sont remboursées."""
+    """Le coach annule une séance: toutes les réservations payées avec des crédits sont remboursées,
+    les joueurs sont prévenus."""
+    coach = db.get(Coach, s.coach_id)
+    notify(db, [db.get(Player, a.player_id) for a in s.attendances], "Séance de padel annulée", lambda p: (
+        f"Bonjour {p.name.split()[0]}, {coach.name} a annulé la séance du {_when(s)}. Si vous l'aviez payée avec vos crédits, ils vous ont été rendus."))
     for b in db.scalars(select(Booking).where(Booking.session_id == s.id, Booking.status.in_(ACTIVE))):
         b.status = "annulee"
         _refund(db, b)

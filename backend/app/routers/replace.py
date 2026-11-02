@@ -67,7 +67,7 @@ class SignupIn(BaseModel):
     password: str
     gender: str = "M"
     category: str = "P100-"
-    contact_channel: str = "whatsapp"
+    contact_channel: str = "email"  # version bêta: tout par e-mail
     base: str = ""
 
     @field_validator("phone")

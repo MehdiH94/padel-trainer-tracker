@@ -90,7 +90,7 @@ def invite_accept(token: str, body: InviteAccept, db: Session = Depends(get_db))
     p.phone = (body.phone or "").strip() or p.phone
     p.gender, p.category = body.gender or p.gender, body.category or p.category
     p.email, p.password_hash, p.invite_token = email, hash_password(body.password), None
-    p.contact_channel = body.contact_channel or p.contact_channel
+    p.contact_channel = body.contact_channel or p.contact_channel or "email"  # version bêta: tout par e-mail
     verification.send_link(db, p, body.base)  # DP-002: lien de vérification de l'adresse
     signups.submitted(db, p, body.base)  # l'administrateur confirme le niveau et l'absence de doublon
     db.commit()

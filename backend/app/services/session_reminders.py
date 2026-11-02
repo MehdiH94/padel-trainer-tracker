@@ -6,7 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..models import Coach, Player, SessionReminder, TrainingSession
-from ..notify import Notifier
+from ..notify import Notifier, channel_for
 from .common import TUNIS, aware
 from .accounts import contact_email
 from .courts import JOURS
@@ -44,9 +44,7 @@ def send_due(db: Session, notifier: Notifier, now: datetime | None = None) -> in
             if (s.id, a.player_id, kind) in done:
                 continue
             p = db.get(Player, a.player_id)
-            channel = p.contact_channel or "sms"  # pas encore choisi: SMS par défaut (le numéro est toujours connu)
-            if channel == "email" and not contact_email(db, p):
-                channel = "sms"
+            channel = channel_for(p, contact_email(db, p))  # e-mail en version bêta
             body = reminder_text(coach, p, s, kind, now)
             try:
                 notifier.send(p, channel, "Rappel de séance de padel", body, email=contact_email(db, p))
