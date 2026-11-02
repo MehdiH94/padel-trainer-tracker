@@ -1,11 +1,11 @@
 import { useEffect, useState } from "react";
-import { api, dayLabel, hhmm, tnd } from "./api.js";
+import { api, dayLabel, hhmm, tnd, toDate } from "./api.js";
 import Icon from "./Icon.jsx";
 import { confirmDialog } from "./feedback.jsx";
 import InvitePlayers from "./InvitePlayers.jsx";
 import { Avatar, CategoryBadge, ContactLinks, KIND, Loading, PlayerTag } from "./ui.jsx";
 
-const hm = (iso, min) => `${hhmm(iso)} – ${hhmm(new Date(new Date(iso + (iso.endsWith("Z") ? "" : "Z")).getTime() + min * 60000).toISOString())}`;
+const hm = (iso, min) => `${hhmm(iso)} – ${hhmm(new Date(toDate(iso).getTime() + min * 60000).toISOString())}`;
 
 function Head({ r }) {
   const k = KIND[r.kind];
@@ -15,7 +15,7 @@ function Head({ r }) {
         <div className="row g10">
           <Avatar name={r.name} size={42} />
           <div>
-            <b><PlayerTag p={r} /></b>
+            <b>{r.name}</b>
             <div className="mut"><CategoryBadge category={r.category} gender={r.gender} /></div>
           </div>
         </div>
