@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { api, dayLabel, hhmm, shortDate, tnd } from "./api.js";
 import FeedbackEditor from "./FeedbackEditor.jsx";
 import Icon from "./Icon.jsx";
+import InviteLink from "./InviteLink.jsx";
 import { Modal, toast, toastError } from "./feedback.jsx";
 import { Avatar, CATEGORIES, catOption, CategoryBadge, CHANNELS, ContactLinks, KIND, Loading, Progress, RadarChart } from "./ui.jsx";
 
@@ -19,15 +20,13 @@ function Trend({ score, previous }) {
 }
 
 function InviteCard({ player }) {
-  const [url, setUrl] = useState(null);
-  const gen = async () => setUrl(location.origin + (await api(`/players/${player.id}/invite`, { method: "POST" })).path);
-  const msg = url && `Bonjour ${player.name.split(" ")[0]}, créez votre compte pour réserver vos séances et suivre votre progression : ${url}`;
+  const [path, setPath] = useState(player.invite_path);
+  const gen = async () => setPath((await api(`/players/${player.id}/invite`, { method: "POST" })).path);
   return (
     <div className="card">
-      <b><Icon name="link" size={16} /> Compte joueur</b>
-      <div className="mut">Pas encore de compte. Envoyez-lui le lien pour qu'il réserve avec ses crédits.</div>
-      {!url ? <button className="small" style={{ marginTop: 8 }} onClick={gen}>Générer le lien d'invitation</button>
-        : <ContactLinks phone={player.phone} email={player.email} message={msg} subject="Votre compte Padel Coach" onSent={(ch) => api("/reminders/log", { method: "POST", body: { player_id: player.id, kind: "invitation", channel: ch } })} />}
+      <b><Icon name="link" size={16} /> Lien d'inscription</b>
+      <div className="mut">Pas encore de compte. Sa fiche est pré-remplie : il la complète, puis son inscription est confirmée par l'administrateur.</div>
+      {!path ? <button className="small" style={{ marginTop: 8 }} onClick={gen}>Générer le lien d'inscription</button> : <InviteLink player={player} path={path} />}
     </div>
   );
 }

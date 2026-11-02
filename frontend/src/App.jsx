@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import Courts from "./Courts.jsx";
+import Admin from "./Admin.jsx";
 import Exercises from "./Exercises.jsx";
 import Home from "./Home.jsx";
 import Icon from "./Icon.jsx";
@@ -84,7 +85,7 @@ const TABS = [
   ["requests", "inbox", "Demandes", Requests],
   ["reminders", "send", "Relances", Reminders],
 ];
-const PAGES = { courts: Courts, settings: Settings, exercises: Exercises, session: SessionPlan };
+const PAGES = { admin: Admin, courts: Courts, settings: Settings, exercises: Exercises, session: SessionPlan };
 
 function CoachApp() {
   const [[tab = "home", sub], go] = useRoute("home");
@@ -120,6 +121,11 @@ function CoachApp() {
         ))}
       </nav>
       <div className="topbtns">
+        {summary.admin && (
+          <button onClick={() => go("admin")} title="Inscriptions à confirmer" aria-label={`Inscriptions à confirmer : ${summary.signups}`} className="navico">
+            <Icon name="shield" size={17} />{summary.signups > 0 && <b className="navbadge">{summary.signups}</b>}
+          </button>
+        )}
         <button onClick={() => setSearch(true)} title="Rechercher un joueur" aria-label="Rechercher un joueur"><Icon name="search" size={17} /></button>
         <button onClick={() => go("settings")} title="Réglages" aria-label="Réglages"><Icon name="sliders" size={17} /></button>
         <button onClick={() => { setToken(null); location.hash = ""; location.reload(); }} title="Se déconnecter" aria-label="Se déconnecter"><Icon name="logout" size={17} /></button>

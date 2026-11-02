@@ -527,3 +527,23 @@ main > .row:first-child > .row { flex-wrap: wrap; justify-content: flex-end; }
 .sess-block small { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
 .sess-block.effectuee { opacity: .55; }
 .focus .ptag .cat { background: var(--card) !important; }
+
+/* Crédits du joueur, coach par coach */
+.wline { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 5px 0; border-top: 1px solid #ffffff22; font-size: .95rem; }
+.wline:first-of-type { border-top: 0; }
+.wline > span:last-child { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+.wline b { font-family: var(--font-display); font-size: 1.15rem; }
+.wline .debt { margin: 0; font-family: inherit; font-size: .82rem; }
+.wallet { align-items: flex-start; gap: 10px; }
+/* Lien d'inscription à copier */
+.linkbox { display: flex; gap: 6px; align-items: center; margin-top: 8px; }
+.linkbox input { flex: 1; font-size: .8rem; }
+/* Administration: vérifications d'une inscription */
+.note { border-radius: 12px; padding: 8px 10px; font-size: .86rem; }
+.note.ok { background: var(--green-l); color: var(--ok-txt); }
+.note.warn { background: var(--amber-l); color: var(--warn-txt); }
+.note.ko { background: var(--red-l); color: var(--red); }
+.note.ko .mut { color: inherit; opacity: .8; }
+.wlabel { font-size: .82rem; opacity: .85; margin-bottom: 2px; }
+.wline > span:first-child { flex: 1; min-width: 0; font-weight: 600; }
+.wline > span:last-child { white-space: nowrap; }

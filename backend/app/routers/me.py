@@ -16,7 +16,7 @@ from ..services import groups, marketplace
 from ..services import email_verification as verification
 from ..services.accounts import linked, row_for_coach
 from ..services.common import aware
-from ..services.finance import credit_balance
+from ..services.finance import credit_balance, player_due
 from ..sms import get_sms_provider
 from ..sms.base import SmsProvider
 from ..schemas import CHANNELS
@@ -38,7 +38,10 @@ def me(player: Player = Depends(current_player), db: Session = Depends(get_db)):
         "contact_channel": player.contact_channel,
         "email_verified": verification.is_verified(player), "can_book": verification.can_book(player),
         "slot_minutes": coach.slot_minutes, "prices": _prices(coach), "auto_confirm": coach.auto_confirm, "cancel_hours": coach.cancel_hours,
-        "wallets": [{"coach_id": p.coach_id, "coach_name": db.get(Coach, p.coach_id).name, "credits_millimes": credit_balance(db, p.id)} for p in linked(db, player)],
+        "signup_status": player.signup_status,
+        # Crédits et impayés propres à chaque coach (pas de solde global)
+        "wallets": [{"coach_id": p.coach_id, "coach_name": db.get(Coach, p.coach_id).name, "credits_millimes": credit_balance(db, p.id),
+                     "due_millimes": player_due(db, p)} for p in linked(db, player)],
     }
 
 

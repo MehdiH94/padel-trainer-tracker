@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from ..auth import current_coach
@@ -15,6 +15,7 @@ from ..services import courts
 from ..services.common import TUNIS, aware
 from ..services.exercises_catalog import WORK_THEMES
 from ..services import groups as grp
+from ..services import signups
 from ..services.pricing import base_price, duration_for
 from ..sms import get_sms_provider
 from ..sms.base import SmsProvider
@@ -157,7 +158,10 @@ def list_requests(coach: Coach = Depends(current_coach), db: Session = Depends(g
 def summary(coach: Coach = Depends(current_coach), db: Session = Depends(get_db)):
     items = list_requests(coach, db)
     count = lambda st: sum(1 for i in items if i["status"] == st and (st != "confirmee" or i["notified_at"] is None))  # noqa: E731
-    return {"pending": count("en_attente"), "waiting_court": count("acceptee"), "to_notify": count("confirmee"), "waiting_players": count("attente_joueurs")}
+    out = {"pending": count("en_attente"), "waiting_court": count("acceptee"), "to_notify": count("confirmee"), "waiting_players": count("attente_joueurs")}
+    if signups.is_admin(coach):  # administrateur: inscriptions de joueurs à confirmer
+        out |= {"admin": True, "signups": db.scalar(select(func.count(Player.id)).where(Player.signup_status == "a_valider"))}
+    return out
 
 
 def _owned(db: Session, coach: Coach, booking_id: int) -> Booking:

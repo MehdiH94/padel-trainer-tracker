@@ -58,6 +58,11 @@ class Player(Base):
     email_verified_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
     email_token: Mapped[str | None] = mapped_column(String(48), nullable=True, unique=True)
     email_token_sent_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    # Inscription par le lien du coach: l'administrateur la confirme (niveau réel, pas de doublon).
+    # a_valider / validee / refusee; None = rien à confirmer (fiche sans compte, comptes antérieurs)
+    signup_status: Mapped[str | None] = mapped_column(String(12), nullable=True)
+    invited_category: Mapped[str | None] = mapped_column(String(6), nullable=True)  # niveau saisi par le coach
+    signup_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
 
 
 class SkillRating(Base):

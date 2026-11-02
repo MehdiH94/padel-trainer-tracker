@@ -53,6 +53,6 @@ def current_player(
 ) -> Player:
     data = _decode(creds)
     player = db.get(Player, int(data["sub"])) if data.get("role") == "player" else None
-    if player is None:
+    if player is None or player.signup_status == "refusee":  # inscription refusée par l'administrateur
         raise HTTPException(401, "Jeton invalide")
     return player

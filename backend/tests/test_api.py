@@ -1223,3 +1223,64 @@ def test_court_calendar_states(client):
     cb = next(c for c in client.get("/court-bookings").json() if c["state"] == "demande")
     client.post(f"/court-bookings/{cb['id']}/reply", json={"text": "OUI c'est bon"})
     assert states() == ["complet", "incomplet", "libre"]
+
+
+# --- Inscription par lien, validation par l'administrateur, portefeuille par coach ---
+
+def test_signup_link_prefilled_and_admin_validation(client, monkeypatch):
+    from app.notify import OUTBOX
+    monkeypatch.setenv("ADMIN_EMAILS", "boss@padel.tn")
+    OUTBOX.clear()
+    # à l'ajout d'un élève, le lien d'inscription pré-rempli est déjà prêt
+    p = mkplayer(client, name="Sami Ben Ali", category="P250-")
+    assert p["invite_path"].startswith("/invite/")
+    token = p["invite_path"].split("/")[-1]
+    anon = TestClient(app)
+    info = anon.get(f"/auth/invite/{token}").json()
+    assert (info["player_name"], info["phone"], info["category"]) == ("Sami Ben Ali", "+21622123456", "P250-")
+    # le joueur complète et corrige son niveau
+    anon.post(f"/auth/invite/{token}", json={"email": "sami@x.tn", "password": "secret1", "category": "P500-"})
+    assert any(to == "boss@padel.tn" and "Sami Ben Ali" in body and "P250-" in body for to, _, body in OUTBOX)
+    # doublon chez un autre coach (même téléphone)
+    other = register("other@b.tn")
+    mkplayer(other, name="Sami B.", phone="+216 22123456")
+    # un coach ordinaire n'a pas accès à l'administration
+    assert client.get("/admin/signups").status_code == 403
+    assert "admin" not in client.get("/booking/summary").json()
+    boss = register("boss@padel.tn")
+    assert boss.get("/booking/summary").json()["signups"] == 1
+    [s] = boss.get("/admin/signups").json()
+    assert (s["category"], s["invited_category"]) == ("P500-", "P250-")
+    assert s["duplicates"][0]["why"] == ["même téléphone"]
+    r = boss.post(f"/admin/signups/{s['id']}/validate", json={"category": "P250+"}).json()
+    assert (r["status"], r["category"]) == ("validee", "P250+")
+    assert boss.get("/booking/summary").json()["signups"] == 0
+
+
+def test_refused_signup_closes_the_account(client, monkeypatch):
+    monkeypatch.setenv("ADMIN_EMAILS", "boss@padel.tn")
+    p, pc = player_client(client)
+    boss = register("boss@padel.tn")
+    assert boss.post(f"/admin/signups/{p['id']}/refuse").json()["ok"]
+    assert pc.get("/me").status_code == 401
+    assert TestClient(app).post("/auth/login", json={"email": f"p{p['id']}@x.tn", "password": "secret1"}).status_code == 401
+    assert client.get("/players").json()[0]["has_account"] is False  # le coach peut renvoyer un lien
+
+
+def test_coach_sees_only_own_players(client):
+    mkplayer(client, name="Mon élève")
+    other = register("other@b.tn")
+    q = mkplayer(other, name="Élève d'un autre", phone="98 765 432")
+    assert [p["name"] for p in client.get("/players").json()] == ["Mon élève"]
+    assert client.put(f"/players/{q['id']}", json={"name": "x", "phone": "22 000 000"}).status_code == 404
+    assert client.post(f"/players/{q['id']}/credits", json={"amount_millimes": 1000}).status_code == 404
+
+
+def test_wallet_per_coach_with_credits_and_dues(client):
+    p, pc = player_client(client)
+    client.post(f"/players/{p['id']}/credits", json={"amount_millimes": 200000})
+    s = client.post("/sessions", json={"start": (datetime.now(timezone.utc) - timedelta(days=1)).isoformat(), "kind": "individuel",
+                                       "price_millimes": 60000, "player_ids": [p["id"]]}).json()[0]
+    client.patch(f"/sessions/{s['id']}", json={"status": "effectuee"})
+    [w] = pc.get("/me").json()["wallets"]
+    assert (w["coach_name"], w["credits_millimes"], w["due_millimes"]) == ("Coach Test", 200000, 60000)

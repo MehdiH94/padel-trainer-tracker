@@ -80,6 +80,8 @@ class PlayerOut(PlayerIn):
     has_account: bool = False
     email_verified: bool = False  # e-mail du compte vérifié (DP-002)
     credits_millimes: int = 0
+    invite_path: str | None = None  # lien d'inscription pré-rempli (joueur sans compte)
+    signup_status: str | None = None  # inscription à confirmer par l'administrateur
 
 
 class SessionIn(BaseModel):

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api, tnd } from "./api.js";
 import Icon from "./Icon.jsx";
+import InviteLink from "./InviteLink.jsx";
 import PlayerPage from "./PlayerPage.jsx";
 import { Avatar, CATEGORIES, catOption, CategoryBadge, TIERS, tierOf } from "./ui.jsx";
 
@@ -13,6 +14,7 @@ export default function Players({ playerId, openPlayer, closePlayer }) {
   const [adding, setAdding] = useState(false);
   const [f, setF] = useState({ name: "", phone: "", gender: "M", category: "P100-" });
   const [err, setErr] = useState("");
+  const [added, setAdded] = useState(null); // élève tout juste ajouté: son lien d'inscription
   const load = () => {
     api("/players").then(setList);
     api("/dashboard").then((d) => setUnpaid(Object.fromEntries(d.unpaid.map((u) => [u.player_id, u.amount_millimes]))));
@@ -24,7 +26,7 @@ export default function Players({ playerId, openPlayer, closePlayer }) {
   async function add(e) {
     e.preventDefault();
     try {
-      await api("/players", { method: "POST", body: f });
+      setAdded(await api("/players", { method: "POST", body: f }));
       setF({ name: "", phone: "", gender: "M", category: "P100-" });
       setErr("");
       setAdding(false);
@@ -48,6 +50,13 @@ export default function Players({ playerId, openPlayer, closePlayer }) {
         {[["all", "Mixte"], ["M", "Hommes"], ["F", "Dames"]].map(([k, l]) => <button key={k} className={"chip small" + (gender === k ? " on" : "")} onClick={() => setGender(k)}>{l}</button>)}
       </div>
 
+      {added?.invite_path && (
+        <div className="card">
+          <div className="row"><b><Icon name="checkCircle" size={16} /> {added.name} est dans votre liste</b><button className="small sec iconbtn" aria-label="Fermer" onClick={() => setAdded(null)}><Icon name="x" size={15} /></button></div>
+          <div className="mut small-p">Envoyez-lui ce lien : sa fiche est pré-remplie, il la complète et crée son compte.</div>
+          <InviteLink player={added} path={added.invite_path} />
+        </div>
+      )}
       {adding && (
         <form className="card" onSubmit={add}>
           <label className="field"><span className="mut">Nom complet</span><input value={f.name} onChange={set("name")} required /></label>
@@ -68,7 +77,7 @@ export default function Players({ playerId, openPlayer, closePlayer }) {
         <div className="card row pl" key={p.id} onClick={() => openPlayer(p.id)}>
           <div className="row g10">
             <Avatar name={p.name} size={44} />
-            <div><b>{p.name}</b><div className="mut">{p.phone}{p.has_account && <> · <Icon name="shield" size={13} /> compte actif{!p.email_verified && <span className="unverified"> · e-mail non vérifié</span>}</>}</div></div>
+            <div><b>{p.name}</b><div className="mut">{p.phone}{p.has_account && <> · <Icon name="shield" size={13} /> compte actif{!p.email_verified && <span className="unverified"> · e-mail non vérifié</span>}</>}{p.signup_status === "a_valider" && <span className="unverified"> · inscription à confirmer</span>}{p.invite_path && <> · <Icon name="link" size={13} /> lien à envoyer</>}</div></div>
           </div>
           <div style={{ textAlign: "right" }}>
             <CategoryBadge category={p.category} gender={p.gender} />

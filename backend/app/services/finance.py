@@ -52,3 +52,14 @@ def amounts_due(db: Session, coach_id: int, sessions: list[TrainingSession]) -> 
     for pid, debt in debts(db, coach_id).items():
         out[pid] = out.get(pid, 0) + debt
     return out
+
+
+def player_due(db: Session, p) -> int:
+    """Ce que ce joueur (fiche chez un coach) doit à ce coach: séances effectuées non réglées + crédits négatifs."""
+    from ..models import Attendance
+    sessions = db.scalars(select(TrainingSession).join(Attendance).where(
+        TrainingSession.coach_id == p.coach_id, TrainingSession.status == "effectuee", Attendance.player_id == p.id)).unique().all()
+    billed = billed_by_player(list(sessions)).get(p.id, 0)
+    paid = db.scalar(select(func.coalesce(func.sum(Payment.amount_millimes), 0)).where(
+        Payment.coach_id == p.coach_id, Payment.player_id == p.id, Payment.kind == "seance"))
+    return max(billed - paid, 0) + max(-credit_balance(db, p.id), 0)

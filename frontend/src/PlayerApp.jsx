@@ -95,7 +95,8 @@ function bookPromo(p, go) {
 function Home({ me, sessions, progress, credits, proposals, promos, go, reload }) {
   const [contact, setContact] = useState(false);
   const next = sessions.upcoming[0];
-  const sessionsLeft = me.prices.individuel && me.credits_millimes > 0 ? Math.floor(me.credits_millimes / me.prices.individuel) : null;
+  // Pas de solde global: chaque coach a ses crédits (avance versée) et ses impayés (en rouge)
+  const wallets = me.wallets.filter((w) => w.credits_millimes > 0 || w.due_millimes > 0);
   const answer = (p, what) => api(`/me/proposals/${p.id}/${what}`, { method: "POST" })
     .then(() => { toast(what === "accept" ? "C'est noté, vous êtes inscrit !" : "Proposition refusée"); reload(); })
     .catch(toastError);
@@ -105,17 +106,21 @@ function Home({ me, sessions, progress, credits, proposals, promos, go, reload }
       <div className="hero">
         <div className="hero-top">Votre coach · {me.coach_name}</div>
         <h1>Salut {me.name.split(" ")[0]}</h1>
-        <div className="wallet">
-          <div>
-            <div className="hero-top">Mon solde de crédits</div>
-            <div className="bignum">{tnd(me.credits_millimes)}</div>
-            {me.credits_millimes < 0 && <div className="debt">À régler à {me.coach_name} : {tnd(-me.credits_millimes)}</div>}
-            {sessionsLeft !== null && <div className="hero-top">≈ {sessionsLeft} séance{sessionsLeft > 1 ? "s" : ""} individuelle{sessionsLeft > 1 ? "s" : ""}</div>}
-            {me.wallets.filter((w) => w.coach_id !== me.wallets[0].coach_id && w.credits_millimes).map((w) => (
-              <div key={w.coach_id} className={w.credits_millimes < 0 ? "debt" : "hero-top"}>{w.credits_millimes < 0 ? `À régler à ${w.coach_name} : ${tnd(-w.credits_millimes)}` : `+ ${tnd(w.credits_millimes)} chez ${w.coach_name}`}</div>
-            ))}
+        <div className="wallet" style={{ display: "block" }}>
+          <div className="row" style={{ marginBottom: 2 }}>
+            <div className="wlabel">Mes crédits, coach par coach</div>
+            <CategoryBadge category={me.category} gender={me.gender} />
           </div>
-          <CategoryBadge category={me.category} gender={me.gender} />
+          {wallets.length === 0 && <div className="wlabel">Aucun crédit ni impayé pour l'instant.</div>}
+          {wallets.map((w) => (
+            <div key={w.coach_id} className="wline">
+              <span>{w.coach_name}</span>
+              <span>
+                {w.credits_millimes > 0 && <b>{tnd(w.credits_millimes)}</b>}
+                {w.due_millimes > 0 && <b className="debt">Impayé {tnd(w.due_millimes)}</b>}
+              </span>
+            </div>
+          ))}
         </div>
       </div>
 

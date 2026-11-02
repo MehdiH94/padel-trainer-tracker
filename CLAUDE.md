@@ -17,7 +17,7 @@ Application de gestion pour un coach de padel indépendant (Tunisie) + espace jo
 # Backend (depuis backend/)
 python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
-python -m pytest -q                                  # 89 tests, doivent rester verts
+python -m pytest -q                                  # 93 tests, doivent rester verts
 uvicorn app.main:app --port 8000
 python seed_demo.py                                  # données de démo (base vide): coach demo@padel.tn / demo1234, joueur sami@demo.tn / demo1234
 python seed_more_coaches.py                          # + 2 coachs fictifs (coach.youssef@demo.tn, coach.meriem@demo.tn / demo1234), sans effet s'ils existent
@@ -41,6 +41,8 @@ Le schéma est créé par `create_all`: après un changement de modèle, supprim
 - Planning: vue « Jour » (liste, par défaut) ou « Semaine » (`SessionCalendar.jsx`, blocs couleur de la formule, clic = carte de la séance). Partout où une séance est listée: club · terrain (`Where`, `SessionOut.court` complété par le terrain réservé), et chaque joueur affiché avec son niveau (`PlayerTag` / `PlayerTags` de `ui.jsx`).
 - Terrains réservés à la main (`POST /court-bookings/manual`): une fois, tous les jours ou certains jours chaque semaine jusqu'à une date (6 mois max), `CourtBooking.series_id`; créneaux passés ou déjà saisis au même club/heure sautés; suppression d'un seul ou de la suite de la série (`?series=true`, jamais ceux déjà utilisés).
 - Clubs du coach: `Club.active` (Réglages › Mes clubs, `PUT /clubs/selection`); un club quitté reste en base (historique, terrains) mais n'est plus proposé. Les clubs sont partagés par leur nom entre coachs (filtre joueur).
+- Crédits et impayés propres à chaque coach, jamais de solde global: l'appli joueur liste chaque coach avec l'avance versée et, en rouge, ce qui lui est dû (`/me` `wallets`: `credits_millimes`, `due_millimes` = `finance.player_due`). Un coach ne voit que ses propres élèves (fiches `Player.coach_id`).
+- Inscription des élèves: à l'ajout d'un élève, le lien d'inscription pré-rempli est créé (`PlayerOut.invite_path`, à copier ou envoyer); l'élève vérifie/complète nom, téléphone, genre, niveau puis crée son compte. L'inscription passe `signup_status = a_valider` et l'administrateur est prévenu par e-mail (`services/signups.py`). Administrateurs = comptes coach dont l'e-mail est dans `ADMIN_EMAILS`: page « Inscriptions » (`/admin/signups`, icône bouclier) avec niveau déclaré face à celui du coach (`invited_category`) et doublons possibles (même téléphone, e-mail ou nom); confirmer (niveau corrigé au besoin) ou refuser (compte fermé, fiche gardée chez le coach).
 - Séance payée avec des crédits = `Attendance.credit_paid_millimes > 0`: jamais facturée une seconde fois.
 - Recharge de crédits = `Payment(kind="credit")` + `CreditTx`; elle compte dans l'encaissé mais pas dans les paiements de séances.
 - Les relances manuelles du coach sont des liens `sms:` / `wa.me` / `mailto:` pré-remplis.

@@ -1,15 +1,15 @@
 import { useEffect, useState } from "react";
 import { api, setSession } from "./api.js";
 import Icon from "./Icon.jsx";
-import { ChannelPicker } from "./ui.jsx";
+import { CATEGORIES, ChannelPicker, catOption } from "./ui.jsx";
 
 // Page ouverte depuis le lien d'invitation: le joueur crée son compte.
 export default function Invite({ token }) {
   const [info, setInfo] = useState(null);
   const [error, setError] = useState("");
-  const [f, setF] = useState({ email: "", password: "", contact_channel: "" });
+  const [f, setF] = useState({ email: "", password: "", contact_channel: "", name: "", phone: "", gender: "M", category: "P100-" });
   useEffect(() => {
-    api(`/auth/invite/${token}`).then((i) => { setInfo(i); setF((x) => ({ ...x, email: i.email ?? "" })); }).catch(() => setError("Ce lien d'invitation n'est plus valide."));
+    api(`/auth/invite/${token}`).then((i) => { setInfo(i); setF((x) => ({ ...x, email: i.email ?? "", name: i.player_name, phone: i.phone ?? "", gender: i.gender ?? "M", category: i.category ?? "P100-" })); }).catch(() => setError("Ce lien d'invitation n'est plus valide."));
   }, [token]);
 
   async function submit(e) {
@@ -29,7 +29,17 @@ export default function Invite({ token }) {
       <form className="login card" onSubmit={submit}>
         <div className="logo"><Icon name="ball" size={30} strokeWidth={1.8} /></div>
         <h1>Bienvenue {info.player_name.split(" ")[0]} !</h1>
-        <p className="mut">{info.coach_name} vous invite à créer votre compte pour réserver vos séances et suivre votre progression.</p>
+        <p className="mut">{info.coach_name} vous invite à créer votre compte pour réserver vos séances et suivre votre progression. Vérifiez et complétez votre fiche :</p>
+        <label className="field"><span className="mut">Nom complet</span><input autoComplete="name" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} required /></label>
+        <label className="field"><span className="mut">Téléphone</span><input inputMode="tel" autoComplete="tel" value={f.phone} onChange={(e) => setF({ ...f, phone: e.target.value })} required /></label>
+        <div className="grid">
+          <label className="field"><span className="mut">Genre</span>
+            <select value={f.gender} onChange={(e) => setF({ ...f, gender: e.target.value })}><option value="M">Homme</option><option value="F">Dame</option></select>
+          </label>
+          <label className="field"><span className="mut">Votre niveau</span>
+            <select value={f.category} onChange={(e) => setF({ ...f, category: e.target.value })}>{CATEGORIES.map((c) => <option key={c} value={c}>{catOption(c)}</option>)}</select>
+          </label>
+        </div>
         <label className="field"><span className="mut">Votre e-mail</span><input type="email" autoComplete="email" value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} required /></label>
         <label className="field"><span className="mut">Mot de passe (6 caractères minimum)</span><input type="password" autoComplete="new-password" value={f.password} onChange={(e) => setF({ ...f, password: e.target.value })} required minLength={6} /></label>
         <p className="mut" style={{ margin: "6px 0 0" }}>Rappel de vos séances 24 h et 2 h avant, par :</p>

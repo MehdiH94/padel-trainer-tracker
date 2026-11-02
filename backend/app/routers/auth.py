@@ -8,8 +8,10 @@ from sqlalchemy.orm import Session
 from ..auth import create_token, hash_password, verify_password
 from ..db import get_db
 from ..models import Coach, Player
+from ..constants import CATEGORIES
 from ..schemas import CHANNELS, Creds
 from ..services import email_verification as verification
+from ..services import signups
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -48,6 +50,11 @@ class InviteAccept(BaseModel):
     password: str
     base: str = ""  # adresse de l'application (pour le lien de vérification envoyé par e-mail)
     contact_channel: str | None = None  # whatsapp / sms / email: moyen choisi pour les rappels de séance
+    # Fiche pré-remplie par le coach, complétée ou corrigée par le joueur
+    name: str | None = None
+    phone: str | None = None
+    gender: str | None = None
+    category: str | None = None
 
 
 def _by_token(db: Session, token: str) -> Player:
@@ -60,7 +67,8 @@ def _by_token(db: Session, token: str) -> Player:
 @router.get("/invite/{token}")
 def invite_info(token: str, db: Session = Depends(get_db)):
     p = _by_token(db, token)
-    return {"player_name": p.name, "coach_name": db.get(Coach, p.coach_id).name, "email": p.email}
+    return {"player_name": p.name, "coach_name": db.get(Coach, p.coach_id).name, "email": p.email,
+            "phone": p.phone, "gender": p.gender, "category": p.category}
 
 
 @router.post("/invite/{token}")
@@ -75,9 +83,16 @@ def invite_accept(token: str, body: InviteAccept, db: Session = Depends(get_db))
         raise HTTPException(409, "Email déjà utilisé")
     if body.contact_channel is not None and body.contact_channel not in CHANNELS:
         raise HTTPException(422, "Moyen de contact invalide")
+    if (body.gender and body.gender not in ("M", "F")) or (body.category and body.category not in CATEGORIES):
+        raise HTTPException(422, "Genre ou niveau invalide")
+    p.invited_category = p.category  # niveau indiqué par le coach, comparé par l'administrateur
+    p.name = (body.name or "").strip() or p.name
+    p.phone = (body.phone or "").strip() or p.phone
+    p.gender, p.category = body.gender or p.gender, body.category or p.category
     p.email, p.password_hash, p.invite_token = email, hash_password(body.password), None
     p.contact_channel = body.contact_channel or p.contact_channel
     verification.send_link(db, p, body.base)  # DP-002: lien de vérification de l'adresse
+    signups.submitted(db, p, body.base)  # l'administrateur confirme le niveau et l'absence de doublon
     db.commit()
     return session_for(p.id, "player")
 

@@ -28,6 +28,7 @@ def get_owned_player(db: Session, coach: Coach, player_id: int) -> Player:
 def player_out(p: Player, credits: int = 0) -> PlayerOut:
     out = PlayerOut.model_validate(p)
     out.has_account, out.credits_millimes = has_account(p), credits
+    out.invite_path = f"/invite/{p.invite_token}" if p.invite_token and not has_account(p) else None
     out.email_verified = has_account(p) and account_of(object_session(p), p).email_verified_at is not None
     return out
 
@@ -48,7 +49,8 @@ def list_players(coach: Coach = Depends(current_coach), db: Session = Depends(ge
 
 @router.post("", response_model=PlayerOut, status_code=201)
 def create_player(body: PlayerIn, coach: Coach = Depends(current_coach), db: Session = Depends(get_db)):
-    p = Player(coach_id=coach.id, **body.model_dump())
+    # le lien d'inscription pré-rempli est créé tout de suite: le coach n'a plus qu'à le copier
+    p = Player(coach_id=coach.id, invite_token=secrets.token_urlsafe(16), **body.model_dump())
     db.add(p)
     _save(db)
     return player_out(p)
