@@ -17,7 +17,7 @@ Application de gestion pour un coach de padel indépendant (Tunisie) + espace jo
 # Backend (depuis backend/)
 python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
-python -m pytest -q                                  # 98 tests, doivent rester verts
+python -m pytest -q                                  # 104 tests, doivent rester verts
 uvicorn app.main:app --port 8000
 python seed_demo.py                                  # données de démo (base vide): coach demo@padel.tn / demo1234, joueur sami@demo.tn / demo1234
 python seed_more_coaches.py                          # + 2 coachs fictifs (coach.youssef@demo.tn, coach.meriem@demo.tn / demo1234), sans effet s'ils existent
@@ -28,7 +28,7 @@ npm run build
 Le schéma est créé par `create_all`: après un changement de modèle, supprimer `backend/padel.db` et relancer le seed.
 
 ## Règles métier à ne pas casser
-- Classement en demi-tranches P25- < P25+ < P50- < … < P1000+ (`constants.CATEGORIES`, même échelle hommes/femmes; un ancien code « P100 » vaut « P100- »). Compatibilité sur la tranche principale (P25, P50, P100, P250, P500, P1000): un cran d'écart au plus, et une joueuse ne joue pas avec un homme d'une tranche supérieure (`constants.compatible`). Le +/- affine le classement des suggestions.
+- Classement en demi-tranches P25- < P25+ < P50- < … < P1000+ (`constants.CATEGORIES`, même échelle hommes/femmes; un ancien code « P100 » vaut « P100- »). Compatibilité en crans de demi-tranche (`constants.step`, `constants.compatible`): même sexe = un cran d'écart au plus (un P250- joue avec P100+, P250-, P250+); une joueuse et un homme = l'homme a 1 à 3 crans de moins qu'elle (une P1000+ avec un P1000-, P500+ ou P500-), jamais autant ou plus qu'elle. Séance vide avec un niveau visé: au plus un cran d'écart.
 - Exercices: ceux de l'application (`services/exercises_catalog.py`, `coach_id` nul, non modifiables) + ceux du coach. Préparation de séance (`services/planner.py`): thèmes recommandés d'après les coups notés ≤ 2 (ou 3) et les notes « à retravailler », plan minuté échauffement → exercices → jeu → retour au calme selon la durée et le nombre de joueurs, enregistré dans `TrainingSession.plan` (JSON).
 - Multi-coachs: un joueur voit tous les coachs et réserve chez n'importe lequel. Une fiche `Player` par coach; les fiches chez d'autres coachs sont reliées au compte par `Player.account_id` (`services/accounts.py`: `linked`, `row_for_coach`). Les routes `/me` regroupent toutes les fiches du compte. Crédits propres à chaque coach.
 - Réservation joueur (DP-001): rien n'est débité à la demande; à la validation par le coach (`booking.accept`), le prix convenu (`Booking.price_millimes`) est débité des crédits chez ce coach, même si le solde devient négatif (= dette, comptée dans les impayés via `finance.debts` / `amounts_due`, jamais en double: la séance est marquée payée en crédits). Plus de mode « sur place ». Recherche par jour (`services/marketplace.offers`): groupes à rejoindre, puis créneaux avec terrain déjà réservé, puis les autres.

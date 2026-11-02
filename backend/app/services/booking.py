@@ -137,7 +137,7 @@ def fits_session(db: Session, player: Player, s: TrainingSession) -> tuple[bool,
         if not s.level:
             return True, 0.0
         gap = abs(category_index(player.category) - category_index(s.level))
-        return gap <= 1, gap
+        return gap <= 0.5, gap  # au plus un cran (demi-tranche) d'écart avec le niveau visé
     ok = all(compatible(player.category, player.gender, o.category, o.gender) for o in others)
     return ok, max(abs(category_index(player.category) - category_index(o.category)) for o in others)
 

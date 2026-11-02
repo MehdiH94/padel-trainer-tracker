@@ -325,7 +325,7 @@ def test_suggestions_rank_by_level_and_type(client):
     open_week(client)
     host = mkplayer(client, name="Host", category="P100")
     s = open_duo(client, host)
-    _, near = player_client(client, name="Near", phone="20111111", category="P250")
+    _, near = player_client(client, name="Near", phone="20111111", category="P100+")
     _, far = player_client(client, name="Far", phone="20222222", category="P1000")
     sug = near.get("/me/suggestions", params={"kinds": "duo"}).json()
     assert [x["session_id"] for x in sug] == [s["id"]] and sug[0]["match"] == "ideal" and sug[0]["spots_left"] == 1
@@ -514,13 +514,16 @@ from app.constants import compatible  # noqa: E402
 
 
 @pytest.mark.parametrize("a,ga,b,gb,ok", [
-    ("P250", "M", "P100", "M", True), ("P250", "M", "P500", "M", True), ("P250", "M", "P1000", "M", False),
-    ("P50", "M", "P250", "M", False), ("P250", "F", "P250", "M", True),
-    ("P1000", "F", "P500", "M", True),   # une P1000 dame peut jouer avec un P500 homme
-    ("P500", "F", "P1000", "M", False),  # mais pas avec un homme de catégorie supérieure
-    ("P250", "F", "P500", "M", False), ("P250", "F", "P100", "M", True),
-    ("P250", "M", "P500", "F", True), ("P500", "M", "P250", "F", False),
-    ("P500", "F", "P250", "F", True), ("P500", "F", "P100", "F", False),
+    # même sexe: un cran (demi-tranche) d'écart au plus
+    ("P250-", "M", "P250-", "M", True), ("P250-", "M", "P100+", "M", True), ("P250-", "M", "P250+", "M", True),
+    ("P250-", "M", "P100-", "M", False), ("P250-", "M", "P500-", "M", False),
+    ("P500+", "F", "P500-", "F", True), ("P500+", "F", "P250+", "F", False),
+    # une joueuse et un homme: l'homme a 1 à 3 crans de moins
+    ("P1000+", "F", "P1000-", "M", True), ("P1000+", "F", "P500+", "M", True), ("P1000+", "F", "P500-", "M", True),
+    ("P1000+", "F", "P250+", "M", False), ("P1000+", "F", "P1000+", "M", False),
+    ("P250+", "F", "P250-", "M", True), ("P250+", "F", "P100+", "M", True), ("P250+", "F", "P100-", "M", True),
+    ("P250+", "F", "P50+", "M", False), ("P250-", "F", "P250+", "M", False), ("P250-", "F", "P500-", "M", False),
+    ("P100", "M", "P100-", "M", True),  # ancien code sans +/- = bas de tranche
 ])
 def test_level_compatibility(a, ga, b, gb, ok):
     assert compatible(a, ga, b, gb) is ok
@@ -534,7 +537,7 @@ def test_suggestions_respect_every_player_and_gender_rule(client):
     m = mkplayer(client, name="Man250", phone="20222222", gender="M", category="P250")
     start = (datetime.now(timezone.utc) + timedelta(hours=48)).replace(minute=0, second=0, microsecond=0).isoformat()
     s = client.post("/sessions", json={"start": start, "kind": "groupe", "open": True, "player_ids": [w["id"], m["id"]], "price_millimes": 30000}).json()[0]
-    _, ok_p = player_client(client, name="Man500", phone="20333333", category="P500", gender="M")  # P500 H: ok avec P500 D et P250 H
+    _, ok_p = player_client(client, name="Man500", phone="20333333", category="P250+", gender="M")  # P250+ H: 1 cran sous la P500- D, 1 cran au-dessus du P250- H
     _, ko_high = player_client(client, name="Man1000", phone="20444444", category="P1000", gender="M")  # 2 crans au-dessus de P250
     _, ko_low = player_client(client, name="Man100", phone="20555555", category="P100", gender="M")  # 2 crans sous P500
     assert [x["session_id"] for x in ok_p.get("/me/suggestions").json()] == [s["id"]]
@@ -689,10 +692,10 @@ def test_coach_adds_player_to_session(client):
 # --- Demi-tranches, exercices et préparation de séance ----------------------
 
 @pytest.mark.parametrize("a, ga, b, gb, ok", [
-    ("P100+", "M", "P250-", "M", True), ("P100-", "M", "P250+", "M", True),  # tranches voisines: le +/- ne bloque pas
-    ("P25+", "M", "P100-", "M", False), ("P25-", "F", "P50+", "F", True),
-    ("P500-", "F", "P500+", "M", True),  # même tranche: permis même si l'homme est en haut de la tranche
-    ("P500+", "F", "P1000-", "M", False),
+    ("P100+", "M", "P250-", "M", True), ("P100-", "M", "P250+", "M", False),  # tranches voisines: le +/- compte maintenant
+    ("P25+", "M", "P50-", "M", True), ("P25-", "F", "P50+", "F", False),
+    ("P500-", "F", "P500+", "M", False),  # un homme au-dessus d'une joueuse: non
+    ("P500+", "F", "P250+", "M", True),
 ])
 def test_half_tier_compatibility(a, ga, b, gb, ok):
     from app.constants import compatible
@@ -1036,7 +1039,7 @@ def _future_slot(pc, min_hours, hour_utc=None):
 def test_group_waits_for_minimum_then_confirms_and_notifies(client):
     from app.notify import Notifier
     open_week(client, auto_confirm=False)
-    a, pa = player_client(client, name="Amel", phone="20111111", gender="F", category="P250-")
+    a, pa = player_client(client, name="Amel", phone="20111111", gender="F", category="P250+")  # les hommes P250-: 1 cran de moins
     b, pb = player_client(client, name="Bilel", phone="20222222", category="P250-")
     c, pc = player_client(client, name="Chedly", phone="20333333", category="P250-")
     start = _future_slot(pa, 30)

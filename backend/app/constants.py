@@ -28,16 +28,19 @@ def category_index(code: str | None, default: float = 1.0) -> float:
     return CATEGORIES.index(code) / 2
 
 
+def step(code: str | None) -> int:
+    """Position en crans (demi-tranches): P25- = 0, P25+ = 1, P50- = 2 … P1000+ = 11."""
+    code = normalize_category(code)
+    return CATEGORIES.index(code) if code in CATEGORIES else CATEGORIES.index("P100-")
+
+
 def compatible(cat_a: str, gender_a: str, cat_b: str, gender_b: str) -> bool:
-    """Deux joueurs peuvent s'entraîner ensemble si leurs tranches principales diffèrent d'un cran au plus
-    (le +/- ne compte pas ici: P100+ joue avec P50- comme avec P250+).
-    Exception: une joueuse ne s'entraîne pas avec un homme d'une tranche supérieure à la sienne
-    (une P1000 dame peut jouer avec un P500 homme, pas l'inverse)."""
-    ia, ib = TIERS.index(tier(cat_a)) if tier(cat_a) in TIERS else 1, TIERS.index(tier(cat_b)) if tier(cat_b) in TIERS else 1
-    if abs(ia - ib) > 1:
-        return False
-    if gender_a == "F" and gender_b == "M" and ib > ia:
-        return False
-    if gender_b == "F" and gender_a == "M" and ia > ib:
-        return False
-    return True
+    """Deux joueurs peuvent s'entraîner ensemble (crans = demi-tranches, P250- → P250+ = 1 cran):
+    - même sexe: au plus un cran d'écart (un P250- joue avec P100+, P250- et P250+);
+    - une joueuse et un homme: l'homme a un, deux ou trois crans de moins qu'elle
+      (une P1000+ joue avec un P1000-, P500+ ou P500-; une P250+ avec un P250-, P100+ ou P100-; pas plus bas, ni plus haut)."""
+    a, b = step(cat_a), step(cat_b)
+    if gender_a == gender_b:
+        return abs(a - b) <= 1
+    woman, man = (a, b) if gender_a == "F" else (b, a)
+    return woman - 3 <= man <= woman - 1
