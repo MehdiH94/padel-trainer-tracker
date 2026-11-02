@@ -1422,3 +1422,34 @@ def test_beta_everything_by_email(client):
     client.post(f"/players/{p['id']}/credits", json={"amount_millimes": 50000})
     subjects = [subj for to, subj, _ in OUTBOX if to == f"p{p['id']}@x.tn"]
     assert "Votre demande de séance n'a pas pu être acceptée" in subjects and "Recharge de crédits" in subjects
+
+
+def test_coach_announces_free_court_to_chosen_players(client):
+    from app.notify import OUTBOX
+    p, pc = player_client(client)
+    q, qc = player_client(client, name="Rim", phone="20111222")
+    start = (datetime.now(timezone.utc) + timedelta(days=3)).replace(minute=0, second=0, microsecond=0)
+    cb = free_court(client, start.isoformat(), minutes=240)
+    data = client.get(f"/court-bookings/{cb['id']}/announce").json()
+    assert {x["name"] for x in data["players"]} == {"Sami", "Rim"} and "terrain libre" in data["message"] and " à " in data["message"]
+    OUTBOX.clear()
+    assert client.post(f"/court-bookings/{cb['id']}/announce", json={"player_ids": [q["id"]], "message": ""}).json()["sent"] == 1
+    assert [to for to, _, _ in OUTBOX] == [f"p{q['id']}@x.tn"]  # seulement le joueur choisi
+    other = register("other@b.tn")
+    assert other.get(f"/court-bookings/{cb['id']}/announce").status_code == 404
+
+
+def test_complete_session_from_planning_opens_it(client):
+    """Séance à deux montée par le coach, fermée: l'inviter l'ouvre, le joueur invité peut accepter."""
+    a = mkplayer(client, name="Ali")
+    p, pc = player_client(client, name="Rim", phone="20111222")
+    past = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
+    s0 = client.post("/sessions", json={"start": past, "kind": "individuel", "player_ids": [p["id"]]}).json()[0]
+    client.patch(f"/sessions/{s0['id']}", json={"status": "effectuee"})  # Rim s'est déjà entraînée ici
+    start = (datetime.now(timezone.utc) + timedelta(days=3)).replace(minute=0, second=0, microsecond=0).isoformat()
+    s = client.post("/sessions", json={"start": start, "kind": "duo", "open": False, "player_ids": [a["id"]]}).json()[0]
+    assert [x["id"] for x in client.get(f"/sessions/{s['id']}/invitable").json()["players"]] == [p["id"]]
+    client.post(f"/sessions/{s['id']}/invite", json={"player_ids": [p["id"]]})
+    prop = pc.get("/me/proposals").json()[0]
+    assert pc.post(f"/me/proposals/{prop['id']}/accept").status_code == 200
+    assert sorted(next(x for x in client.get("/sessions").json() if x["id"] == s["id"])["player_ids"]) == sorted([a["id"], p["id"]])

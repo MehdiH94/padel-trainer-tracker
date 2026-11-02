@@ -3,6 +3,7 @@ import { api, dayLabel, hhmm, useLive } from "./api.js";
 import Icon from "./Icon.jsx";
 import { confirmDialog, Modal, toast, toastError } from "./feedback.jsx";
 import CourtCalendar from "./CourtCalendar.jsx";
+import InvitePlayers from "./InvitePlayers.jsx";
 import { COURT_STATUS, DateSelect, Loading, TimeSelect } from "./ui.jsx";
 
 const PLACEHOLDERS = "{date} {debut} {fin} {duree} {joueurs} {coach} {club}";
@@ -223,6 +224,13 @@ function frequency(items) {
 }
 
 function PromoLine({ cb, promo, onPromo, onStopPromo }) {
+  const [announcing, setAnnouncing] = useState(false); // annoncer le créneau libre aux joueurs choisis (sans remise)
+  const announce = (
+    <>
+      <button className="small sec" style={{ marginTop: 10, marginLeft: 6 }} onClick={() => setAnnouncing(true)}><Icon name="send" size={15} /> Prévenir mes joueurs</button>
+      {announcing && <InvitePlayers courtId={cb.id} onClose={() => setAnnouncing(false)} onDone={() => setAnnouncing(false)} />}
+    </>
+  );
   return promo ? (
     <div className="promo-on">
       <span className="promo-tag">−{promo.discount_pct} %</span>
@@ -230,7 +238,10 @@ function PromoLine({ cb, promo, onPromo, onStopPromo }) {
       <button className="small sec" onClick={() => onStopPromo(promo)}>Arrêter</button>
     </div>
   ) : (
-    <button className="small sec" style={{ marginTop: 10 }} onClick={() => onPromo(cb)}><Icon name="sparkles" size={15} /> Proposer une promotion</button>
+    <div>
+      <button className="small sec" style={{ marginTop: 10 }} onClick={() => onPromo(cb)}><Icon name="sparkles" size={15} /> Proposer une promotion</button>
+      {announce}
+    </div>
   );
 }
 

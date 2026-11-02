@@ -209,6 +209,8 @@ def invite_players(session_id: int, body: InviteIn, coach: Coach = Depends(curre
     for p in chosen:
         if not db.scalar(select(Proposal).where(Proposal.session_id == s.id, Proposal.player_id == p.id, Proposal.status == "proposee")):
             db.add(Proposal(coach_id=coach.id, session_id=s.id, player_id=p.id))
+    if chosen and s.kind != "individuel":
+        s.open = True  # les joueurs invités pourront accepter la proposition
     message = body.message.strip() or default_invite(coach, s)
     sent = booking_svc.notify(db, chosen, "Une place pour vous dans une séance de padel", lambda _p: message)
     db.commit()

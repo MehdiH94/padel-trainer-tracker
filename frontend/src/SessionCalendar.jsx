@@ -56,6 +56,7 @@ export default function SessionCalendar({ week, sessions, byId, name, today, car
                   aria-label={`${KIND[s.kind]?.label}, ${hhmm(s.start)}, ${first(s) || "sans joueur"}${s.club ? ", " + s.club : ""}`}>
                   <b>{hhmm(s.start)}</b>
                   <small>{first(s) || "—"}</small>
+                  {s.kind !== "individuel" && s.status === "prevue" && s.player_ids.length < s.max_players && <small className="club-code">{s.player_ids.length}/{s.max_players} j.</small>}
                   {multi && s.club && <small className="club-code">{codes[s.club]}</small>}
                   {s.court && <small>{s.court}</small>}
                 </button>

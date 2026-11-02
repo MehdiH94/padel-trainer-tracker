@@ -470,7 +470,7 @@ button.prepare.done > .icon:first-child { color: var(--ok-txt); }
 .status-line.attente_joueurs { color: var(--warn-txt); }
 .reconsider-box { margin-top: 8px; padding: 8px 10px; background: var(--amber-l); color: var(--warn-txt); border-radius: 10px; display: grid; gap: 6px; }
 .reconsider-box .chip { background: var(--card); }
-.searchrow.pick { cursor: pointer; }
+.searchrow.pick { cursor: pointer; display: flex; align-items: center; } /* <label>: pas un bouton, il faut le mettre en ligne */
 .searchrow.pick input { width: 20px; height: 20px; min-height: 0; margin: 0; flex: none; accent-color: var(--brand); }
 .late-hint { display: flex; gap: 6px; align-items: flex-start; margin: 10px 0 0; }
 .price-table { display: grid; gap: 2px; background: var(--soft); border-radius: 10px; padding: 8px 10px; margin-bottom: 8px; }

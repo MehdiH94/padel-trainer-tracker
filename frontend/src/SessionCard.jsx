@@ -7,7 +7,9 @@ import { AvatarStack, COURT_STATUS, KIND, PlayerTags, STATUS, Where } from "./ui
 export default function SessionCard({ s, name, byId, onStatus, onDuplicate, onPrepare, onChanged }) {
   const [inviting, setInviting] = useState(false);
   const short = s.status === "prevue" && s.player_ids.length < s.min_players; // pas encore assez de joueurs
-  const canInvite = s.status === "prevue" && s.open && s.max_players > s.player_ids.length;
+  // Séance à deux ou en groupe pas encore pleine: le coach peut la compléter en un clic (joueurs compatibles)
+  const upcoming = new Date(s.start.endsWith("Z") || /[+-]\d\d:\d\d$/.test(s.start) ? s.start : s.start + "Z") > new Date();
+  const canInvite = s.status === "prevue" && upcoming && s.kind !== "individuel" && s.max_players > s.player_ids.length;
   const names = s.player_ids.map(name);
   const k = KIND[s.kind];
   const end = new Date(new Date(s.start.endsWith("Z") || /[+-]\d\d:\d\d$/.test(s.start) ? s.start : s.start + "Z").getTime() + s.duration_min * 60000).toISOString();
@@ -46,7 +48,11 @@ export default function SessionCard({ s, name, byId, onStatus, onDuplicate, onPr
           <Icon name="chevR" size={16} />
         </button>
       )}
-      {canInvite && <button className="small sec" style={{ marginTop: 10, width: "100%" }} onClick={() => setInviting(true)}><Icon name="send" size={15} /> Notifier mes joueurs ({s.max_players - s.player_ids.length} place{s.max_players - s.player_ids.length > 1 ? "s" : ""})</button>}
+      {canInvite && (
+        <button className={"small" + (short ? "" : " sec")} style={{ marginTop: 10, width: "100%" }} onClick={() => setInviting(true)}>
+          <Icon name="users" size={15} /> Compléter la séance · {s.max_players - s.player_ids.length} place{s.max_players - s.player_ids.length > 1 ? "s" : ""} libre{s.max_players - s.player_ids.length > 1 ? "s" : ""}
+        </button>
+      )}
       {inviting && <InvitePlayers sessionId={s.id} onClose={() => setInviting(false)} onDone={() => { setInviting(false); onChanged?.(); }} />}
       {s.status === "prevue" && onStatus && (
         <div className="actions">

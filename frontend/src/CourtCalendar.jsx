@@ -39,6 +39,7 @@ function lanes(items) {
 
 function Details({ cb, promo, onClose, onRemove, onPromo, onStopPromo, onChanged }) {
   const [inviting, setInviting] = useState(false);
+  const [announcing, setAnnouncing] = useState(false); // terrain libre: annoncer le créneau aux joueurs choisis
   const end = new Date(toDate(cb.start).getTime() + cb.duration_min * 60000).toISOString();
   const st = STATES[cb.state];
   return (
@@ -55,13 +56,15 @@ function Details({ cb, promo, onClose, onRemove, onPromo, onStopPromo, onChanged
       )}
       {cb.state === "demande" && <p className="mut small-p">{cb.sent_at ? "SMS envoyé au club, en attente de sa réponse." : "Demande prête : le SMS part 7 jours avant la séance (ou depuis la liste)."}</p>}
       <div className="actions" style={{ flexDirection: "column" }}>
-        {cb.state === "incomplet" && cb.session_id && <button onClick={() => setInviting(true)}><Icon name="send" size={15} /> Notifier mes joueurs</button>}
+        {cb.state === "incomplet" && cb.session_id && <button onClick={() => setInviting(true)}><Icon name="users" size={15} /> Compléter la séance</button>}
+        {cb.state === "libre" && <button onClick={() => setAnnouncing(true)}><Icon name="send" size={15} /> Prévenir mes joueurs</button>}
         {cb.state === "libre" && (promo
           ? <button className="sec" onClick={() => { onStopPromo(promo); onClose(); }}>Arrêter la promotion −{promo.discount_pct} %</button>
           : <button className="sec" onClick={() => { onPromo(cb); onClose(); }}><Icon name="sparkles" size={15} /> Proposer une promotion</button>)}
         {cb.state === "libre" && cb.source === "manuel" && <button className="sec danger" onClick={() => { onRemove(cb); onClose(); }}><Icon name="trash" size={15} /> Supprimer ce terrain</button>}
       </div>
       {inviting && <InvitePlayers sessionId={cb.session_id} onClose={() => setInviting(false)} onDone={() => { setInviting(false); onChanged(); onClose(); }} />}
+      {announcing && <InvitePlayers courtId={cb.id} onClose={() => setAnnouncing(false)} onDone={() => { setAnnouncing(false); onClose(); }} />}
     </Modal>
   );
 }

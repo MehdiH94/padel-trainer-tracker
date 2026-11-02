@@ -1,6 +1,6 @@
 """Promotions sur un terrain déjà réservé et encore libre: le coach fixe une remise, ses joueurs sont prévenus."""
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -11,7 +11,8 @@ from ..auth import current_coach, current_player
 from ..db import get_db
 from ..models import Club, Coach, CourtBooking, Player, Promotion
 from ..notify import Notifier, channel_for
-from ..services.accounts import account_of, contact_email, linked
+from ..services import booking as booking_svc
+from ..services.accounts import account_of, contact_email, has_account, linked
 from ..services.common import TUNIS, aware
 from ..services.courts import JOURS
 from ..services.pricing import base_price, duration_for
@@ -124,3 +125,51 @@ def my_promotions(player: Player = Depends(current_player), db: Session = Depend
     coach_ids = {p.coach_id for p in linked(db, player)}
     rows = db.scalars(select(Promotion).where(Promotion.active.is_(True), Promotion.coach_id.in_(coach_ids)))
     return sorted((x for x in (promo_out(db, p) for p in rows) if x["active"]), key=lambda x: aware(x["start"]))
+
+
+# --- Terrain libre: le coach prévient les joueurs de son choix (sans remise) ------------------
+
+def _free_court(db: Session, coach: Coach, cb_id: int) -> CourtBooking:
+    cb = db.get(CourtBooking, cb_id)
+    if not cb or cb.coach_id != coach.id:
+        raise HTTPException(404, "Terrain introuvable")
+    if cb.session_id is not None or cb.status != "confirmee" or not cb.start or aware(cb.start) <= datetime.now(timezone.utc):
+        raise HTTPException(409, "Ce terrain n'est plus libre")
+    return cb
+
+
+def free_court_message(db: Session, coach: Coach, cb: CourtBooking) -> str:
+    club = db.get(Club, cb.club_id).name
+    t = aware(cb.start).astimezone(TUNIS)
+    end = t + timedelta(minutes=cb.duration_min)
+    h = lambda x: f"{x:%H}h{x:%M}".replace("h00", "h")  # noqa: E731
+    return (f"Bonjour, j'ai un terrain libre le {JOURS[t.weekday()]} {t:%d/%m} de {h(t)} à {h(end)} au {club}. Seul, à deux ou en groupe, "
+            f"réservez votre créneau dans l'appli : {APP_URL}. — {coach.name}")
+
+
+@router.get("/court-bookings/{cb_id}/announce")
+def announce_preview(cb_id: int, coach: Coach = Depends(current_coach), db: Session = Depends(get_db)):
+    """Joueurs du coach à qui annoncer ce terrain libre (ceux sans compte n'ont pas d'e-mail: rien ne leur est envoyé)."""
+    cb = _free_court(db, coach, cb_id)
+    players = sorted(recipients(db, coach), key=lambda p: (not has_account(p), p.name))
+    return {
+        "players": [{"id": p.id, "name": p.name, "category": p.category, "gender": p.gender, "has_account": has_account(p),
+                     "contact_channel": p.contact_channel or "sms"} for p in players],
+        "message": free_court_message(db, coach, cb),
+    }
+
+
+class AnnounceIn(BaseModel):
+    player_ids: list[int]
+    message: str = ""
+
+
+@router.post("/court-bookings/{cb_id}/announce")
+def announce(cb_id: int, body: AnnounceIn, coach: Coach = Depends(current_coach), db: Session = Depends(get_db)):
+    cb = _free_court(db, coach, cb_id)
+    mine = {p.id: p for p in recipients(db, coach)}
+    chosen = [mine[i] for i in body.player_ids if i in mine]
+    message = body.message.strip() or free_court_message(db, coach, cb)
+    sent = booking_svc.notify(db, chosen, f"Créneau de padel libre avec {coach.name}", lambda _p: message)
+    db.commit()
+    return {"sent": sent}

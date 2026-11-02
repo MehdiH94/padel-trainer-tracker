@@ -112,7 +112,7 @@ function WaitingPlayers({ r, reload }) {
         <Icon name="users" size={18} />
         <span><b>{r.players_count}/{r.min_needed} joueur{r.min_needed > 1 ? "s" : ""}</b> : la séance sera confirmée automatiquement (et le joueur prévenu) dès qu'assez de joueurs l'auront rejointe. 6 h avant, sinon, il pourra changer de formule ou annuler.</span>
       </div>
-      <div className="actions"><button onClick={() => setInviting(true)}><Icon name="send" size={16} /> Notifier mes joueurs</button></div>
+      <div className="actions"><button onClick={() => setInviting(true)}><Icon name="users" size={16} /> Compléter la séance</button></div>
       {inviting && <InvitePlayers sessionId={r.session_id} onClose={() => setInviting(false)} onDone={() => { setInviting(false); reload(); }} />}
     </div>
   );
