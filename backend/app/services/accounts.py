@@ -30,7 +30,7 @@ def row_for_coach(db: Session, account: Player, coach: Coach, create: bool = Tru
     p = Player(
         coach_id=coach.id, account_id=account.id, name=account.name, phone=account.phone, gender=account.gender,
         category=account.category, pref_kinds=account.pref_kinds, dominant_hand=account.dominant_hand, side=account.side,
-        contact_channel=account.contact_channel,
+        contact_channel=account.contact_channel, goals=account.goals,
     )
     db.add(p)
     db.flush()
@@ -62,3 +62,16 @@ def contact_conflicts(db: Session, coach_id: int, email: str | None, phone: str 
         if o:
             out["phone"] = f"Ce numéro est déjà celui de {o.name} dans vos joueurs."
     return out
+
+
+# Fiche partagée: un joueur suivi par plusieurs coachs a une fiche chez chacun, mais son identité et son profil
+# sportif sont les mêmes partout. Les notes privées du coach et ses évaluations restent propres à chaque coach.
+SHARED = ("name", "phone", "gender", "category", "dominant_hand", "side", "goals", "pref_kinds", "contact_channel")
+
+
+def share_profile(db: Session, p: Player) -> None:
+    """Recopie l'identité et le profil de cette fiche sur toutes les fiches du même joueur."""
+    for o in linked(db, account_of(db, p)):
+        if o.id != p.id:
+            for k in SHARED:
+                setattr(o, k, getattr(p, k))

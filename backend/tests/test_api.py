@@ -1532,3 +1532,43 @@ def test_signup_never_fails_when_email_sending_fails(client, monkeypatch):
     assert r.status_code == 409 and "déjà utilisée" in r.json()["detail"]
     r = anon.post(f"/auth/invite/{p['invite_path'].split('/')[-1]}", json={"email": "lina@x.tn", "password": "secret1"})
     assert r.status_code == 200 and r.json()["role"] == "player"
+
+
+def test_admin_full_rights_act_as_and_edit_everything(client, monkeypatch):
+    monkeypatch.setenv("ADMIN_EMAILS", "boss@padel.tn")
+    boss = register("boss@padel.tn")
+    coach_id = next(c["id"] for c in boss.get("/admin/coaches").json() if c["email"] == "a@b.tn")
+    p, pc = player_client(client, name="Sami")
+    # l'administrateur agit dans l'espace du coach: mêmes droits (ici: annuler une séance)
+    tok = boss.post(f"/admin/coaches/{coach_id}/act").json()
+    as_coach = login_as(TestClient(app), tok["token"])
+    s = as_coach.post("/sessions", json={"start": (datetime.now(timezone.utc) + timedelta(days=3)).isoformat(), "player_ids": [p["id"]]}).json()[0]
+    assert as_coach.patch(f"/sessions/{s['id']}", json={"status": "annulee"}).json()["status"] == "annulee"
+    assert client.get("/sessions").json()[0]["status"] == "annulee"  # c'est bien le planning du coach
+    # ... et dans l'espace du joueur
+    as_player = login_as(TestClient(app), boss.post(f"/admin/players/{p['id']}/act").json()["token"])
+    assert as_player.get("/me").json()["name"] == "Sami"
+    assert client.post(f"/admin/coaches/{coach_id}/act").status_code == 403  # un coach ordinaire ne peut pas
+    # modifier e-mail de connexion, mot de passe, téléphone: même ce qu'un coach ne peut pas toucher
+    r = boss.put(f"/admin/players/{p['id']}", json={"name": "Sami B.", "phone": "20 111 333", "email": "Nouveau@x.tn",
+                                                    "category": "P250+", "password": "neuf123"})
+    assert r.status_code == 200
+    assert TestClient(app).post("/auth/login", json={"email": "nouveau@x.tn", "password": "neuf123"}).json()["role"] == "player"
+    # fiche partagée: chez un deuxième coach, la même identité
+    other = register("other@b.tn")
+    from app.db import get_db
+    from app.services.accounts import row_for_coach
+    db = next(app.dependency_overrides[get_db]())
+    from app.models import Coach, Player
+    acc = db.get(Player, p["id"])
+    row_for_coach(db, acc, db.query(Coach).filter_by(email="other@b.tn").one())
+    db.commit()
+    db.close()
+    client.put(f"/players/{p['id']}", json={"name": "Sami Ben Ali", "phone": "20 111 333", "category": "P500-"})
+    assert [(x["name"], x["category"]) for x in other.get("/players").json()] == [("Sami Ben Ali", "P500-")]
+    # coach et club modifiables
+    assert boss.put(f"/admin/coaches/{coach_id}", json={"name": "Coach Renommé", "email": "a@b.tn"}).status_code == 200
+    assert client.get("/booking/settings").status_code == 200
+    boss.post("/admin/clubs", json={"name": "Club Test"})
+    assert boss.put("/admin/clubs/club test", json={"name": "Club Test Sousse", "phone": "73 111 222"}).status_code == 200
+    assert "Club Test Sousse" in [c["name"] for c in boss.get("/admin/clubs").json()]

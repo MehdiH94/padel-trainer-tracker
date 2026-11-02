@@ -13,7 +13,7 @@ from ..schemas import PlayerIn, PlayerOut
 from sqlalchemy.orm import object_session
 
 from ..schemas import normalize_tn_phone
-from ..services.accounts import account_of, contact_conflicts, has_account
+from ..services.accounts import account_of, contact_conflicts, has_account, share_profile
 from ..services.finance import credit_balance, settle
 
 router = APIRouter(prefix="/players", tags=["players"])
@@ -83,6 +83,7 @@ def update_player(player_id: int, body: PlayerIn, coach: Coach = Depends(current
         data.pop("email")
     for k, v in data.items():
         setattr(p, k, v)
+    share_profile(db, p)  # même fiche chez tous ses coachs
     _save(db)
     return player_out(p, credit_balance(db, p.id))
 

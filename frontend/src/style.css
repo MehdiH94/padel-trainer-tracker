@@ -565,3 +565,9 @@ main > .row:first-child > .row { flex-wrap: wrap; justify-content: flex-end; }
 /* Champ en erreur (e-mail ou téléphone déjà utilisés) */
 input[aria-invalid="true"] { border-color: var(--red); box-shadow: 0 0 0 3px var(--red-l); }
 small.err { display: block; margin: 4px 0 0; font-size: .8rem; }
+
+/* Mode administrateur: dans l'espace d'un coach ou d'un joueur */
+.admin-bar { position: sticky; top: 0; z-index: 60; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 6px 12px; background: var(--warn-txt); color: var(--card); font-size: .85rem; font-weight: 600; }
+.admin-bar span { flex: 1; min-width: 0; }
+.admin-bar button { background: var(--card); color: var(--warn-txt); min-height: 0; padding: 4px 10px; }
+.admin-bar ~ .topbtns { top: 64px; } /* sous le bandeau administrateur */

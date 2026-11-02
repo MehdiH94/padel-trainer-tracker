@@ -4,12 +4,35 @@ const TZ = "Africa/Tunis";
 export const getToken = () => localStorage.getItem("token");
 export const setToken = (t) => {
   if (t) return localStorage.setItem("token", t);
+  const admin = localStorage.getItem("admin_token");
+  if (admin) { // l'administrateur quitte l'espace qu'il avait ouvert: il retrouve son compte
+    localStorage.setItem("token", admin);
+    localStorage.setItem("role", "coach");
+    localStorage.removeItem("admin_token");
+    localStorage.removeItem("admin_label");
+    location.hash = "admin";
+    return;
+  }
   localStorage.removeItem("token");
   localStorage.removeItem("role");
   window.caches?.delete("api"); // données hors-ligne du compte précédent
 };
 export const getRole = () => localStorage.getItem("role") || "coach";
 export const setSession = (r) => { setToken(r.token); localStorage.setItem("role", r.role); };
+
+// Administrateur: ouvrir l'espace d'un coach ou d'un joueur (tous ses droits), puis revenir
+export const actingAs = () => localStorage.getItem("admin_label");
+export function actAs(r) {
+  if (!localStorage.getItem("admin_token")) localStorage.setItem("admin_token", getToken());
+  localStorage.setItem("admin_label", r.label);
+  setSession(r);
+  location.hash = "";
+  location.reload();
+}
+export function stopActing() {
+  setToken(null); // rend la main au compte administrateur
+  location.reload();
+}
 
 export async function api(path, { method = "GET", body } = {}) {
   let res;

@@ -14,7 +14,7 @@ import Requests from "./Requests.jsx";
 import SessionPlan from "./SessionPlan.jsx";
 import Settings from "./Settings.jsx";
 import VerifyEmail from "./VerifyEmail.jsx";
-import { api, getRole, getToken, setSession, setToken } from "./api.js";
+import { actingAs, api, getRole, getToken, setSession, setToken, stopActing } from "./api.js";
 import { FeedbackHost, Modal } from "./feedback.jsx";
 import { useRoute } from "./router.js";
 import { Avatar, CategoryBadge, OfflineBar } from "./ui.jsx";
@@ -136,6 +136,16 @@ function CoachApp() {
   );
 }
 
+// Bandeau quand l'administrateur agit dans l'espace d'un coach ou d'un joueur
+function AdminBar() {
+  return (
+    <div className="admin-bar" role="status">
+      <Icon name="shield" size={15} /> <span>Mode administrateur · espace du {actingAs()}</span>
+      <button className="small" onClick={stopActing}>Revenir à l'administration</button>
+    </div>
+  );
+}
+
 export default function App() {
   let page;
   if (location.pathname.startsWith("/invite/")) page = <Invite token={location.pathname.split("/")[2]} />;
@@ -143,5 +153,5 @@ export default function App() {
   else if (location.pathname.startsWith("/verify/")) page = <VerifyEmail token={location.pathname.split("/")[2]} />;
   else if (!getToken()) page = <Login />;
   else page = getRole() === "player" ? <PlayerApp /> : <CoachApp />;
-  return <>{page}<FeedbackHost /></>;
+  return <>{actingAs() && getToken() && <AdminBar />}{page}<FeedbackHost /></>;
 }

@@ -22,9 +22,13 @@ def verify_password(pw: str, hashed: str) -> bool:
     return bcrypt.checkpw(pw.encode(), hashed.encode())
 
 
-def create_token(user_id: int, role: str = "coach") -> str:
-    exp = datetime.now(timezone.utc) + timedelta(days=30)
-    return jwt.encode({"sub": str(user_id), "role": role, "exp": exp}, SECRET, algorithm="HS256")
+def create_token(user_id: int, role: str = "coach", admin_id: int | None = None) -> str:
+    """Jeton de connexion. admin_id: l'administrateur agit dans l'espace de ce compte (valable 12 h)."""
+    exp = datetime.now(timezone.utc) + (timedelta(hours=12) if admin_id else timedelta(days=30))
+    data = {"sub": str(user_id), "role": role, "exp": exp}
+    if admin_id:
+        data["admin"] = admin_id
+    return jwt.encode(data, SECRET, algorithm="HS256")
 
 
 def _decode(creds: HTTPAuthorizationCredentials | None) -> dict:

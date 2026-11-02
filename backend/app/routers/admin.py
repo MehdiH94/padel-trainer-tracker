@@ -8,14 +8,14 @@ import secrets
 
 from sqlalchemy import delete, func
 
-from ..auth import current_coach, hash_password
+from ..auth import create_token, current_coach, hash_password
 from ..constants import CATEGORIES
 from ..db import get_db
 from ..models import Attendance, Club, Coach, CourtBooking, Player, Promotion, TrainingSession
 from ..services.common import aware
 from ..schemas import PlayerIn
 from ..services import admin_ops, signups
-from ..services.accounts import account_of, contact_conflicts, has_account
+from ..services.accounts import account_of, contact_conflicts, has_account, share_profile
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -74,7 +74,8 @@ def all_players(admin: Coach = Depends(current_admin), db: Session = Depends(get
     counts = dict(db.execute(select(Attendance.player_id, func.count()).group_by(Attendance.player_id)).all())
     return [{"id": p.id, "name": p.name, "phone": p.phone, "email": account_of(db, p).email, "gender": p.gender, "category": p.category,
              "coach_id": p.coach_id, "coach_name": coaches.get(p.coach_id, "?"), "has_account": has_account(p),
-             "signup_status": p.signup_status, "sessions": counts.get(p.id, 0)}
+             "signup_status": p.signup_status, "sessions": counts.get(p.id, 0),
+             "dominant_hand": p.dominant_hand, "side": p.side, "goals": p.goals, "notes": p.notes}
             for p in db.scalars(select(Player).order_by(Player.name))]
 
 
@@ -211,5 +212,128 @@ def remove_club(key: str, admin: Coach = Depends(current_admin), db: Session = D
             if cb.start and aware(cb.start) > now:
                 db.execute(delete(Promotion).where(Promotion.court_booking_id == cb.id))
                 db.delete(cb)
+    db.commit()
+    return {"ok": True}
+
+
+# --- Tous les droits: agir dans l'espace d'un coach ou d'un joueur, tout modifier ---------------
+
+@router.post("/coaches/{coach_id}/act")
+def act_as_coach(coach_id: int, admin: Coach = Depends(current_admin), db: Session = Depends(get_db)):
+    """L'administrateur ouvre l'espace de ce coach et peut y faire tout ce que le coach fait (jeton de 12 h)."""
+    c = db.get(Coach, coach_id)
+    if not c:
+        raise HTTPException(404, "Coach introuvable")
+    return {"token": create_token(c.id, "coach", admin_id=admin.id), "role": "coach", "label": f"coach {c.name}"}
+
+
+@router.post("/players/{player_id}/act")
+def act_as_player(player_id: int, admin: Coach = Depends(current_admin), db: Session = Depends(get_db)):
+    """L'administrateur ouvre l'espace joueur (réserver, annuler, céder sa place… comme le joueur)."""
+    p = db.get(Player, player_id)
+    if not p or not has_account(p):
+        raise HTTPException(404, "Ce joueur n'a pas encore de compte")
+    acc = account_of(db, p)
+    return {"token": create_token(acc.id, "player", admin_id=admin.id), "role": "player", "label": f"joueur {acc.name}"}
+
+
+class AdminPlayerEdit(BaseModel):
+    name: str
+    phone: str
+    email: str | None = None
+    gender: str = "M"
+    category: str = "P100-"
+    dominant_hand: str = "droitier"
+    side: str = "drive"
+    goals: str = ""
+    notes: str = ""
+    password: str = ""  # vide = inchangé; avec un e-mail, crée le compte si le joueur n'en a pas
+
+
+@router.put("/players/{player_id}")
+def edit_player(player_id: int, body: AdminPlayerEdit, admin: Coach = Depends(current_admin), db: Session = Depends(get_db)):
+    """Tout modifier, y compris l'e-mail de connexion et le mot de passe (la fiche est la même chez tous ses coachs)."""
+    from ..schemas import normalize_tn_phone
+    p = db.get(Player, player_id)
+    if not p:
+        raise HTTPException(404, "Joueur introuvable")
+    try:
+        phone = normalize_tn_phone(body.phone)
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+    email = (body.email or "").strip().lower() or None
+    if body.gender not in ("M", "F") or body.category not in CATEGORIES or (email and "@" not in email):
+        raise HTTPException(422, "Genre, niveau ou e-mail invalide")
+    errors = contact_conflicts(db, p.coach_id, email, phone, p.id)
+    if errors["email"] or errors["phone"]:
+        raise HTTPException(409, errors["email"] or errors["phone"])
+    if body.password and len(body.password) < 6:
+        raise HTTPException(422, "Mot de passe de 6 caractères minimum")
+    acc = account_of(db, p)
+    p.name, p.phone, p.gender, p.category = body.name.strip() or p.name, phone, body.gender, body.category
+    p.dominant_hand, p.side, p.goals, p.notes = body.dominant_hand, body.side, body.goals, body.notes
+    if has_account(p):
+        acc.email = email or acc.email  # e-mail de connexion (sur la fiche compte)
+        if body.password:
+            acc.password_hash = hash_password(body.password)
+    else:
+        p.email = email
+        if body.password and email:  # l'administrateur crée directement le compte
+            p.password_hash, p.invite_token, p.signup_status = hash_password(body.password), None, "validee"
+    share_profile(db, p)
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise HTTPException(409, "Cet e-mail est déjà utilisé")
+    return {"ok": True}
+
+
+class CoachEdit(BaseModel):
+    name: str
+    email: str
+    password: str = ""  # vide = inchangé
+
+
+@router.put("/coaches/{coach_id}")
+def edit_coach(coach_id: int, body: CoachEdit, admin: Coach = Depends(current_admin), db: Session = Depends(get_db)):
+    c = db.get(Coach, coach_id)
+    if not c:
+        raise HTTPException(404, "Coach introuvable")
+    email = body.email.strip().lower()
+    if "@" not in email or not body.name.strip():
+        raise HTTPException(422, "Nom et e-mail valides requis")
+    if db.scalar(select(Coach).where(func.lower(Coach.email) == email, Coach.id != c.id)) or db.scalar(select(Player).where(func.lower(Player.email) == email)):
+        raise HTTPException(409, "Cet e-mail est déjà utilisé")
+    if body.password and len(body.password) < 6:
+        raise HTTPException(422, "Mot de passe de 6 caractères minimum")
+    c.name, c.email = body.name.strip(), email
+    if body.password:
+        c.password_hash = hash_password(body.password)
+    db.commit()
+    return {"ok": True}
+
+
+@router.put("/clubs/{key}")
+def edit_club(key: str, body: ClubIn, admin: Coach = Depends(current_admin), db: Session = Depends(get_db)):
+    """Renomme le club ou change son téléphone, chez tous les coachs (et sur leurs séances)."""
+    from ..schemas import normalize_tn_phone
+    rows = [c for c in db.scalars(select(Club).where(Club.removed.is_(False))) if _key(c.name) == _key(key)]
+    if not rows:
+        raise HTTPException(404, "Club introuvable")
+    name = body.name.strip()
+    if not name:
+        raise HTTPException(422, "Nom du club requis")
+    if _key(name) != _key(key) and any(_key(c.name) == _key(name) for c in db.scalars(select(Club).where(Club.removed.is_(False)))):
+        raise HTTPException(409, "Un autre club porte déjà ce nom")
+    try:
+        phone = normalize_tn_phone(body.phone) if body.phone.strip() else ""
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+    for c in rows:
+        old = c.name
+        c.name, c.phone = name, phone
+        for s in db.scalars(select(TrainingSession).where(TrainingSession.coach_id == c.coach_id, TrainingSession.club == old)):
+            s.club = name
     db.commit()
     return {"ok": True}

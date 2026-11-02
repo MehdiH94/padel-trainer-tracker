@@ -50,14 +50,6 @@ class PlayerIn(BaseModel):
     def _phone(cls, v: str) -> str:
         return normalize_tn_phone(v)
 
-    @field_validator("email")
-    @classmethod
-    def _email(cls, v: str | None) -> str | None:
-        v = (v or "").strip().lower()
-        if v and "@" not in v:
-            raise ValueError("Adresse e-mail invalide")
-        return v or None
-
     @field_validator("gender")
     @classmethod
     def _gender(cls, v: str) -> str:

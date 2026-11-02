@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, dayLabel, hhmm } from "./api.js";
+import { actAs, api, dayLabel, hhmm } from "./api.js";
 import Icon from "./Icon.jsx";
 import { confirmDialog, toast, toastError } from "./feedback.jsx";
 import { Avatar, CATEGORIES, CategoryBadge, catOption, Loading, PlayerTag } from "./ui.jsx";
@@ -76,6 +76,39 @@ function Signups({ refreshSummary }) {
   );
 }
 
+// Ouvrir l'espace d'un coach ou d'un joueur avec tous ses droits
+const open = (url) => api(url, { method: "POST" }).then(actAs).catch(toastError);
+
+// Formulaire de modification (l'administrateur peut tout changer)
+function EditForm({ fields, initial, url, onDone, onCancel }) {
+  const [f, setF] = useState(initial);
+  const [busy, setBusy] = useState(false);
+  const save = async (e) => {
+    e.preventDefault();
+    setBusy(true);
+    try {
+      await api(url, { method: "PUT", body: f });
+      toast("Modifications enregistrées");
+      onDone();
+    } catch (x) {
+      toastError(x);
+      setBusy(false);
+    }
+  };
+  return (
+    <form className="card edit-card" onSubmit={save} style={{ marginTop: -4 }}>
+      {fields.map(([k, label, type, options]) => (
+        <label className="field" key={k}><span className="mut">{label}</span>
+          {options
+            ? <select value={f[k]} onChange={(e) => setF({ ...f, [k]: e.target.value })}>{options.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select>
+            : <input type={type || "text"} value={f[k] ?? ""} onChange={(e) => setF({ ...f, [k]: e.target.value })} minLength={type === "password" ? 6 : undefined} />}
+        </label>
+      ))}
+      <div className="actions"><button disabled={busy}>Enregistrer</button><button type="button" className="sec" onClick={onCancel}>Annuler</button></div>
+    </form>
+  );
+}
+
 // Suppression définitive, après confirmation explicite
 async function remove(url, title, message, onDone) {
   if (!(await confirmDialog({ title, message, confirm: "Supprimer", cancel: "Retour", danger: true }))) return;
@@ -94,6 +127,7 @@ function AdminPlayers({ coaches }) {
   const [adding, setAdding] = useState(false);
   const [f, setF] = useState({ name: "", phone: "", gender: "M", category: "P100-", coach_id: "" });
   const [link, setLink] = useState(null);
+  const [editing, setEditing] = useState(null);
   const load = () => api("/admin/players").then(setList).catch(toastError);
   useEffect(() => { load(); }, []);
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
@@ -139,7 +173,8 @@ function AdminPlayers({ coaches }) {
       <p className="mut small-p">{shown.length} fiche{shown.length > 1 ? "s" : ""} (une par coach pour un même joueur).</p>
       {list === null && <Loading rows={3} />}
       {shown.map((p) => (
-        <div className="card row" key={p.id}>
+        <div key={p.id}>
+        <div className="card row">
           <div className="row g10" style={{ minWidth: 0 }}>
             <Avatar name={p.name} size={36} />
             <div style={{ minWidth: 0 }}>
@@ -147,10 +182,22 @@ function AdminPlayers({ coaches }) {
               <div className="mut small-p">Chez {p.coach_name} · {p.phone}{p.email ? ` · ${p.email}` : " · sans compte"}{p.sessions ? ` · ${p.sessions} séance${p.sessions > 1 ? "s" : ""}` : ""}</div>
             </div>
           </div>
+          <div className="row" style={{ gap: 4, flex: "none" }}>
+          {p.has_account && <button className="small sec iconbtn" title="Ouvrir son espace joueur" aria-label={`Ouvrir l'espace de ${p.name}`} onClick={() => open(`/admin/players/${p.id}/act`)}><Icon name="arrowR" size={15} /></button>}
+          <button className="small sec iconbtn" title="Modifier" aria-label={`Modifier ${p.name}`} onClick={() => setEditing(editing === p.id ? null : p.id)}><Icon name="edit" size={15} /></button>
           <button className="small sec iconbtn danger" aria-label={`Supprimer ${p.name}`} onClick={() => remove(`/admin/players/${p.id}`, `Supprimer ${p.name} chez ${p.coach_name} ?`,
             "Sa fiche chez ce coach et tout son historique (séances suivies, paiements, crédits, réservations) seront supprimés définitivement. S'il a un compte chez d'autres coachs, il le garde.", load)}>
             <Icon name="trash" size={15} />
           </button>
+          </div>
+        </div>
+        {editing === p.id && (
+          <EditForm url={`/admin/players/${p.id}`} onCancel={() => setEditing(null)} onDone={() => { setEditing(null); load(); }}
+            initial={{ name: p.name, phone: p.phone, email: p.email ?? "", gender: p.gender, category: p.category, dominant_hand: p.dominant_hand ?? "droitier", side: p.side ?? "drive", goals: p.goals ?? "", notes: p.notes ?? "", password: "" }}
+            fields={[["name", "Nom"], ["phone", "Téléphone", "tel"], ["email", p.has_account ? "E-mail de connexion" : "E-mail", "email"],
+              ["gender", "Genre", null, [["M", "Homme"], ["F", "Dame"]]], ["category", "Niveau", null, CATEGORIES.map((c) => [c, catOption(c)])],
+              ["password", p.has_account ? "Nouveau mot de passe (vide = inchangé)" : "Mot de passe (crée son compte avec l'e-mail)", "password"]]} />
+        )}
         </div>
       ))}
     </>
@@ -159,6 +206,7 @@ function AdminPlayers({ coaches }) {
 
 function AdminCoaches({ list, load, me }) {
   const [adding, setAdding] = useState(false);
+  const [editing, setEditing] = useState(null);
   const [f, setF] = useState({ name: "", email: "", password: "" });
   const [created, setCreated] = useState(null);
   const add = async (e) => {
@@ -192,7 +240,8 @@ function AdminCoaches({ list, load, me }) {
       )}
       {list === null && <Loading rows={2} />}
       {list?.map((c) => (
-        <div className="card row" key={c.id}>
+        <div key={c.id}>
+        <div className="card row">
           <div className="row g10" style={{ minWidth: 0 }}>
             <Avatar name={c.name} size={36} />
             <div style={{ minWidth: 0 }}>
@@ -201,12 +250,22 @@ function AdminCoaches({ list, load, me }) {
               {c.clubs.length > 0 && <div className="mut small-p"><Icon name="pin" size={12} /> {c.clubs.join(", ")}</div>}
             </div>
           </div>
+          <div className="row" style={{ gap: 4, flex: "none" }}>
+          {c.id !== me && <button className="small sec iconbtn" title="Ouvrir son espace" aria-label={`Ouvrir l'espace de ${c.name}`} onClick={() => open(`/admin/coaches/${c.id}/act`)}><Icon name="arrowR" size={15} /></button>}
+          <button className="small sec iconbtn" title="Modifier" aria-label={`Modifier ${c.name}`} onClick={() => setEditing(editing === c.id ? null : c.id)}><Icon name="edit" size={15} /></button>
           {c.id !== me && (
             <button className="small sec iconbtn danger" aria-label={`Supprimer ${c.name}`} onClick={() => remove(`/admin/coaches/${c.id}`, `Supprimer le coach ${c.name} ?`,
               `Son compte, ses ${c.players} élève(s) chez lui, ses séances, terrains, clubs, paiements et réglages seront supprimés définitivement. Les élèves qui ont aussi un compte chez d'autres coachs le gardent.`, load)}>
               <Icon name="trash" size={15} />
             </button>
           )}
+          </div>
+        </div>
+        {editing === c.id && (
+          <EditForm url={`/admin/coaches/${c.id}`} onCancel={() => setEditing(null)} onDone={() => { setEditing(null); load(); }}
+            initial={{ name: c.name, email: c.email, password: "" }}
+            fields={[["name", "Nom"], ["email", "E-mail de connexion", "email"], ["password", "Nouveau mot de passe (vide = inchangé)", "password"]]} />
+        )}
         </div>
       ))}
     </>
@@ -215,6 +274,7 @@ function AdminCoaches({ list, load, me }) {
 
 function AdminClubs() {
   const [list, setList] = useState(null);
+  const [editing, setEditing] = useState(null);
   const [f, setF] = useState({ name: "", phone: "" });
   const [adding, setAdding] = useState(false);
   const load = () => api("/admin/clubs").then(setList).catch(toastError);
@@ -244,15 +304,24 @@ function AdminClubs() {
       )}
       {list === null && <Loading rows={2} />}
       {list?.map((c) => (
-        <div className="card row" key={c.key}>
+        <div key={c.key}>
+        <div className="card row">
           <div style={{ minWidth: 0 }}>
             <b><Icon name="pin" size={14} /> {c.name}</b>
             <div className="mut small-p">{c.phone || "Pas de téléphone"} · {c.coaches.length ? `Coachs : ${c.coaches.join(", ")}` : "Aucun coach pour l'instant"}</div>
           </div>
+          <div className="row" style={{ gap: 4, flex: "none" }}>
+          <button className="small sec iconbtn" title="Modifier" aria-label={`Modifier ${c.name}`} onClick={() => setEditing(editing === c.key ? null : c.key)}><Icon name="edit" size={15} /></button>
           <button className="small sec iconbtn danger" aria-label={`Supprimer ${c.name}`} onClick={() => remove(`/admin/clubs/${encodeURIComponent(c.key)}`, `Retirer ${c.name} ?`,
             "Le club ne sera plus proposé aux coachs ni aux joueurs, et ses terrains libres à venir seront supprimés. L'historique (séances passées) est gardé.", load)}>
             <Icon name="trash" size={15} />
           </button>
+          </div>
+        </div>
+        {editing === c.key && (
+          <EditForm url={`/admin/clubs/${encodeURIComponent(c.key)}`} onCancel={() => setEditing(null)} onDone={() => { setEditing(null); load(); }}
+            initial={{ name: c.name, phone: c.phone }} fields={[["name", "Nom du club"], ["phone", "Téléphone (SMS des terrains)", "tel"]]} />
+        )}
         </div>
       ))}
     </>
