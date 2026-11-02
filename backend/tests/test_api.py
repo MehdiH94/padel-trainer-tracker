@@ -820,10 +820,16 @@ def test_durations_happy_hours_and_multiple_kinds(client):
     # grille commune: créneaux toutes les 30 min, mais un groupe de 90 min ne dépasse pas 21h
     last = [x for x in slots if any(o["kind"] == "groupe" for o in x["options"])][-1]
     assert datetime.fromisoformat(last["start"].replace("Z", "+00:00")).astimezone(timezone.utc).strftime("%H:%M") == "18:30"  # 19h30 à Tunis
-    # réservation: formule choisie + formules acceptées montrées au coach, prix happy hour retenu
+    # réservation: formules acceptées montrées au coach; il démarre seul (plus petite formule cochée), prix happy hour retenu
     r = pc.post("/me/book", json={"kind": "groupe", "start": morning["start"], "kinds": ["individuel", "groupe"]}).json()
     req = client.get("/booking/requests").json()[0]
-    assert req["accepted_kinds"] == ["individuel", "groupe"] and req["duration_min"] == 90 and req["price_millimes"] == 22500
+    assert req["accepted_kinds"] == ["individuel", "groupe"] and req["kind"] == "individuel" and req["duration_min"] == 60 and req["price_millimes"] == 45000
+    # en groupe uniquement: 90 min, prix du groupe avec la happy hour
+    p2, pc2 = player_client(client, name="Gaby", phone="20444555")
+    later = [x for x in slots if datetime.fromisoformat(x["start"].replace("Z", "+00:00")) >= datetime.fromisoformat(morning["start"].replace("Z", "+00:00")) + timedelta(hours=1)]
+    r2 = pc2.post("/me/book", json={"kind": "groupe", "start": next(x for x in later if any(o["kind"] == "groupe" and o["reason"] == "happy_hour" for o in x["options"]))["start"], "kinds": ["groupe"]}).json()
+    req2 = next(x for x in client.get("/booking/requests").json() if x["id"] == r2["id"])
+    assert (req2["kind"], req2["duration_min"], req2["price_millimes"]) == ("groupe", 90, 22500)
     assert r["status"] == "en_attente" and r["charged_millimes"] == 0  # validation par le coach, rien de débité avant
 
 
@@ -995,7 +1001,14 @@ def test_formulas_are_respected_when_matching_groups(client):
     # si elle reconsidère (duo coché), la séance d'Ali apparaît, et c'est un duo: 1 place, pas plus
     off = pb.get(f"/me/offers?day={day}&kinds=individuel,duo").json()
     assert [g["session_id"] for g in off["groups"]] == [sid] and off["groups"][0]["spots_left"] == 1 and off["other_kinds"] == {}
-    assert pb.post("/me/book", json={"session_id": sid, "kinds": ["individuel", "duo"]}).status_code == 201
+    rb = pb.post("/me/book", json={"session_id": sid, "kinds": ["individuel", "duo"]})
+    assert rb.status_code == 201
+    if rb.json()["status"] == "en_attente":
+        client.post(f"/booking/requests/{rb.json()['id']}/accept", json={})
+    # ils jouent à deux: chacun paie le prix du duo (Ali, seul jusque-là, payait le prix solo)
+    prices = {x["name"]: x["price_millimes"] for x in client.get("/booking/requests").json() if x["name"] in ("Ali", "Bea")}
+    sess = next(x for x in client.get("/sessions").json() if x["id"] == sid)
+    assert sess["kind"] == "duo" and all(v == 40000 for v in prices.values()) or prices == {}
     c, pc = player_client(client, name="Cyr", phone="20333333")
     assert pc.post("/me/book", json={"session_id": sid}).status_code == 409  # complète: le duo reste à 2
 
@@ -1060,7 +1073,7 @@ def test_six_hours_before_players_can_reconsider(client):
     p, pc = player_client(client)
     client.post(f"/players/{p['id']}/credits", json={"amount_millimes": 100000})
     start = _future_slot(pc, 30)
-    r = pc.post("/me/book", json={"kind": "duo", "start": start, "kinds": ["individuel", "duo"]}).json()
+    r = pc.post("/me/book", json={"kind": "duo", "start": start, "kinds": ["duo"]}).json()  # à deux uniquement
     client.post(f"/booking/requests/{r['id']}/accept", json={})
     assert pc.get("/me").json()["credits_millimes"] == 60000  # 40 TND (duo) débités à la validation
     Notifier.sent.clear()
@@ -1074,7 +1087,7 @@ def test_six_hours_before_players_can_reconsider(client):
     assert "pas encore assez de joueurs (1/2)" in Notifier.sent[-1][2]
     # il passe en solo: la séance est confirmée, prix du solo (60 TND), différence débitée
     out = pc.post(f"/me/bookings/{r['id']}/formula", json={"kind": "individuel"}).json()
-    assert out["status"] == "confirmee" and out["price_millimes"] == 60000 and out["credits_millimes"] == 40000
+    assert out["status"] == "confirmee" and out["price_millimes"] == 60000 and out["credits_millimes"] == 40000  # 20 TND de plus débités
     # annuler une demande dont le groupe ne s'est pas formé est toujours remboursé
     p2, pc2 = player_client(client, name="Ines", phone="20999999")
     r2 = pc2.post("/me/book", json={"kind": "duo", "start": _future_slot(pc2, 30), "kinds": ["duo"]}).json()
@@ -1099,3 +1112,35 @@ def test_coach_invites_players_who_trained_with_him(client):
     assert client.post(f"/sessions/{g['id']}/invite", json={"player_ids": [ok["id"], far["id"]]}).json()["sent"] == 1  # TropFort ignoré
     assert Notifier.sent[0][0] == "whatsapp" and "en groupe" in Notifier.sent[0][2]
     assert [p["name"] for p in client.get("/groups").json()[0]["proposed"]] == ["Ancien"]  # proposition visible dans son appli
+
+
+
+def test_price_follows_the_formula_actually_played(client):
+    open_week(client, auto_confirm=False)
+    a, pa = player_client(client, name="Ali", phone="20111111")
+    b, pb = player_client(client, name="Bea", phone="20222222")
+    s, ps = player_client(client, name="Solo", phone="20333333")
+    for p in (a, b, s):
+        client.post(f"/players/{p['id']}/credits", json={"amount_millimes": 100000})
+    start = _future_slot(pa, 30)
+    bal = lambda pc: pc.get("/me").json()["credits_millimes"]  # noqa: E731
+    # Ali accepte seul ou à deux: validé seul, il paie le solo (60)
+    r = pa.post("/me/book", json={"kind": "individuel", "start": start, "kinds": ["individuel", "duo"]}).json()
+    client.post(f"/booking/requests/{r['id']}/accept", json={})
+    assert pa.get("/me/sessions").json()["upcoming"][0]["status"] in ("confirmee", "acceptee") and bal(pa) == 40000
+    # Bea le rejoint: ils jouent à deux, chacun paie le duo (40): Ali récupère 20
+    sid = next(x["id"] for x in client.get("/sessions").json() if x["player_ids"] == [a["id"]])
+    rb = pb.post("/me/book", json={"session_id": sid, "kinds": ["duo"]}).json()
+    assert rb["price_millimes"] == 40000
+    client.post(f"/booking/requests/{rb['id']}/accept", json={})
+    assert bal(pa) == 60000 and bal(pb) == 60000
+    # Bea annule (dans les délais): Ali rejoue seul et repaie le solo
+    pb.post(f"/me/bookings/{rb['id']}/cancel")
+    assert bal(pa) == 40000 and bal(pb) == 100000
+    # qui n'a coché que « seul » reste seul: personne ne peut le rejoindre, il paie le solo
+    start2 = _future_slot(ps, 54)
+    r2 = ps.post("/me/book", json={"kind": "individuel", "start": start2, "kinds": ["individuel"]}).json()
+    client.post(f"/booking/requests/{r2['id']}/accept", json={})
+    sid2 = next(x["id"] for x in client.get("/sessions").json() if x["player_ids"] == [s["id"]])
+    assert pb.post("/me/book", json={"session_id": sid2, "kinds": ["individuel", "duo", "groupe"]}).status_code == 409
+    assert bal(ps) == 40000

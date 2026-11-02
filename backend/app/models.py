@@ -182,7 +182,8 @@ class Booking(Base):
     status: Mapped[str] = mapped_column(String(12), default="en_attente")
     notified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)  # joueur prévenu de la confirmation
     charged_millimes: Mapped[int] = mapped_column(Integer, default=0)  # débité des crédits (0 = à régler sur place)
-    price_millimes: Mapped[int] = mapped_column(Integer, default=0)  # prix convenu (happy hour / promotion comprises)
+    price_millimes: Mapped[int] = mapped_column(Integer, default=0)  # prix actuel (formule réellement jouée, remise comprise)
+    discount_pct: Mapped[int] = mapped_column(Integer, default=0)  # remise obtenue à la réservation (happy hour / promotion)
     session_id: Mapped[int | None] = mapped_column(ForeignKey("sessions.id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 

@@ -44,10 +44,12 @@ function CourtTag({ court }) {
 function Offer({ o, me, kinds, onBooked, openCoach }) {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
+  // Pas de formule à choisir: on démarre avec la plus petite formule cochée, et le prix suit la formule
+  // réellement jouée (seul, à deux, en groupe) selon le nombre de joueurs final.
   const options = o.options ?? [];
-  const [pick, setPick] = useState(options[0]?.kind ?? o.kind);
-  const chosen = options.find((x) => x.kind === pick) ?? options[0];
-  const shown = o.type === "slot" ? { ...o, chosen } : o;
+  const start = options[0]; // plus petite formule cochée possible sur ce créneau
+  const pick = start?.kind ?? o.kind;
+  const shown = o.type === "slot" ? { ...o, chosen: start } : o;
   const book = async () => {
     setBusy(true);
     try {
@@ -61,7 +63,7 @@ function Offer({ o, me, kinds, onBooked, openCoach }) {
   return (
     <div className={"card offer" + (open ? " open" : "")}>
       <button className="offer-head" aria-expanded={open} onClick={() => setOpen(!open)}>
-        <span className="offer-time"><b>{hhmm(o.start)}</b><small>{(chosen ?? o).duration_min} min</small></span>
+        <span className="offer-time"><b>{hhmm(o.start)}</b><small>{(start ?? o).duration_min} min</small></span>
         <span className="offer-main">
           <span className="offer-coach">{o.coach.name}</span>
           <small>{o.club || "Club à confirmer"}</small>
@@ -77,23 +79,22 @@ function Offer({ o, me, kinds, onBooked, openCoach }) {
       {open && (
         <div className="confirm-box">
           {options.length > 1 && (
-            <div className="seg" style={{ marginBottom: 8 }} role="group" aria-label="Formule">
+            <div className="price-table" aria-label="Prix selon la formule jouée">
+              <div className="small-p"><b>Vous paierez selon le nombre de joueurs final :</b></div>
               {options.map((x) => (
-                <button key={x.kind} className={pick === x.kind ? "on" : ""} aria-pressed={pick === x.kind} onClick={() => setPick(x.kind)}>
-                  {HOW[x.kind]}<small className="seg-sub">{x.duration_min} min · {tnd(x.price_millimes)}</small>
-                </button>
+                <div key={x.kind} className="row small-p"><span>{HOW[x.kind]}{x.kind === pick && " (si personne ne vous rejoint)"}</span><b>{tnd(x.price_millimes)}</b></div>
               ))}
             </div>
           )}
-          <div className="mut small-p"><Icon name="wallet" size={13} /> {payment(me, o.coach.id, (chosen ?? o).price_millimes)}</div>
+          <div className="mut small-p"><Icon name="wallet" size={13} /> {payment(me, o.coach.id, (start ?? o).price_millimes)}</div>
           {o.type === "slot" && pick !== "individuel" && (
-            <div className="mut small-p"><Icon name="users" size={13} /> Vous serez le premier : la séance sera confirmée dès que {pick === "duo" ? "1 autre joueur" : "2 autres joueurs"} vous aur{pick === "duo" ? "a" : "ont"} rejoint (les places sont proposées aux joueurs de votre niveau). Sinon, 6 h avant, vous pourrez changer de formule ou annuler (remboursé).</div>
+            <div className="mut small-p"><Icon name="users" size={13} /> Vous serez le premier : la séance sera confirmée dès que {pick === "duo" ? "1 autre joueur" : "2 autres joueurs"} vous aur{pick === "duo" ? "a" : "ont"} rejoint (les places sont proposées aux joueurs de votre niveau). Sinon, 6 h avant, vous pourrez accepter une autre formule ou annuler (remboursé).</div>
           )}
           {o.type === "group" && o.missing > 0 && (
             <div className="mut small-p"><Icon name="users" size={13} /> Après vous, il manquera encore {o.missing} joueur{o.missing > 1 ? "s" : ""} : la séance sera confirmée quand le groupe sera complet.</div>
           )}
           {o.type === "group" && o.missing === 0 && <div className="mut small-p"><Icon name="check" size={13} /> Avec vous, la séance a assez de joueurs.</div>}
-          {o.type === "slot" && kinds.length > 1 && <div className="mut small-p"><Icon name="check" size={13} /> Le coach verra que vous acceptez aussi : {kinds.filter((k) => k !== pick).map((k) => HOW[k].toLowerCase()).join(", ")}.</div>}
+          {o.type === "slot" && kinds.length > 1 && <div className="mut small-p"><Icon name="check" size={13} /> Le coach verra les formules que vous acceptez : {kinds.map((k) => HOW[k].toLowerCase()).join(", ")}.</div>}
           <div className="actions">
             <button className="sec" onClick={() => openCoach(o.coach.id)}>Voir le coach</button>
             <button disabled={busy || !me.can_book} title={me.can_book ? undefined : "Vérifiez d'abord votre adresse e-mail"} onClick={book}>{busy ? "Réservation…" : o.type === "group" ? "Rejoindre ce groupe" : "Réserver ce créneau"}</button>

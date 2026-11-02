@@ -33,11 +33,9 @@ def split(kinds: str | None) -> list[str]:
     return [k for k in (kinds or "").split(",") if k in SIZES]
 
 
-def from_kind(accepted: list[str], picked: str) -> list[str]:
-    """Formules retenues pour une demande: celle choisie et les plus grandes que le joueur accepte aussi
-    (choisir « à deux » = au moins 2 joueurs, au prix du duo)."""
-    start = ORDER.index(picked)
-    return [k for k in ORDER[start:] if k == picked or k in accepted]
+def smallest(kinds: list[str]) -> str:
+    """Plus petite formule acceptée = taille minimale voulue (et formule de départ s'il reste seul)."""
+    return next(k for k in ORDER if k in kinds)
 
 
 def att_sizes(s: TrainingSession, a: Attendance) -> set[int]:

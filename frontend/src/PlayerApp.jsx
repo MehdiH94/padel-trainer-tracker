@@ -17,14 +17,14 @@ const HOW = { individuel: "Seul", duo: "À deux", groupe: "En groupe" };
 function Reconsider({ s, reload }) {
   const [open, setOpen] = useState(false);
   const change = (kind) => api(`/me/bookings/${s.booking_id}/formula`, { method: "POST", body: { kind } })
-    .then((r) => { toast(r.status === "confirmee" ? `Séance confirmée en formule « ${HOW[kind].toLowerCase()} » · ${tnd(r.price_millimes)}` : `Formule changée · ${tnd(r.price_millimes)}`); setOpen(false); reload(); })
+    .then((r) => { toast(r.status === "confirmee" ? `Séance confirmée · ${tnd(r.price_millimes)}` : `Formule ajoutée · prix actuel ${tnd(r.price_millimes)}`); setOpen(false); reload(); })
     .catch(toastError);
   if (s.status !== "attente_joueurs") return null;
   return (
     <div className="reconsider-box">
-      <div className="small-p">Pas encore assez de joueurs. Vous pouvez attendre, changer de formule ou annuler (remboursé).</div>
-      {!open ? <button className="small sec" onClick={() => setOpen(true)}>Changer de formule</button> : (
-        <div className="chips">{Object.keys(HOW).filter((k) => k !== s.booking_kind).map((k) => <button key={k} className="chip small" onClick={() => change(k)}>{HOW[k]}</button>)}</div>
+      <div className="small-p">Pas encore assez de joueurs. Vous pouvez attendre, accepter une autre formule (ex. seul) ou annuler (remboursé). Le prix suit la formule réellement jouée.</div>
+      {!open ? <button className="small sec" onClick={() => setOpen(true)}>Accepter une autre formule</button> : (
+        <div className="chips">{Object.keys(HOW).filter((k) => !(s.accepted_kinds ?? []).includes(k)).map((k) => <button key={k} className="chip small" onClick={() => change(k)}>Accepter aussi : {HOW[k].toLowerCase()}</button>)}</div>
       )}
     </div>
   );

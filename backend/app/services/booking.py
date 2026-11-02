@@ -124,7 +124,7 @@ def suggestions(db: Session, coach: Coach, player: Player, kinds: list[str]) -> 
         ok, gap = fits_session(db, player, s)
         if not ok:  # au plus un cran d'écart avec chaque joueur, règle particulière pour les dames
             continue
-        if s.kind not in kinds:  # jamais une autre formule que celles choisies par le joueur
+        if join_target(db, s, kinds) is None:  # la taille de la séance avec lui doit convenir à tous (formules choisies)
             continue
         kind_penalty = 0
         days = (aware(s.start) - earliest).total_seconds() / 86400
@@ -188,15 +188,16 @@ def request_new(db: Session, coach: Coach, player: Player, kind: str, start: dat
     accepted_kinds: toutes les formules qu'il accepte (seul, duo, groupe), montrées au coach."""
     if kind not in CAPACITY:
         raise BookingError("Type de séance invalide")
+    accepted = [k for k in groups.ORDER if k in (accepted_kinds or []) or k == kind]
+    kind = groups.smallest(accepted)  # s'il reste seul (ou au minimum voulu), c'est cette formule qui est jouée
     if not groups.can_open(kind, start):
         raise BookingError("Pour ouvrir une séance à deux ou en groupe, elle doit avoir lieu dans plus de 24 h (le temps de compléter le groupe)")
     q = quote(db, coach, kind, start)  # durée de la formule, prix avec happy hour / promotion
     if aware(start) not in free_slots(db, coach, minutes=q["duration_min"]):
         raise BookingError("Ce créneau n'est plus disponible")
     price = q["price_millimes"]
-    accepted = [k for k in CAPACITY if k in (accepted_kinds or []) or k == kind]
     b = Booking(coach_id=coach.id, player_id=player.id, kind=kind, start=aware(start), duration_min=q["duration_min"], charged_millimes=0,
-                accepted_kinds=",".join(accepted), price_millimes=price)
+                accepted_kinds=",".join(accepted), price_millimes=price, discount_pct=q["discount_pct"])
     db.add(b)
     db.flush()
     held = courts.held_covering(db, coach, b.start, b.duration_min)
@@ -232,8 +233,8 @@ def accept(db: Session, coach: Coach, b: Booking, sms: SmsProvider | None = None
         coach_id=coach.id, start=b.start, duration_min=b.duration_min, kind=b.kind, level=player.category,
         price_millimes=b.price_millimes or b.charged_millimes or price_for(coach, b.kind), price_mode="par_joueur", open=b.kind != "individuel",
     )
-    # formule choisie = taille minimale voulue; les plus grandes qu'il accepte restent possibles
-    mine = groups.from_kind(groups.split(b.accepted_kinds) or [b.kind], b.kind)
+    # toutes les formules cochées: la plus petite = taille minimale voulue, les autres restent possibles
+    mine = groups.split(b.accepted_kinds) or [b.kind]
     s.attendances = [Attendance(player_id=player.id, credit_paid_millimes=b.charged_millimes, accepted_kinds=",".join(mine))]
     db.add(s)
     db.flush()
@@ -287,6 +288,9 @@ def refresh(db: Session, s: TrainingSession) -> None:
         s.open = groups.capacity(s) > len(s.attendances)
     complete, state = groups.is_complete(s), court_state(db, s)
     coach = db.get(Coach, s.coach_id)
+    if groups.is_dynamic(s):
+        for b in db.scalars(select(Booking).where(Booking.session_id == s.id, Booking.status.in_(("attente_joueurs", "acceptee", "confirmee")))):
+            _reprice(db, coach, s, b)
     newly = []
     for b in db.scalars(select(Booking).where(Booking.session_id == s.id, Booking.status.in_(("attente_joueurs", "acceptee", "confirmee")))):
         new = "attente_joueurs" if not complete else "acceptee" if state not in (None, "confirmee") else "confirmee"
@@ -301,14 +305,31 @@ def refresh(db: Session, s: TrainingSession) -> None:
             f"elle est confirmée{'' if state in (None, 'confirmee') else ' (terrain en cours de réservation)'}. — {coach.name}"))
 
 
+def _reprice(db: Session, coach: Coach, s: TrainingSession, b: Booking) -> None:
+    """Prix de la formule réellement jouée (taille de la séance), avec la remise obtenue à la réservation.
+    Déjà débité: la différence est rendue ou débitée (« ajustement »)."""
+    price = round(price_for(coach, s.kind) * (100 - (b.discount_pct or 0)) / 100)
+    b.kind = s.kind
+    if price == b.price_millimes:
+        return
+    b.price_millimes = price
+    if b.charged_millimes and price != b.charged_millimes:
+        db.add(CreditTx(coach_id=b.coach_id, player_id=b.player_id, amount_millimes=b.charged_millimes - price, reason="ajustement", booking_id=b.id))
+        b.charged_millimes = price
+        for a in s.attendances:
+            if a.player_id == b.player_id:
+                a.credit_paid_millimes = price
+
+
 def reconsider(db: Session, coach: Coach, b: Booking, kind: str) -> None:
-    """Le joueur change de formule (ex. de « à deux » à « seul »): nouveau prix, état de la séance recalculé."""
+    """Le joueur accepte une formule de plus (ex. « seul » alors qu'il attendait un partenaire): la séance est
+    recalculée (confirmée s'il le faut) et son prix suit la formule réellement jouée."""
     if kind not in CAPACITY:
         raise BookingError("Formule invalide")
     if b.status not in ACTIVE or aware(b.start) <= datetime.now(timezone.utc):
         raise BookingError("Cette réservation ne peut plus être modifiée")
     s = db.get(TrainingSession, b.session_id) if b.session_id else None
-    mine = groups.from_kind(list(set(groups.split(b.accepted_kinds)) | {kind}), kind)
+    mine = [k for k in groups.ORDER if k in set(groups.split(b.accepted_kinds)) | {kind}]
     if s and b.status != "en_attente":
         a = next(x for x in s.attendances if x.player_id == b.player_id)
         old = a.accepted_kinds
@@ -316,16 +337,12 @@ def reconsider(db: Session, coach: Coach, b: Booking, kind: str) -> None:
         if len(s.attendances) > groups.capacity(s):
             a.accepted_kinds = old
             raise BookingError("Cette formule n'est pas compatible avec les autres joueurs de la séance")
-    price = quote(db, coach, kind, b.start)["price_millimes"]
-    if b.charged_millimes and price != b.charged_millimes:  # déjà débité: on ajuste la différence
-        db.add(CreditTx(coach_id=b.coach_id, player_id=b.player_id, amount_millimes=b.charged_millimes - price, reason="ajustement", booking_id=b.id))
-        b.charged_millimes = price
-        if s:
-            next(x for x in s.attendances if x.player_id == b.player_id).credit_paid_millimes = price
-    b.kind, b.price_millimes = kind, price
-    b.accepted_kinds = ",".join(k for k in groups.ORDER if k in set(groups.split(b.accepted_kinds)) | {kind})
+    b.accepted_kinds = ",".join(mine)
     if s and b.status != "en_attente":
         refresh(db, s)
+    else:  # pas encore validée par le coach: formule de départ et prix mis à jour
+        b.kind = groups.smallest(mine)
+        b.price_millimes = round(price_for(coach, b.kind) * (100 - (b.discount_pct or 0)) / 100)
 
 
 def remind_incomplete(db: Session, now: datetime | None = None) -> int:
