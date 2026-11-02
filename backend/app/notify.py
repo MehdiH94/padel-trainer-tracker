@@ -8,6 +8,7 @@ import logging
 import os
 import smtplib
 from email.message import EmailMessage
+from email.utils import formatdate, make_msgid
 
 from .models import Player
 from .sms.base import SmsProvider
@@ -15,17 +16,27 @@ from .sms.base import SmsProvider
 log = logging.getLogger("notify")
 
 
+OUTBOX: list[tuple[str, str, str]] = []  # e-mails demandés (destinataire, sujet, texte): trace pour les tests et le dev
+
+
 def send_email(to: str, subject: str, body: str) -> None:
+    OUTBOX.append((to, subject, body))
     host = os.getenv("SMTP_HOST")
     if not host:
         log.info("E-mail (non envoyé, SMTP non réglé) -> %s: %s", to, body)
         return
+    sender = os.getenv("SMTP_FROM") or os.getenv("SMTP_USER", "")
     msg = EmailMessage()
-    msg["From"] = os.getenv("SMTP_FROM") or os.getenv("SMTP_USER", "")
-    msg["To"], msg["Subject"] = to, subject
+    msg["From"], msg["To"], msg["Subject"] = sender, to, subject
+    # En-têtes attendus par les filtres anti-spam
+    msg["Date"] = formatdate(localtime=True)
+    msg["Message-ID"] = make_msgid(domain=sender.rsplit("@", 1)[-1].strip("> ") or None)
     msg.set_content(body)
-    with smtplib.SMTP(host, int(os.getenv("SMTP_PORT", "587")), timeout=20) as smtp:
-        smtp.starttls()
+    port = int(os.getenv("SMTP_PORT", "587"))
+    smtp_cls = smtplib.SMTP_SSL if port == 465 else smtplib.SMTP  # 465: TLS direct, sinon STARTTLS
+    with smtp_cls(host, port, timeout=20) as smtp:
+        if port != 465:
+            smtp.starttls()
         if os.getenv("SMTP_USER"):
             smtp.login(os.getenv("SMTP_USER"), os.getenv("SMTP_PASSWORD", ""))
         smtp.send_message(msg)

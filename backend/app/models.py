@@ -51,6 +51,10 @@ class Player(Base):
     # Un joueur peut réserver chez plusieurs coachs: une fiche par coach, reliées au compte (fiche avec mot de passe).
     # account_id = id de la fiche « compte »; None pour le compte lui-même et pour les joueurs sans compte.
     account_id: Mapped[int | None] = mapped_column(ForeignKey("players.id"), nullable=True, index=True)
+    # Vérification de l'e-mail du compte (DP-002)
+    email_verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    email_token: Mapped[str | None] = mapped_column(String(48), nullable=True, unique=True)
+    email_token_sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class SkillRating(Base):

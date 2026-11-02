@@ -10,7 +10,9 @@ from ..auth import current_coach
 from ..db import get_db
 from ..models import Coach, CreditTx, Payment, Player
 from ..schemas import PlayerIn, PlayerOut
-from ..services.accounts import has_account
+from sqlalchemy.orm import object_session
+
+from ..services.accounts import account_of, has_account
 from ..services.finance import credit_balance
 
 router = APIRouter(prefix="/players", tags=["players"])
@@ -26,6 +28,7 @@ def get_owned_player(db: Session, coach: Coach, player_id: int) -> Player:
 def player_out(p: Player, credits: int = 0) -> PlayerOut:
     out = PlayerOut.model_validate(p)
     out.has_account, out.credits_millimes = has_account(p), credits
+    out.email_verified = has_account(p) and account_of(object_session(p), p).email_verified_at is not None
     return out
 
 

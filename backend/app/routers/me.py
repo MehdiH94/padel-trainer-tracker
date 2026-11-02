@@ -13,6 +13,7 @@ from ..db import get_db
 from ..models import Attendance, Booking, Coach, CreditTx, Player, Proposal, TrainingSession
 from ..services import booking as svc
 from ..services import marketplace
+from ..services import email_verification as verification
 from ..services.accounts import linked, row_for_coach
 from ..services.common import aware
 from ..services.finance import credit_balance
@@ -35,6 +36,7 @@ def me(player: Player = Depends(current_player), db: Session = Depends(get_db)):
         "name": player.name, "phone": player.phone, "email": player.email, "category": player.category, "gender": player.gender,
         "pref_kinds": player.pref_kinds.split(","), "coach_name": coach.name, "credits_millimes": credit_balance(db, player.id),
         "contact_channel": player.contact_channel,
+        "email_verified": verification.is_verified(player), "can_book": verification.can_book(player),
         "slot_minutes": coach.slot_minutes, "prices": _prices(coach), "auto_confirm": coach.auto_confirm, "cancel_hours": coach.cancel_hours,
         "wallets": [{"coach_id": p.coach_id, "coach_name": db.get(Coach, p.coach_id).name, "credits_millimes": credit_balance(db, p.id)} for p in linked(db, player)],
     }
@@ -53,6 +55,27 @@ def set_contact(body: ContactIn, player: Player = Depends(current_player), db: S
         p.contact_channel = body.contact_channel
     db.commit()
     return {"contact_channel": player.contact_channel}
+
+
+class ResendIn(BaseModel):
+    base: str = ""
+
+
+@router.post("/verify-email/resend")
+def resend_verification(body: ResendIn, player: Player = Depends(current_player), db: Session = Depends(get_db)):
+    """Nouveau lien de vérification (au plus un par minute)."""
+    if verification.is_verified(player):
+        return {"ok": True, "already_verified": True}
+    if not verification.can_resend(player):
+        raise HTTPException(429, "Un e-mail vient d'être envoyé. Patientez une minute avant d'en demander un autre.")
+    verification.send_link(db, player, body.base)
+    db.commit()
+    return {"ok": True, "email": player.email}
+
+
+def _require_verified(player: Player) -> None:
+    if not verification.can_book(player):
+        raise HTTPException(403, "Vérifiez d'abord votre adresse e-mail (lien reçu par e-mail) pour pouvoir réserver.")
 
 
 @router.get("/slots")
@@ -79,6 +102,7 @@ class BookIn(BaseModel):
 
 @router.post("/book", status_code=201)
 def book(body: BookIn, player: Player = Depends(current_player), db: Session = Depends(get_db), sms: SmsProvider = Depends(get_sms_provider)):
+    _require_verified(player)
     s = db.get(TrainingSession, body.session_id) if body.session_id else None
     coach = db.get(Coach, s.coach_id if s else body.coach_id or player.coach_id)
     if not coach or (body.session_id and not s):
@@ -177,6 +201,7 @@ def _own_proposal(db: Session, player: Player, proposal_id: int) -> Proposal:
 
 @router.post("/proposals/{proposal_id}/accept")
 def accept_proposal(proposal_id: int, player: Player = Depends(current_player), db: Session = Depends(get_db), sms: SmsProvider = Depends(get_sms_provider)):
+    _require_verified(player)
     p = _own_proposal(db, player, proposal_id)
     row = db.get(Player, p.player_id)
     coach = db.get(Coach, row.coach_id)

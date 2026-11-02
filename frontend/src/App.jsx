@@ -11,6 +11,7 @@ import Reminders from "./Reminders.jsx";
 import Requests from "./Requests.jsx";
 import SessionPlan from "./SessionPlan.jsx";
 import Settings from "./Settings.jsx";
+import VerifyEmail from "./VerifyEmail.jsx";
 import { api, getRole, getToken, setSession, setToken } from "./api.js";
 import { FeedbackHost, Modal } from "./feedback.jsx";
 import { useRoute } from "./router.js";
@@ -131,6 +132,7 @@ function CoachApp() {
 export default function App() {
   let page;
   if (location.pathname.startsWith("/invite/")) page = <Invite token={location.pathname.split("/")[2]} />;
+  else if (location.pathname.startsWith("/verify/")) page = <VerifyEmail token={location.pathname.split("/")[2]} />;
   else if (!getToken()) page = <Login />;
   else page = getRole() === "player" ? <PlayerApp /> : <CoachApp />;
   return <>{page}<FeedbackHost /></>;

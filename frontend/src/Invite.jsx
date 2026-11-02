@@ -16,7 +16,7 @@ export default function Invite({ token }) {
     e.preventDefault();
     if (!f.contact_channel) return setError("Choisissez comment recevoir vos rappels de séance.");
     try {
-      setSession(await api(`/auth/invite/${token}`, { method: "POST", body: f }));
+      setSession(await api(`/auth/invite/${token}`, { method: "POST", body: { ...f, base: location.origin } }));
       location.href = "/";
     } catch (x) {
       setError(x.message);

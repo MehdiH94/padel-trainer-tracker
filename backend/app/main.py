@@ -20,11 +20,14 @@ NEW_COLUMNS = [
     ("coaches", "bio", "TEXT DEFAULT ''"), ("coaches", "specialties", "VARCHAR(255) DEFAULT ''"),
     ("coaches", "duration_duo", "INTEGER"), ("coaches", "duration_groupe", "INTEGER"), ("bookings", "accepted_kinds", "VARCHAR(40) DEFAULT ''"),
     ("bookings", "price_millimes", "INTEGER DEFAULT 0"), ("clubs", "active", "BOOLEAN DEFAULT 1"),
+    ("players", "email_verified_at", "TIMESTAMP"), ("players", "email_token", "VARCHAR(48)"), ("players", "email_token_sent_at", "TIMESTAMP"),
 ]
 with engine.begin() as conn:
     for table, column, ddl in NEW_COLUMNS:
         if column not in {c["name"] for c in inspect(engine).get_columns(table)}:
             conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}"))
+            if column == "email_verified_at":  # comptes créés avant la vérification (DP-002): considérés comme vérifiés
+                conn.execute(text("UPDATE players SET email_verified_at = CURRENT_TIMESTAMP WHERE password_hash IS NOT NULL"))
     # Classement en demi-tranches: un ancien « P100 » devient « P100- » (bas de la tranche)
     for t in TIERS:
         conn.execute(text("UPDATE players SET category = :new WHERE category = :old"), {"new": t + "-", "old": t})

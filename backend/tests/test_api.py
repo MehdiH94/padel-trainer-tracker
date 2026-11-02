@@ -897,3 +897,52 @@ def test_dp001_debit_on_coach_validation_and_negative_balance(client):
     assert bal() == 0
     assert pc.post(f"/me/bookings/{ids[0]}/cancel").json()["refunded_millimes"] == 60000
     assert bal() == 60000
+
+
+# --- DP-002: vérification de l'e-mail des joueurs ------------------------------
+
+def test_dp002_email_verification(client, monkeypatch):
+    from app.notify import OUTBOX
+    monkeypatch.setenv("REQUIRE_EMAIL_VERIFICATION", "1")
+    OUTBOX.clear()
+    open_week(client)
+    p = mkplayer(client)
+    token = client.post(f"/players/{p['id']}/invite").json()["token"]
+    anon = TestClient(app)
+    r = anon.post(f"/auth/invite/{token}", json={"email": "sami@x.tn", "password": "secret1", "base": "https://padel.example.tn"}).json()
+    pc = login_as(TestClient(app), r["token"])
+    # un e-mail avec le lien est parti vers l'adresse du compte
+    to, subject, body = OUTBOX[-1]
+    assert to == "sami@x.tn" and "Vérifiez" in subject and "https://padel.example.tn/verify/" in body
+    me = pc.get("/me").json()
+    assert me["email_verified"] is False and me["can_book"] is False
+    assert client.get("/players").json()[0]["email_verified"] is False
+    # non vérifié: il voit l'appli mais ne peut pas réserver
+    slot = pc.get("/me/slots").json()[0]
+    assert pc.post("/me/book", json={"kind": "individuel", "start": slot}).status_code == 403
+    # renvoi du lien: limité à un par minute, l'ancien lien ne marche plus
+    assert pc.post("/me/verify-email/resend", json={}).status_code == 429
+    from app.models import Player
+    db = TestSession()
+    row = db.get(Player, p["id"])
+    row.email_token_sent_at = datetime.now(timezone.utc) - timedelta(minutes=2)
+    db.commit()
+    db.close()
+    old_link = body.split("/verify/")[1].split()[0]
+    assert pc.post("/me/verify-email/resend", json={}).json()["email"] == "sami@x.tn"
+    new_link = OUTBOX[-1][2].split("/verify/")[1].split()[0]
+    assert old_link != new_link and anon.post(f"/auth/verify/{old_link}").status_code == 404
+    # clic sur le lien: compte vérifié, réservation possible
+    assert anon.post(f"/auth/verify/{new_link}").json()["ok"] is True
+    assert anon.post(f"/auth/verify/{new_link}").status_code == 404  # usage unique
+    assert pc.get("/me").json()["email_verified"] is True
+    assert client.get("/players").json()[0]["email_verified"] is True
+    assert pc.post("/me/book", json={"kind": "individuel", "start": slot}).status_code == 201
+
+
+def test_dp002_not_enforced_without_email_sending(client, monkeypatch):
+    monkeypatch.delenv("REQUIRE_EMAIL_VERIFICATION", raising=False)
+    monkeypatch.delenv("SMTP_HOST", raising=False)
+    open_week(client)
+    _, pc = player_client(client)
+    assert pc.get("/me").json()["can_book"] is True  # aucun e-mail ne peut partir: on ne bloque pas

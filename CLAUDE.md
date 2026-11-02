@@ -17,7 +17,7 @@ Application de gestion pour un coach de padel indépendant (Tunisie) + espace jo
 # Backend (depuis backend/)
 python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
-python -m pytest -q                                  # 77 tests, doivent rester verts
+python -m pytest -q                                  # 79 tests, doivent rester verts
 uvicorn app.main:app --port 8000
 python seed_demo.py                                  # données de démo (base vide): coach demo@padel.tn / demo1234, joueur sami@demo.tn / demo1234
 python seed_more_coaches.py                          # + 2 coachs fictifs (coach.youssef@demo.tn, coach.meriem@demo.tn / demo1234), sans effet s'ils existent
@@ -39,5 +39,6 @@ Le schéma est créé par `create_all`: après un changement de modèle, supprim
 - Recharge de crédits = `Payment(kind="credit")` + `CreditTx`; elle compte dans l'encaissé mais pas dans les paiements de séances.
 - Les relances manuelles du coach sont des liens `sms:` / `wa.me` / `mailto:` pré-remplis.
 - Seule exception: les rappels automatiques de séance (24 h et 2 h avant, `services/session_reminders.py`, une fois chacun) partent par le moyen choisi par le joueur (`Player.contact_channel`) via `app/notify.py`: SMS par `SmsProvider` (fake = journal), e-mail par SMTP si `SMTP_HOST` est réglé, WhatsApp journalisé tant qu'aucune passerelle n'est branchée.
+- E-mail des joueurs (DP-002, `services/email_verification.py`): lien de vérification envoyé à la création du compte (`/verify/<jeton>`, renvoi limité à 1/min). Non vérifié = l'appli est visible mais `/me/book` et l'acceptation d'une proposition renvoient 403. Exigé si `SMTP_HOST` est réglé (ou `REQUIRE_EMAIL_VERIFICATION=1`; `=0` le coupe). Les comptes créés avant ont été marqués vérifiés.
 - Paiement de séance: `Payment.session_id` le rattache à une séance; sans séance, il couvre les plus anciennes séances effectuées encore dues.
 - Garder le code simple, commentaires en français, pas de dépendances inutiles.

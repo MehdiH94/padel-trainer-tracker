@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { api, dayLabel, hhmm, tnd } from "./api.js";
 import Icon from "./Icon.jsx";
 import { toastError } from "./feedback.jsx";
+import { VerifyBanner } from "./VerifyEmail.jsx";
 import { Avatar, CategoryBadge, KIND, Loading } from "./ui.jsx";
 
 const TZ = "Africa/Tunis";
@@ -89,7 +90,7 @@ function Offer({ o, me, kinds, onBooked, openCoach }) {
           {o.type === "slot" && kinds.length > 1 && <div className="mut small-p"><Icon name="check" size={13} /> Le coach verra que vous acceptez aussi : {kinds.filter((k) => k !== pick).map((k) => HOW[k].toLowerCase()).join(", ")}.</div>}
           <div className="actions">
             <button className="sec" onClick={() => openCoach(o.coach.id)}>Voir le coach</button>
-            <button disabled={busy} onClick={book}>{busy ? "Réservation…" : o.type === "group" ? "Rejoindre ce groupe" : "Réserver ce créneau"}</button>
+            <button disabled={busy || !me.can_book} title={me.can_book ? undefined : "Vérifiez d'abord votre adresse e-mail"} onClick={book}>{busy ? "Réservation…" : o.type === "group" ? "Rejoindre ce groupe" : "Réserver ce créneau"}</button>
           </div>
         </div>
       )}
@@ -154,6 +155,7 @@ export function Book({ me, reload, go, coachParam }) {
   return (
     <>
       <h1>Réserver</h1>
+      <VerifyBanner me={me} />
 
       <h2 className="step"><span>1</span> Avec qui, où ?</h2>
       <div className="grid">

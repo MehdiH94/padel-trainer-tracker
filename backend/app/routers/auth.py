@@ -1,3 +1,5 @@
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import select
@@ -7,6 +9,7 @@ from ..auth import create_token, hash_password, verify_password
 from ..db import get_db
 from ..models import Coach, Player
 from ..schemas import CHANNELS, Creds
+from ..services import email_verification as verification
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -43,6 +46,7 @@ def login(c: Creds, db: Session = Depends(get_db)):
 class InviteAccept(BaseModel):
     email: str
     password: str
+    base: str = ""  # adresse de l'application (pour le lien de vérification envoyé par e-mail)
     contact_channel: str | None = None  # whatsapp / sms / email: moyen choisi pour les rappels de séance
 
 
@@ -73,5 +77,17 @@ def invite_accept(token: str, body: InviteAccept, db: Session = Depends(get_db))
         raise HTTPException(422, "Moyen de contact invalide")
     p.email, p.password_hash, p.invite_token = email, hash_password(body.password), None
     p.contact_channel = body.contact_channel or p.contact_channel
+    verification.send_link(db, p, body.base)  # DP-002: lien de vérification de l'adresse
     db.commit()
     return session_for(p.id, "player")
+
+
+@router.post("/verify/{token}")
+def verify_email(token: str, db: Session = Depends(get_db)):
+    """Lien reçu par e-mail: l'adresse du compte est vérifiée."""
+    p = db.scalar(select(Player).where(Player.email_token == token))
+    if not p:
+        raise HTTPException(404, "Lien invalide ou déjà utilisé. Demandez un nouveau lien depuis l'application.")
+    p.email_verified_at, p.email_token = datetime.now(timezone.utc), None
+    db.commit()
+    return {"ok": True, "email": p.email, "name": p.name}

@@ -68,7 +68,7 @@ export default function Players({ playerId, openPlayer, closePlayer }) {
         <div className="card row pl" key={p.id} onClick={() => openPlayer(p.id)}>
           <div className="row g10">
             <Avatar name={p.name} size={44} />
-            <div><b>{p.name}</b><div className="mut">{p.phone}{p.has_account && <> · <Icon name="shield" size={13} /> compte actif</>}</div></div>
+            <div><b>{p.name}</b><div className="mut">{p.phone}{p.has_account && <> · <Icon name="shield" size={13} /> compte actif{!p.email_verified && <span className="unverified"> · e-mail non vérifié</span>}</>}</div></div>
           </div>
           <div style={{ textAlign: "right" }}>
             <CategoryBadge category={p.category} gender={p.gender} />

@@ -78,6 +78,7 @@ class PlayerOut(PlayerIn):
     model_config = ConfigDict(from_attributes=True)
     id: int
     has_account: bool = False
+    email_verified: bool = False  # e-mail du compte vérifié (DP-002)
     credits_millimes: int = 0
 
 

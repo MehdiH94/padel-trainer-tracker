@@ -456,3 +456,5 @@ button.prepare.done > .icon:first-child { color: var(--ok-txt); }
 .newclub input { margin: 0; }
 @media (max-width: 420px) { .newclub { grid-template-columns: 1fr 1fr; } .newclub button { grid-column: 1 / -1; } }
 .debt { margin-top: 4px; display: inline-block; background: #b91c1c; color: #fff; font-weight: 700; font-size: .85rem; padding: 3px 10px; border-radius: 99px; }
+.verify-banner { display: flex; gap: 12px; align-items: flex-start; background: var(--amber-l); color: var(--warn-txt); border-color: var(--amber); }
+.unverified { color: var(--warn-txt); font-weight: 600; }

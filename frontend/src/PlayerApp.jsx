@@ -3,6 +3,7 @@ import { api, dayLabel, hhmm, setToken, tnd, toDate } from "./api.js";
 import Icon from "./Icon.jsx";
 import { confirmDialog, Modal, toast, toastError } from "./feedback.jsx";
 import { Book, CoachPage } from "./PlayerBook.jsx";
+import { VerifyBanner } from "./VerifyEmail.jsx";
 import { useRoute } from "./router.js";
 import { Avatar, CategoryBadge, CHANNELS, ChannelPicker, InstallCard, KIND, Loading, OfflineBar, RadarChart } from "./ui.jsx";
 
@@ -104,6 +105,7 @@ function Home({ me, sessions, progress, credits, proposals, promos, go, reload }
         <button className="link" onClick={() => setContact(true)}><Icon name="bell" size={14} /> Rappels de séance par {CHANNELS[me.contact_channel][0]} · modifier</button>
       )}
 
+      <VerifyBanner me={me} />
       <InstallCard />
       <button className="cta" onClick={() => go("book")}><Icon name="calendar" size={20} /> Réserver une séance <Icon name="chevR" size={18} /></button>
 
