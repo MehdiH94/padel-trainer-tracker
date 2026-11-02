@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, dayLabel, hhmm, tnd, toDate } from "./api.js";
+import { api, dayLabel, hhmm, tnd, toDate, useLive } from "./api.js";
 import Icon from "./Icon.jsx";
 import { confirmDialog } from "./feedback.jsx";
 import InvitePlayers from "./InvitePlayers.jsx";
@@ -154,6 +154,7 @@ function Groups({ reload: refresh }) {
   const [groups, setGroups] = useState(null);
   const load = () => api("/groups").then(setGroups);
   useEffect(() => { load(); }, []);
+  useLive(load);
   if (!groups) return <Loading rows={1} />;
   const propose = (g, c) => api("/proposals", { method: "POST", body: { session_id: g.session_id, player_id: c.player_id } }).then(() => { load(); refresh?.(); });
   const withdraw = (p) => api(`/proposals/${p.id}`, { method: "DELETE" }).then(load);
@@ -200,6 +201,7 @@ export default function Requests({ go, refreshSummary }) {
   const [sub, setSub] = useState("requests");
   const load = () => { api("/booking/requests").then(setItems); api("/clubs").then(setClubs); refreshSummary?.(); };
   useEffect(() => { load(); }, []);
+  useLive(load);
   if (!items) return <><h1>Demandes</h1><Loading rows={3} /></>;
 
   const pending = items.filter((i) => i.status === "en_attente");

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, dayLabel, hhmm, setToken, tnd, toDate } from "./api.js";
+import { api, dayLabel, hhmm, setToken, tnd, toDate, useLive } from "./api.js";
 import Icon from "./Icon.jsx";
 import { confirmDialog, Modal, toast, toastError } from "./feedback.jsx";
 import { Book, CoachPage } from "./PlayerBook.jsx";
@@ -361,13 +361,29 @@ function Mine({ me, sessions, reload }) {
   );
 }
 
+// Prévient le joueur quand une de ses réservations change pendant qu'il a l'appli ouverte
+const NEWS = { confirmee: "est confirmée", acceptee: "est acceptée par le coach", attente_joueurs: "est acceptée (en attente d'autres joueurs)" };
+function announce(before, after) {
+  if (!before) return;
+  const old = Object.fromEntries(before.upcoming.filter((s) => s.booking_id).map((s) => [s.booking_id, s.status]));
+  for (const s of after.upcoming) {
+    if (s.booking_id && old[s.booking_id] && old[s.booking_id] !== s.status && NEWS[s.status]) {
+      toast(`Votre séance du ${dayLabel(s.start)} à ${hhmm(s.start)} ${NEWS[s.status]}`);
+    }
+  }
+}
+
 export default function PlayerApp() {
   const [[tab = "home", sub], setTab] = useRoute("home");
   const [data, setData] = useState(null);
   const load = () =>
     Promise.all([api("/me"), api("/me/sessions"), api("/me/progress"), api("/me/credits"), api("/me/proposals"), api("/me/promotions").catch(() => [])])
-      .then(([me, sessions, progress, credits, proposals, promos]) => setData({ me, sessions, progress, credits, proposals, promos }));
+      .then(([me, sessions, progress, credits, proposals, promos]) => setData((old) => {
+        announce(old?.sessions, sessions);
+        return { me, sessions, progress, credits, proposals, promos };
+      }));
   useEffect(() => { load(); }, []);
+  useLive(load); // la validation du coach apparaît sans se reconnecter
   if (!data) return <main><Loading hero rows={3} /></main>;
   const props = { ...data, go: setTab, reload: load };
   const TABS = [["home", "home", "Accueil"], ["book", "calendar", "Réserver"], ["mine", "ball", "Mes séances"]];

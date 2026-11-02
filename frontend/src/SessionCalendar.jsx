@@ -3,7 +3,7 @@ import { hhmm } from "./api.js";
 import Icon from "./Icon.jsx";
 import SessionCard from "./SessionCard.jsx";
 import { Modal } from "./feedback.jsx";
-import { KIND } from "./ui.jsx";
+import { KIND, clubCodes } from "./ui.jsx";
 
 const TZ = "Africa/Tunis";
 const PX = 40; // hauteur d'une heure
@@ -32,6 +32,8 @@ export default function SessionCalendar({ week, sessions, byId, name, today, car
   const maxH = Math.max(21, ...all.map((x) => Math.ceil(x.e)));
   const hours = Array.from({ length: maxH - minH + 1 }, (_, i) => minH + i);
   const sel = open && sessions.find((s) => s.id === open);
+  const codes = clubCodes(sessions.map((s) => s.club));
+  const multi = Object.keys(codes).length > 1; // plusieurs clubs: code court du club sur chaque bloc
   const first = (s) => s.player_ids.map((id) => byId(id)?.name.split(" ")[0]).filter(Boolean).join(", ");
   return (
     <>
@@ -54,6 +56,7 @@ export default function SessionCalendar({ week, sessions, byId, name, today, car
                   aria-label={`${KIND[s.kind]?.label}, ${hhmm(s.start)}, ${first(s) || "sans joueur"}${s.club ? ", " + s.club : ""}`}>
                   <b>{hhmm(s.start)}</b>
                   <small>{first(s) || "—"}</small>
+                  {multi && s.club && <small className="club-code">{codes[s.club]}</small>}
                   {s.court && <small>{s.court}</small>}
                 </button>
               ))}
@@ -61,6 +64,7 @@ export default function SessionCalendar({ week, sessions, byId, name, today, car
           ))}
         </div>
       </div>
+      {multi && <div className="club-legend">{Object.entries(codes).map(([n, c]) => <span key={n}><b className="club-code">{c}</b> {n}</span>)}</div>}
       {all.length === 0 && <p className="mut center small-p">Aucune séance cette semaine.</p>}
       {sel && (
         <Modal onClose={() => setOpen(null)} label="Séance">

@@ -3,9 +3,10 @@ import { dayLabel, hhmm } from "./api.js";
 import Icon from "./Icon.jsx";
 import InvitePlayers from "./InvitePlayers.jsx";
 import { Modal } from "./feedback.jsx";
+import { clubCodes } from "./ui.jsx";
 
 const TZ = "Africa/Tunis";
-const PX = 36; // hauteur d'une heure
+const PX = 46; // hauteur d'une heure (assez pour l'heure, le club et les joueurs)
 const toDate = (iso) => new Date(iso + (iso.endsWith("Z") || /[+-]\d\d:\d\d$/.test(iso) ? "" : "Z"));
 const ymd = (d) => d.toLocaleDateString("fr-CA", { timeZone: TZ });
 const addDays = (d, n) => new Date(d.getTime() + n * 86400000);
@@ -79,6 +80,10 @@ export default function CourtCalendar({ list, promos, onRemove, onPromo, onStopP
   const hours = Array.from({ length: maxH - minH + 1 }, (_, i) => minH + i);
   const month = days[0].toLocaleDateString("fr-FR", { month: "long", year: "numeric", timeZone: TZ });
   const weekCount = all.length;
+  // Plusieurs clubs: un code court sur chaque bloc (légende sous le calendrier)
+  const codes = clubCodes(list.map((cb) => cb.club_name));
+  const multi = Object.keys(codes).length > 1;
+  const weekClubs = [...new Set(all.map((x) => x.cb.club_name))];
   return (
     <>
       <div className="row" style={{ margin: "6px 0" }}>
@@ -110,13 +115,17 @@ export default function CourtCalendar({ list, promos, onRemove, onPromo, onStopP
                   style={{ top: (s - minH) * PX, height: Math.max((e - s) * PX - 2, 18), left: `${(lane / count) * 100}%`, width: `${100 / count}%` }}
                   aria-label={`${STATES[cb.state].short}, ${h24(cb.start)}, ${cb.club_name}`}>
                   <b>{short(cb.start)}–{short(endIso(cb))}</b>
-                  {cb.players_count > 0 && <small>{cb.players_count}{cb.min_needed > 1 ? `/${cb.min_needed}` : ""}</small>}
+                  {multi && <small className="club-code">{codes[cb.club_name]}</small>}
+                  {cb.players_count > 0 && <small>{cb.players_count}{cb.min_needed > 1 ? `/${cb.min_needed}` : ""} j.</small>}
                 </button>
               ))}
             </div>
           ))}
         </div>
       </div>
+      {multi && weekClubs.length > 0 && (
+        <div className="club-legend">{weekClubs.map((n) => <span key={n}><b className="club-code">{codes[n]}</b> {n}</span>)}</div>
+      )}
       {weekCount === 0 && <p className="mut center small-p">Aucun terrain cette semaine. Ajoutez vos terrains réservés avec le bouton « Ajouter un terrain ».</p>}
       {sel && <Details cb={sel} promo={promos.find((p) => p.court_booking_id === sel.id && p.active)} onClose={() => setSel(null)} onRemove={onRemove} onPromo={onPromo} onStopPromo={onStopPromo} onChanged={onChanged} />}
     </>

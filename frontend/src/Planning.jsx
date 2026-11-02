@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { api, dayKey, hhmm } from "./api.js";
+import { api, dayKey, hhmm, useLive } from "./api.js";
 import Icon from "./Icon.jsx";
 import SessionCalendar from "./SessionCalendar.jsx";
 import SessionCard from "./SessionCard.jsx";
@@ -26,6 +26,7 @@ export default function Planning({ go, summary }) {
     api("/players").then(setPlayers);
   };
   useEffect(load, []);
+  useLive(load);
 
   const byId = (id) => players.find((p) => p.id === id);
   const name = (id) => byId(id)?.name ?? "?";

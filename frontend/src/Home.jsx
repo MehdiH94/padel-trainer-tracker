@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, dayKey, dayLabel, hhmm, shortDate, tnd, toDate } from "./api.js";
+import { api, dayKey, dayLabel, hhmm, shortDate, tnd, toDate, useLive } from "./api.js";
 import FeedbackEditor from "./FeedbackEditor.jsx";
 import SessionPayments from "./SessionPayments.jsx";
 import Icon from "./Icon.jsx";
@@ -140,6 +140,7 @@ export default function Home({ go, openPlayer, summary }) {
     api("/payments").then(setPays);
   };
   useEffect(() => { load(); api("/strokes").then(setStrokes); }, []);
+  useLive(load);
   useEffect(() => {
     const t = setInterval(() => setNow(new Date()), 30000);
     return () => clearInterval(t);

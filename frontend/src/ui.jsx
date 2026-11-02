@@ -246,3 +246,25 @@ export function Where({ s, light }) {
     </span>
   );
 }
+
+// Code court et lisible pour chaque club (calendriers): « Padel Club La Marsa » → MARSA, « Gammarth Padel » → GAMMA…
+// Mots génériques ignorés; en cas de doublon, on allonge le code.
+const CLUB_STOP = new Set(["padel", "club", "center", "centre", "arena", "sport", "sports", "de", "du", "des", "la", "le", "les", "l", "d", "el", "et", "the"]);
+export function clubCodes(names) {
+  const uniq = [...new Set(names.filter(Boolean))];
+  const words = (n) => {
+    const w = n.normalize("NFD").replace(/[̀-ͯ]/g, "").toUpperCase().split(/[^A-Z0-9]+/).filter(Boolean);
+    const kept = w.filter((x) => !CLUB_STOP.has(x.toLowerCase()));
+    return kept.length ? kept : w;
+  };
+  const code = (n, len) => {
+    const w = words(n);
+    return w.length === 1 ? w[0].slice(0, len) : w.map((x) => x.slice(0, Math.max(1, len - 3))).join("").slice(0, len + 1);
+  };
+  const out = {};
+  for (let len = 5; len <= 12; len++) {
+    uniq.forEach((n) => { out[n] = code(n, len); });
+    if (new Set(Object.values(out)).size === uniq.length) break;
+  }
+  return out;
+}

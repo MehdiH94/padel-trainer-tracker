@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 const TZ = "Africa/Tunis";
 
 export const getToken = () => localStorage.getItem("token");
@@ -44,3 +45,27 @@ export const hhmm = (iso) =>
 export const dayLabel = (iso) =>
   new Date(asUtc(iso)).toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", timeZone: TZ });
 export const dayKey = (iso) => new Date(asUtc(iso)).toLocaleDateString("fr-CA", { timeZone: TZ });
+
+
+// Données toujours à jour sans bouton « recharger »: toutes les 15 s tant que l'appli est affichée,
+// et tout de suite quand on y revient (téléphone rallumé, retour sur l'onglet, connexion retrouvée).
+export function useLive(load, ms = 15000) {
+  const ref = useRef(load);
+  ref.current = load;
+  useEffect(() => {
+    const run = () => {
+      if (document.visibilityState !== "visible") return;
+      try { Promise.resolve(ref.current()).catch(() => {}); } catch { /* hors ligne: on réessaiera */ }
+    };
+    const t = setInterval(run, ms);
+    document.addEventListener("visibilitychange", run);
+    window.addEventListener("focus", run);
+    window.addEventListener("online", run);
+    return () => {
+      clearInterval(t);
+      document.removeEventListener("visibilitychange", run);
+      window.removeEventListener("focus", run);
+      window.removeEventListener("online", run);
+    };
+  }, [ms]);
+}

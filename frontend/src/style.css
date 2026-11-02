@@ -556,3 +556,10 @@ main > .row:first-child > .row { flex-wrap: wrap; justify-content: flex-end; }
 .replace-share { display: flex; flex-direction: column; gap: 6px; width: 100%; }
 .replace-share input { font-size: .8rem; }
 .replace-share .actions { margin-top: 0; flex-wrap: wrap; }
+
+/* Code du club sur les blocs des calendriers */
+.club-code { font-weight: 800; letter-spacing: .03em; }
+.cal-block .club-code { background: #ffffff33; border-radius: 4px; padding: 0 3px; margin: 1px 0; font-size: .56rem; }
+.cal-block.libre .club-code { background: var(--soft); }
+.club-legend { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: .74rem; color: var(--mut); margin: 6px 0; }
+.club-legend .club-code { color: var(--txt); background: var(--soft); border-radius: 4px; padding: 0 5px; }

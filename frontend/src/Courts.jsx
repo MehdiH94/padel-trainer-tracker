@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, dayLabel, hhmm } from "./api.js";
+import { api, dayLabel, hhmm, useLive } from "./api.js";
 import Icon from "./Icon.jsx";
 import { confirmDialog, Modal, toast, toastError } from "./feedback.jsx";
 import CourtCalendar from "./CourtCalendar.jsx";
@@ -328,6 +328,7 @@ export default function Courts({ onBack }) {
   };
   const stopPromo = (p) => api(`/promotions/${p.id}`, { method: "DELETE" }).then(() => { toast("Promotion arrêtée"); load(); }).catch(toastError);
   useEffect(load, []);
+  useLive(load);
   if (!list) return <><h1>Terrains</h1><Loading rows={3} /></>;
 
   const now = Date.now();
