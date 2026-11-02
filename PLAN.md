@@ -77,3 +77,9 @@
 ## Mise à jour (session 12)
 - **Mes clubs** (Réglages) : le coach coche les clubs où il entraîne parmi ceux connus dans l'application, ou en ajoute un (nom + téléphone). Seuls ces clubs sont proposés aux joueurs (filtre par club, page du coach).
 - **Coachs de démo** : `seed_more_coaches.py` crée Youssef Mansouri (compétition, Lac / Tunis) et Meriem Ayari (initiation, La Marsa / Hammamet) avec joueurs, séances passées et à venir, terrains libres, happy hours, promotion et exercice. Sur le serveur : workflow manuel « Ajouter les coachs de démo ».
+
+## Mise à jour (session 13) — groupes formés par les joueurs
+- Le joueur peut ouvrir un créneau (terrain réservé ou non) en duo ou en groupe et en être le premier, si la séance a lieu dans plus de 24 h; la demande acceptée par le coach reste « en attente d'autres joueurs » jusqu'au nombre minimum voulu, puis passe à « confirmée » et les joueurs sont prévenus.
+- Une séance n'est proposée que si sa taille finale convient à tous (pas de groupe pour qui veut s'entraîner seul, pas de duo fermé pour qui cherche un groupe). Les créneaux avec terrain déjà réservé sont toujours mis en avant.
+- 6 h avant, si le minimum n'est pas atteint: notification aux joueurs pour changer de formule (ex. passer en solo, prix ajusté) ou annuler (remboursé).
+- Le coach peut notifier ses joueurs (déjà entraînés chez lui, niveau compatible, tous cochés par défaut) qu'il reste de la place: message + proposition dans leur appli.

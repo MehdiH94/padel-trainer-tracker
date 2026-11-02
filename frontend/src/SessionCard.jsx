@@ -1,8 +1,13 @@
+import { useState } from "react";
 import { hhmm, tnd } from "./api.js";
+import InvitePlayers from "./InvitePlayers.jsx";
 import Icon from "./Icon.jsx";
 import { AvatarStack, COURT_STATUS, KIND, STATUS } from "./ui.jsx";
 
-export default function SessionCard({ s, name, onStatus, onDuplicate, onPrepare }) {
+export default function SessionCard({ s, name, onStatus, onDuplicate, onPrepare, onChanged }) {
+  const [inviting, setInviting] = useState(false);
+  const short = s.status === "prevue" && s.player_ids.length < s.min_players; // pas encore assez de joueurs
+  const canInvite = s.status === "prevue" && s.open && s.max_players > s.player_ids.length;
   const names = s.player_ids.map(name);
   const k = KIND[s.kind];
   const end = new Date(new Date(s.start.endsWith("Z") || /[+-]\d\d:\d\d$/.test(s.start) ? s.start : s.start + "Z").getTime() + s.duration_min * 60000).toISOString();
@@ -22,6 +27,7 @@ export default function SessionCard({ s, name, onStatus, onDuplicate, onPrepare 
         {s.court_status && s.status === "prevue" && <span className={"court-badge " + COURT_STATUS[s.court_status].cls}><Icon name="pin" size={12} /> {COURT_STATUS[s.court_status].label}</span>}
         {s.open && s.status === "prevue" && free > 0 && <span className="court-badge wait"><Icon name="users" size={12} /> {free} place{free > 1 ? "s" : ""} libre{free > 1 ? "s" : ""}</span>}
         {s.level && <span className="court-badge idle">Niveau {s.level}</span>}
+        {short && <span className="court-badge wait"><Icon name="clock" size={12} /> En attente de joueurs {s.player_ids.length}/{s.min_players}</span>}
       </div>
       <div className="row" style={{ marginTop: 10 }}>
         {names.length ? <AvatarStack names={names} /> : <span className="mut">Aucun joueur</span>}
@@ -39,6 +45,8 @@ export default function SessionCard({ s, name, onStatus, onDuplicate, onPrepare 
           <Icon name="chevR" size={16} />
         </button>
       )}
+      {canInvite && <button className="small sec" style={{ marginTop: 10, width: "100%" }} onClick={() => setInviting(true)}><Icon name="send" size={15} /> Notifier mes joueurs ({s.max_players - s.player_ids.length} place{s.max_players - s.player_ids.length > 1 ? "s" : ""})</button>}
+      {inviting && <InvitePlayers sessionId={s.id} onClose={() => setInviting(false)} onDone={() => { setInviting(false); onChanged?.(); }} />}
       {s.status === "prevue" && onStatus && (
         <div className="actions">
           <button className="small" onClick={() => onStatus(s.id, "effectuee")}><Icon name="check" size={15} /> Effectuée</button>

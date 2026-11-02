@@ -65,7 +65,7 @@ function Offer({ o, me, kinds, onBooked, openCoach }) {
         <span className="offer-main">
           <span className="offer-coach">{o.coach.name}</span>
           <small>{o.club || "Club à confirmer"}</small>
-          <span><CourtTag court={o.court} />{o.type === "group" && <span className="court-badge idle"><Icon name="users" size={12} /> {o.spots_left} place{o.spots_left > 1 ? "s" : ""}</span>}</span>
+          <span><CourtTag court={o.court} />{o.type === "group" && <span className="court-badge idle"><Icon name="users" size={12} /> {o.count} inscrit{o.count > 1 ? "s" : ""} · {o.spots_left} place{o.spots_left > 1 ? "s" : ""}</span>}</span>
         </span>
         <Price o={shown} open={open} />
       </button>
@@ -86,7 +86,13 @@ function Offer({ o, me, kinds, onBooked, openCoach }) {
             </div>
           )}
           <div className="mut small-p"><Icon name="wallet" size={13} /> {payment(me, o.coach.id, (chosen ?? o).price_millimes)}</div>
-          {o.type === "slot" && pick !== "individuel" && <div className="mut small-p"><Icon name="users" size={13} /> Les autres places seront proposées à des joueurs de votre niveau.</div>}
+          {o.type === "slot" && pick !== "individuel" && (
+            <div className="mut small-p"><Icon name="users" size={13} /> Vous serez le premier : la séance sera confirmée dès que {pick === "duo" ? "1 autre joueur" : "2 autres joueurs"} vous aur{pick === "duo" ? "a" : "ont"} rejoint (les places sont proposées aux joueurs de votre niveau). Sinon, 6 h avant, vous pourrez changer de formule ou annuler (remboursé).</div>
+          )}
+          {o.type === "group" && o.missing > 0 && (
+            <div className="mut small-p"><Icon name="users" size={13} /> Après vous, il manquera encore {o.missing} joueur{o.missing > 1 ? "s" : ""} : la séance sera confirmée quand le groupe sera complet.</div>
+          )}
+          {o.type === "group" && o.missing === 0 && <div className="mut small-p"><Icon name="check" size={13} /> Avec vous, la séance a assez de joueurs.</div>}
           {o.type === "slot" && kinds.length > 1 && <div className="mut small-p"><Icon name="check" size={13} /> Le coach verra que vous acceptez aussi : {kinds.filter((k) => k !== pick).map((k) => HOW[k].toLowerCase()).join(", ")}.</div>}
           <div className="actions">
             <button className="sec" onClick={() => openCoach(o.coach.id)}>Voir le coach</button>
@@ -228,21 +234,19 @@ export function Book({ me, reload, go, coachParam }) {
           </div>
         </div>
       )}
+      {offers && offers.too_late.length > 0 && (
+        <div className="mut small-p late-hint"><Icon name="clock" size={14} /> À moins de 24 h, on ne peut plus ouvrir seul une séance {offers.too_late.map((k) => HOW[k].toLowerCase()).join(" ou ")} (pas le temps de la compléter) : rejoignez une séance existante, ou choisissez un autre jour.</div>
+      )}
       {offers && !solo && (
         <>
-          <h2 className="accent-h"><Icon name="users" size={16} /> Rejoindre un groupe déjà formé</h2>
-          {offers.groups.length ? list(offers.groups) : <div className="card mut">Aucun groupe de votre niveau ce jour-là.</div>}
-          <h2>Ou créer un nouveau créneau</h2>
-          <div className="mut small-p" style={{ marginTop: -4, marginBottom: 8 }}>Vous ouvrez le groupe : les places restantes seront proposées à des joueurs de votre niveau.</div>
-          {list(offers.slots_with_court)}
-          {list(more ? offers.slots_other : offers.slots_other.slice(0, 6))}
-          {!more && offers.slots_other.length > 6 && <button className="link center" onClick={() => setMore(true)}>Voir les {offers.slots_other.length - 6} autres créneaux</button>}
-          {!offers.slots_with_court.length && !offers.slots_other.length && <div className="card mut">Aucun créneau libre ce jour-là.</div>}
+          <h2 className="accent-h"><Icon name="users" size={16} /> Rejoindre une séance</h2>
+          {offers.groups.length ? list(offers.groups) : <div className="card mut">Aucune séance de votre niveau à rejoindre ce jour-là.</div>}
         </>
       )}
-      {offers && solo && (
+      {offers && (
         <>
           <h2 className="accent-h"><Icon name="pin" size={16} /> Créneaux avec un terrain déjà réservé</h2>
+          {!solo && offers.slots_with_court.length > 0 && <div className="mut small-p" style={{ marginTop: -4, marginBottom: 8 }}>Vous pouvez être le premier : la séance sera confirmée quand assez de joueurs vous auront rejoint.</div>}
           {offers.slots_with_court.length ? list(offers.slots_with_court) : <div className="card mut">Aucun terrain déjà réservé ce jour-là.</div>}
           {offers.slots_other.length > 0 && (
             <>

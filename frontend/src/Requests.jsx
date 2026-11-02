@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { api, dayLabel, hhmm, tnd } from "./api.js";
 import Icon from "./Icon.jsx";
 import { confirmDialog } from "./feedback.jsx";
+import InvitePlayers from "./InvitePlayers.jsx";
 import { Avatar, CategoryBadge, ContactLinks, KIND, Loading } from "./ui.jsx";
 
 const hm = (iso, min) => `${hhmm(iso)} – ${hhmm(new Date(new Date(iso + (iso.endsWith("Z") ? "" : "Z")).getTime() + min * 60000).toISOString())}`;
@@ -36,10 +37,14 @@ function Head({ r }) {
           })}
         </div>
       )}
-      {!r.join && r.kind !== "groupe" && (
+      {!r.join && (
         <div className="limit-note">
-          <Icon name="alert" size={15} />
-          <span>{r.accepted_kinds?.includes("groupe") ? `Séance créée en ${KIND[r.kind].label.toLowerCase()}` : `Ne veut pas s'entraîner en groupe`} : <b>{r.max_players === 1 ? "personne d'autre ne pourra rejoindre" : `${r.max_players} joueurs maximum`}</b> une fois acceptée.</span>
+          <Icon name="users" size={15} />
+          <span>
+            {r.max_players === 1 ? <><b>Seul uniquement</b> : personne d'autre ne pourra rejoindre.</>
+              : r.min_players === r.max_players ? <><b>Exactement {r.max_players} joueurs</b>{r.min_players > 1 && " : la séance attendra un partenaire avant d'être confirmée"}.</>
+              : <><b>De {r.min_players} à {r.max_players} joueurs</b>{r.min_players > 1 ? ` : confirmée dès ${r.min_players} joueurs, ouverte aux autres jusqu'à ${r.max_players}` : ` : les places libres seront proposées jusqu'à ${r.max_players}`}.</>}
+          </span>
         </div>
       )}
       {r.join && <div className="mut">Rejoint une séance existante{r.partners.length ? ` avec ${r.partners.join(", ")}` : ""}</div>}
@@ -93,6 +98,22 @@ function Pending({ r, clubs, reload }) {
         <button className="sec danger" onClick={async () => (await confirmDialog({ title: `Refuser la demande de ${r.name} ?`, message: r.charged_millimes ? `${tnd(r.charged_millimes)} de crédits lui seront rendus.` : "Rien n'a été débité de ses crédits.", confirm: "Refuser", cancel: "Retour", danger: true })) && act("refuse")}><Icon name="x" size={16} /> Refuser</button>
       </div>
       <div className="mut small-p">Accepter débite {tnd(r.price_millimes)} des crédits du joueur (le solde peut devenir négatif). Refuser ne débite rien.</div>
+    </div>
+  );
+}
+
+// Demande acceptée mais la séance n'a pas encore le nombre minimum de joueurs voulu
+function WaitingPlayers({ r, reload }) {
+  const [inviting, setInviting] = useState(false);
+  return (
+    <div className="card req">
+      <Head r={r} />
+      <div className="banner warn">
+        <Icon name="users" size={18} />
+        <span><b>{r.players_count}/{r.min_needed} joueur{r.min_needed > 1 ? "s" : ""}</b> : la séance sera confirmée automatiquement (et le joueur prévenu) dès qu'assez de joueurs l'auront rejointe. 6 h avant, sinon, il pourra changer de formule ou annuler.</span>
+      </div>
+      <div className="actions"><button onClick={() => setInviting(true)}><Icon name="send" size={16} /> Notifier mes joueurs</button></div>
+      {inviting && <InvitePlayers sessionId={r.session_id} onClose={() => setInviting(false)} onDone={() => { setInviting(false); reload(); }} />}
     </div>
   );
 }
@@ -183,6 +204,7 @@ export default function Requests({ go, refreshSummary }) {
 
   const pending = items.filter((i) => i.status === "en_attente");
   const waiting = items.filter((i) => i.status === "acceptee");
+  const waitingPlayers = items.filter((i) => i.status === "attente_joueurs");
   const toNotify = items.filter((i) => i.status === "confirmee");
   const total = pending.length + toNotify.length;
 
@@ -201,6 +223,8 @@ export default function Requests({ go, refreshSummary }) {
           {items.length === 0 && <div className="card empty"><Icon name="checkCircle" size={34} /><b>Tout est à jour</b><div className="mut">Aucune demande en attente.</div></div>}
           {pending.length > 0 && <h2 className="red-h"><span className="dot" /> À traiter ({pending.length})</h2>}
           {pending.map((r) => <Pending key={r.id} r={r} clubs={clubs} reload={load} />)}
+          {waitingPlayers.length > 0 && <h2>En attente d'autres joueurs ({waitingPlayers.length})</h2>}
+          {waitingPlayers.map((r) => <WaitingPlayers key={r.id} r={r} reload={load} />)}
           {waiting.length > 0 && <h2>En attente du terrain ({waiting.length})</h2>}
           {waiting.map((r) => <Waiting key={r.id} r={r} reload={load} go={go} />)}
           {toNotify.length > 0 && <h2 className="red-h"><span className="dot" /> Confirmations à envoyer ({toNotify.length})</h2>}

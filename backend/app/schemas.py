@@ -123,6 +123,8 @@ class SessionOut(BaseModel):
     open: bool = False
     feedback_missing: bool = False  # séance terminée sans aucun retour du coach
     has_plan: bool = False  # plan de séance (exercices) enregistré
+    min_players: int = 1  # nombre de joueurs voulu par tous pour que la séance soit confirmée
+    max_players: int = 4  # places au total (services/groups)
     court: str
     status: str
     price_millimes: int

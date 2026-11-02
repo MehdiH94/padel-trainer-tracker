@@ -467,3 +467,9 @@ button.prepare.done > .icon:first-child { color: var(--ok-txt); }
 .kind-pill.refused { background: var(--soft); color: var(--mut); text-decoration: line-through; }
 .limit-note { display: flex; gap: 8px; align-items: flex-start; background: var(--amber-l); color: var(--warn-txt); border-radius: 10px; padding: 8px 10px; font-size: .86rem; margin-bottom: 8px; }
 .limit-note > .icon { margin-top: 2px; flex: none; }
+.status-line.attente_joueurs { color: var(--warn-txt); }
+.reconsider-box { margin-top: 8px; padding: 8px 10px; background: var(--amber-l); color: var(--warn-txt); border-radius: 10px; display: grid; gap: 6px; }
+.reconsider-box .chip { background: var(--card); }
+.searchrow.pick { cursor: pointer; }
+.searchrow.pick input { width: 20px; height: 20px; min-height: 0; margin: 0; flex: none; accent-color: var(--brand); }
+.late-hint { display: flex; gap: 6px; align-items: flex-start; margin: 10px 0 0; }

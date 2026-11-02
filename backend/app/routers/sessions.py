@@ -9,10 +9,12 @@ from sqlalchemy.orm import Session
 from ..auth import current_coach
 from ..db import get_db
 from ..constants import CAPACITY
-from ..models import Attendance, Club, Coach, CourtBooking, Payment, TrainingSession
+from ..models import Attendance, Club, Coach, CourtBooking, Payment, Player, Proposal, TrainingSession
 from ..schemas import PlayerPaymentOut, SessionIn, SessionOut, SessionPatch
 from ..services import booking as booking_svc
 from ..services import courts
+from ..services.accounts import has_account
+from ..services import groups
 from ..services.finance import share
 from ..sms import get_sms_provider
 from ..sms.base import SmsProvider
@@ -26,6 +28,7 @@ def to_out(s: TrainingSession, court_status: str | None = None, paid: dict[tuple
     out.player_ids = [a.player_id for a in s.attendances]
     out.court_status = court_status
     out.has_plan = bool(s.plan)
+    out.min_players, out.max_players = groups.min_needed(s) if s.attendances else 1, groups.capacity(s)
     out.feedback_missing = s.status == "effectuee" and any(not (a.worked_on or a.note or a.to_improve) for a in s.attendances)
     if s.status == "effectuee":  # ce que chaque joueur a réglé pour cette séance
         paid = paid or {}
@@ -166,9 +169,52 @@ def add_player(session_id: int, body: AddPlayerIn, coach: Coach = Depends(curren
         raise HTTPException(409, "On ne peut ajouter un joueur qu'à une séance prévue")
     if body.player_id in [a.player_id for a in s.attendances]:
         raise HTTPException(409, "Ce joueur participe déjà à cette séance")
-    if len(s.attendances) >= CAPACITY.get(s.kind, 4):
+    if len(s.attendances) >= groups.capacity(s):
         raise HTTPException(409, "Cette séance est complète")
     s.attendances.append(Attendance(player_id=body.player_id))
     db.commit()
     cb = db.scalar(select(CourtBooking).where(CourtBooking.session_id == s.id))
     return to_out(s, cb.status if cb else None, session_payments(db, coach.id))
+
+
+# --- Le coach invite ses joueurs à rejoindre une séance -------------------------
+
+@router.get("/{session_id}/invitable")
+def invitable(session_id: int, coach: Coach = Depends(current_coach), db: Session = Depends(get_db)):
+    """Joueurs déjà entraînés au moins une fois par ce coach, de niveau compatible avec tous les inscrits."""
+    s = get_owned_session(db, coach, session_id)
+    trained = set(db.scalars(select(Attendance.player_id).join(TrainingSession, TrainingSession.id == Attendance.session_id)
+                             .where(TrainingSession.coach_id == coach.id, TrainingSession.status == "effectuee")))
+    inside = {a.player_id for a in s.attendances}
+    out = []
+    for p in db.scalars(select(Player).where(Player.coach_id == coach.id).order_by(Player.name)):
+        if p.id in trained and p.id not in inside and booking_svc.fits_session(db, p, s)[0]:
+            out.append({"id": p.id, "name": p.name, "category": p.category, "gender": p.gender, "has_account": has_account(p),
+                        "contact_channel": p.contact_channel or "sms"})
+    return {"players": out, "spots_left": booking_svc.spots_left(db, s), "message": default_invite(coach, s)}
+
+
+def default_invite(coach: Coach, s: TrainingSession) -> str:
+    what = {"duo": " à deux", "groupe": " en groupe"}.get(s.kind, "")
+    return (f"Bonjour, il reste de la place dans une séance de padel{what} le {booking_svc._when(s)}. "
+            f"Rejoignez-la depuis l'application (Accueil › « vous propose »). — {coach.name}")
+
+
+class InviteIn(BaseModel):
+    player_ids: list[int]
+    message: str = ""
+
+
+@router.post("/{session_id}/invite")
+def invite_players(session_id: int, body: InviteIn, coach: Coach = Depends(current_coach), db: Session = Depends(get_db)):
+    """Notifie les joueurs cochés et leur fait une proposition (acceptable dans leur appli)."""
+    s = get_owned_session(db, coach, session_id)
+    allowed_ids = {p["id"] for p in invitable(session_id, coach, db)["players"]}
+    chosen = [db.get(Player, pid) for pid in body.player_ids if pid in allowed_ids]
+    for p in chosen:
+        if not db.scalar(select(Proposal).where(Proposal.session_id == s.id, Proposal.player_id == p.id, Proposal.status == "proposee")):
+            db.add(Proposal(coach_id=coach.id, session_id=s.id, player_id=p.id))
+    message = body.message.strip() or default_invite(coach, s)
+    sent = booking_svc.notify(db, chosen, "Une place pour vous dans une séance de padel", lambda _p: message)
+    db.commit()
+    return {"sent": sent}

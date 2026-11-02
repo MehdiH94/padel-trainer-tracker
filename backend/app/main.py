@@ -9,6 +9,7 @@ from .db import Base, SessionLocal, engine
 from .constants import TIERS
 from .routers import auth, booking, clubs, dashboard, exercises, me, payments, players, profile, promotions, reminders, sessions
 from .notify import Notifier
+from .services import booking as booking_svc
 from .services import courts, planner, session_reminders
 from .sms import get_sms_provider
 
@@ -20,6 +21,7 @@ NEW_COLUMNS = [
     ("coaches", "bio", "TEXT DEFAULT ''"), ("coaches", "specialties", "VARCHAR(255) DEFAULT ''"),
     ("coaches", "duration_duo", "INTEGER"), ("coaches", "duration_groupe", "INTEGER"), ("bookings", "accepted_kinds", "VARCHAR(40) DEFAULT ''"),
     ("bookings", "price_millimes", "INTEGER DEFAULT 0"), ("clubs", "active", "BOOLEAN DEFAULT 1"),
+    ("attendances", "accepted_kinds", "VARCHAR(40) DEFAULT ''"),
     ("players", "email_verified_at", "TIMESTAMP"), ("players", "email_token", "VARCHAR(48)"), ("players", "email_token_sent_at", "TIMESTAMP"),
 ]
 with engine.begin() as conn:
@@ -51,6 +53,7 @@ async def _session_reminders():
         try:
             with SessionLocal() as db:
                 session_reminders.send_due(db, Notifier(get_sms_provider()))
+                booking_svc.remind_incomplete(db)  # 6 h avant: séance pas encore assez remplie
         except Exception:
             logging.getLogger("rappels").exception("Échec de l'envoi des rappels")
 

@@ -12,7 +12,8 @@ from ..constants import CAPACITY
 from ..models import Attendance, Availability, Club, Coach, CourtBooking, HappyHour, Player, TrainingSession
 from . import courts
 from .accounts import linked
-from .booking import attendee_ids, fits_session, free_slots, price_for, spots_left
+from . import groups as grp
+from .booking import attendee_ids, fits_session, free_slots, join_price, join_target, pending_joins, price_for, spots_left
 from .common import TUNIS, aware
 from .pricing import duration_for, quote
 
@@ -83,17 +84,17 @@ def offers(db: Session, account: Player, day: date, kinds: list[str], coach_id: 
     now = datetime.now(timezone.utc)
     groups, with_court, other = [], [], []
     other_kinds: dict[str, int] = {}  # séances ouvertes ce jour-là d'une formule que le joueur n'a pas choisie
+    too_late: set[str] = set()  # formules qu'on ne peut plus ouvrir seul ce jour-là (moins de 24 h)
     for c in filter(None, coaches):
         clubs = coach_clubs(db, c)
         if club and not any(same_club(club, n) for n in clubs):
             continue
         who = {"id": c.id, "name": c.name}
-        # 1. Groupes déjà formés. Seules les formules choisies par le joueur sont proposées: un joueur qui ne veut
-        #    que du solo ne se voit pas proposer de groupe, et une séance « duo » (son créateur ne voulait pas plus de
-        #    2 joueurs) n'est jamais proposée à qui cherche un groupe. Les autres sont seulement comptées (« si vous
-        #    reconsidérez votre choix »).
-        for s in db.scalars(select(TrainingSession).where(TrainingSession.coach_id == c.id, TrainingSession.open.is_(True), TrainingSession.status == "prevue",
-                                                         TrainingSession.kind.in_(["duo", "groupe"]))):
+        # 1. Séances à rejoindre: la taille de la séance après l'arrivée du joueur doit convenir à tous (services/groups).
+        #    Jamais de groupe pour qui veut s'entraîner seul, jamais un duo pour qui cherche un groupe; on peut être le
+        #    premier ou le deuxième d'un groupe s'il reste plus de 24 h pour le compléter. Les séances d'autres formules
+        #    sont seulement comptées (« si vous reconsidérez votre choix »).
+        for s in db.scalars(select(TrainingSession).where(TrainingSession.coach_id == c.id, TrainingSession.open.is_(True), TrainingSession.status == "prevue")):
             if not _in_window(s.start, day, period) or aware(s.start) < now + timedelta(hours=2):
                 continue
             if my_ids & set(attendee_ids(s)) or spots_left(db, s) <= 0 or (club and not same_club(club, s.club)):
@@ -101,14 +102,20 @@ def offers(db: Session, account: Player, day: date, kinds: list[str], coach_id: 
             ok, gap = fits_session(db, account, s)
             if not ok:
                 continue
-            if s.kind not in kinds:
-                other_kinds[s.kind] = other_kinds.get(s.kind, 0) + 1
+            target = join_target(db, s, kinds)
+            if target is None:
+                alt = join_target(db, s, None)
+                if alt:
+                    k = grp.kind_for_size(alt)
+                    other_kinds[k] = other_kinds.get(k, 0) + 1
                 continue
             others = [db.get(Player, i) for i in attendee_ids(s)]
+            taken = len(others) + pending_joins(db, s)
             groups.append({
-                "type": "group", "session_id": s.id, "coach": who, "start": s.start, "duration_min": s.duration_min, "kind": s.kind,
-                "club": s.club, "court": courts_state(db, s), "price_millimes": s.price_millimes or price_for(c, s.kind),
+                "type": "group", "session_id": s.id, "coach": who, "start": s.start, "duration_min": s.duration_min, "kind": grp.kind_for_size(target),
+                "club": s.club, "court": courts_state(db, s), "price_millimes": join_price(c, s, target),
                 "spots_left": spots_left(db, s), "players": [{"name": p.name, "category": p.category, "gender": p.gender} for p in others],
+                "count": taken, "missing": max(0, target - taken - 1),  # joueurs qu'il manquera encore après lui
                 "_gap": gap,
             })
         # 2. Nouveaux créneaux: pour chaque début possible, les formules qui y tiennent (durée propre à chacune)
@@ -116,8 +123,12 @@ def offers(db: Session, account: Player, day: date, kinds: list[str], coach_id: 
         for k in kinds:
             minutes = duration_for(c, k)
             for start in free_slots(db, c, minutes=minutes):
-                if _in_window(start, day, period):
-                    starts.setdefault(start, []).append(quote(db, c, k, start))
+                if not _in_window(start, day, period):
+                    continue
+                if not grp.can_open(k, start):  # ouvrir un duo/groupe seul: seulement à plus de 24 h
+                    too_late.add(k)
+                    continue
+                starts.setdefault(start, []).append(quote(db, c, k, start))
         for start, options in sorted(starts.items()):
             held = [cb for cb in courts.held_covering(db, c, start, min(o["duration_min"] for o in options))
                     if not club or same_club(club, db.get(Club, cb.club_id).name)]
@@ -138,7 +149,8 @@ def offers(db: Session, account: Player, day: date, kinds: list[str], coach_id: 
     groups.sort(key=lambda g: (g.pop("_gap"), closeness(g)))
     with_court.sort(key=lambda x: (-x["discount_pct"], closeness(x)))  # les promotions d'abord
     other.sort(key=closeness)
-    return {"groups": groups[:10], "slots_with_court": with_court[:20], "slots_other": other[:30], "other_kinds": other_kinds}
+    return {"groups": groups[:10], "slots_with_court": with_court[:20], "slots_other": other[:30], "other_kinds": other_kinds,
+            "too_late": [k for k in CAPACITY if k in too_late]}
 
 
 def courts_state(db: Session, s: TrainingSession) -> str:

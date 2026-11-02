@@ -82,7 +82,7 @@ export default function Planning({ go, summary }) {
       {adding && <SessionForm players={players} onDone={() => { setAdding(false); load(); }} />}
 
       {sessions === null && <Loading rows={2} />}
-      {active.map((s) => <SessionCard key={s.id} s={s} name={name} onStatus={setStatus} onDuplicate={duplicate} onPrepare={(x) => go(`session/${x.id}`)} />)}
+      {active.map((s) => <SessionCard key={s.id} s={s} name={name} onStatus={setStatus} onDuplicate={duplicate} onPrepare={(x) => go(`session/${x.id}`)} onChanged={load} />)}
 
       {done.length > 0 && (
         <>

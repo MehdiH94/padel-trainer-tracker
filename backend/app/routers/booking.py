@@ -14,6 +14,7 @@ from ..services import booking as svc
 from ..services import courts
 from ..services.common import TUNIS, aware
 from ..services.exercises_catalog import WORK_THEMES
+from ..services import groups as grp
 from ..services.pricing import base_price, duration_for
 from ..sms import get_sms_provider
 from ..sms.base import SmsProvider
@@ -118,7 +119,9 @@ def booking_out(db: Session, coach: Coach, b: Booking) -> dict:
         "partners": [x.name for x in (db.get(Player, i) for i in svc.attendee_ids(s)) if x.id != p.id] if s else [],
         "club": s.club if s else "", "court_state": svc.court_state(db, s) if s else None,
         "accepted_kinds": [k for k in (b.accepted_kinds or b.kind).split(",") if k],  # formules acceptées par le joueur
-        "max_players": CAPACITY[b.kind],  # la séance ne pourra pas accueillir plus de joueurs que la formule choisie
+        "max_players": max(grp.sizes(grp.from_kind(grp.split(b.accepted_kinds) or [b.kind], b.kind))),  # plafond voulu par le joueur
+        "min_players": min(grp.SIZES[b.kind]),  # nombre minimum de joueurs voulu (formule choisie)
+        "players_count": len(s.attendances) if s else 0, "min_needed": grp.min_needed(s) if s else None,
         # prix convenu; les réservations d'avant les remises n'en ont pas: prix de la séance ou tarif du coach
         "price_millimes": b.price_millimes or b.charged_millimes or (s.price_millimes if s else 0) or base_price(coach, b.kind),
         "base_millimes": base_price(coach, b.kind),
@@ -140,7 +143,7 @@ def list_requests(coach: Coach = Depends(current_coach), db: Session = Depends(g
     for b in db.scalars(select(Booking).where(Booking.coach_id == coach.id).order_by(Booking.start)):
         if aware(b.start) < now and b.status != "confirmee":
             continue
-        if b.status in ("en_attente", "acceptee") or (b.status == "confirmee" and b.notified_at is None and aware(b.start) >= now):
+        if b.status in ("en_attente", "attente_joueurs", "acceptee") or (b.status == "confirmee" and b.notified_at is None and aware(b.start) >= now):
             items.append(booking_out(db, coach, b))
     return items
 
@@ -149,7 +152,7 @@ def list_requests(coach: Coach = Depends(current_coach), db: Session = Depends(g
 def summary(coach: Coach = Depends(current_coach), db: Session = Depends(get_db)):
     items = list_requests(coach, db)
     count = lambda st: sum(1 for i in items if i["status"] == st and (st != "confirmee" or i["notified_at"] is None))  # noqa: E731
-    return {"pending": count("en_attente"), "waiting_court": count("acceptee"), "to_notify": count("confirmee")}
+    return {"pending": count("en_attente"), "waiting_court": count("acceptee"), "to_notify": count("confirmee"), "waiting_players": count("attente_joueurs")}
 
 
 def _owned(db: Session, coach: Coach, booking_id: int) -> Booking:
@@ -232,7 +235,7 @@ def groups(coach: Coach = Depends(current_coach), db: Session = Depends(get_db))
         ]
         out.append({
             "session_id": s.id, "start": s.start, "duration_min": s.duration_min, "kind": s.kind, "club": s.club,
-            "spots_left": svc.spots_left(db, s), "capacity": CAPACITY[s.kind], "level": s.level,
+            "spots_left": svc.spots_left(db, s), "capacity": grp.capacity(s), "level": s.level,
             "players": [{"name": p.name, "category": p.category, "gender": p.gender} for p in (db.get(Player, i) for i in svc.attendee_ids(s))],
             "candidates": svc.candidates(db, coach, s), "proposed": proposed,
         })

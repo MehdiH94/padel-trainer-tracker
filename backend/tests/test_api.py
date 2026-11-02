@@ -201,17 +201,17 @@ def test_no_court_request_waits_for_coach_then_court_confirmed(client):
     assert r.json()["status"] == "en_attente" and pc.get("/me").json()["credits_millimes"] == 60000  # débité à la validation
     req = client.get("/booking/requests").json()[0]
     assert req["courts_available"] == [] and req["name"] == "Sami"
-    assert client.get("/booking/summary").json() == {"pending": 1, "waiting_court": 0, "to_notify": 0}
+    assert client.get("/booking/summary").json() == {"pending": 1, "waiting_court": 0, "to_notify": 0, "waiting_players": 0}
     # le coach accepte en attendant le terrain: SMS au club
     out = client.post(f"/booking/requests/{req['id']}/accept", json={"club_id": club["id"]}).json()
     assert out["status"] == "acceptee" and pc.get("/me").json()["credits_millimes"] == 0
     assert FakeSmsProvider.sent[-1][0] == "+21671123456"
-    assert client.get("/booking/summary").json() == {"pending": 0, "waiting_court": 1, "to_notify": 0}
+    assert client.get("/booking/summary").json() == {"pending": 0, "waiting_court": 1, "to_notify": 0, "waiting_players": 0}
     cb = client.get("/court-bookings").json()[0]
     assert cb["status"] == "en_attente" and cb["players"] == ["Sami"]
     # le club confirme: la réservation devient « confirmée », le coach doit prévenir le joueur
     client.post(f"/court-bookings/{cb['id']}/reply", json={"text": "OUI c'est bon"})
-    assert client.get("/booking/summary").json() == {"pending": 0, "waiting_court": 0, "to_notify": 1}
+    assert client.get("/booking/summary").json() == {"pending": 0, "waiting_court": 0, "to_notify": 1, "waiting_players": 0}
 
 
 def test_pending_request_shows_free_court_and_accepts_with_it(client):
@@ -791,10 +791,13 @@ def test_player_books_with_another_coach_and_sees_coach_page(client):
     host = other.post("/players", json={"name": "Host", "phone": "22 999 999", "category": "P250-"}).json()
     g_start = next(x for x in slots if _day_of(x) == day and x != target)
     g = other.post("/sessions", json={"start": g_start, "kind": "groupe", "open": True, "player_ids": [host["id"]], "price_millimes": 30000, "club_id": club["id"]}).json()[0]
-    off = pc.get(f"/me/offers?day={day}&kind=groupe").json()
-    assert [x["session_id"] for x in off["groups"]] == [g["id"]] and off["slots_other"]
-    assert pc.post("/me/book", json={"session_id": g["id"]}).json()["status"] in ("confirmee", "acceptee")
-    assert pc.get(f"/me/offers?day={day}&kind=groupe").json()["groups"] == []  # déjà inscrit
+    # (à moins de 24 h, il faut accepter d'être 2: plus le temps de compléter un groupe de 3)
+    off = pc.get(f"/me/offers?day={day}&kinds=duo,groupe").json()
+    assert [x["session_id"] for x in off["groups"]] == [g["id"]]
+    if not off["slots_other"]:  # jour à moins de 24 h: on ne peut pas ouvrir seul un nouveau duo/groupe
+        assert off["too_late"] == ["duo", "groupe"]
+    assert pc.post("/me/book", json={"session_id": g["id"], "kinds": ["duo", "groupe"]}).json()["status"] in ("confirmee", "acceptee")
+    assert pc.get(f"/me/offers?day={day}&kinds=duo,groupe").json()["groups"] == []  # déjà inscrit
 
 
 # --- Formules multiples, durées par formule, happy hours, promotions ---------
@@ -995,3 +998,104 @@ def test_formulas_are_respected_when_matching_groups(client):
     assert pb.post("/me/book", json={"session_id": sid, "kinds": ["individuel", "duo"]}).status_code == 201
     c, pc = player_client(client, name="Cyr", phone="20333333")
     assert pc.post("/me/book", json={"session_id": sid}).status_code == 409  # complète: le duo reste à 2
+
+
+# --- Groupes formés par les joueurs: minimum de joueurs, 24 h, 6 h, invitations ----
+
+def _future_slot(pc, min_hours, hour_utc=None):
+    now = datetime.now(timezone.utc)
+    for x in pc.get("/me/slots").json():
+        t = datetime.fromisoformat(x.replace("Z", "+00:00"))
+        t = t if t.tzinfo else t.replace(tzinfo=timezone.utc)
+        if t - now >= timedelta(hours=min_hours) and (hour_utc is None or t.hour == hour_utc):
+            return x
+
+
+def test_group_waits_for_minimum_then_confirms_and_notifies(client):
+    from app.notify import Notifier
+    open_week(client, auto_confirm=False)
+    a, pa = player_client(client, name="Amel", phone="20111111", gender="F", category="P250-")
+    b, pb = player_client(client, name="Bilel", phone="20222222", category="P250-")
+    c, pc = player_client(client, name="Chedly", phone="20333333", category="P250-")
+    start = _future_slot(pa, 30)
+    day = _day_of(start)
+    free_court(client, start)
+    # Amel veut s'entraîner à deux ou plus: elle prend le créneau (terrain réservé) en duo, le coach accepte
+    r = pa.post("/me/book", json={"kind": "duo", "start": start, "kinds": ["duo", "groupe"]}).json()
+    client.post(f"/booking/requests/{r['id']}/accept", json={})
+    req = next(x for x in client.get("/booking/requests").json() if x["id"] == r["id"])
+    assert req["status"] == "attente_joueurs" and (req["players_count"], req["min_needed"]) == (1, 2)
+    assert client.get("/booking/summary").json()["waiting_players"] == 1
+    assert pa.get("/me/sessions").json()["upcoming"][0]["status"] == "attente_joueurs"
+    # une joueuse qui veut s'entraîner seule ne se voit pas proposer cette séance
+    solo = pc.get(f"/me/offers?day={day}&kinds=individuel").json()
+    assert solo["groups"] == [] and solo["other_kinds"] == {"duo": 1}
+    # Bilel (à deux ou plus) la rejoint, le coach accepte: la séance atteint le minimum, Amel est prévenue
+    g = pb.get(f"/me/offers?day={day}&kinds=duo,groupe").json()["groups"]
+    assert len(g) == 1 and g[0]["missing"] == 0 and g[0]["kind"] == "duo"
+    Notifier.sent.clear()
+    rb = pb.post("/me/book", json={"session_id": g[0]["session_id"], "kinds": ["duo", "groupe"]}).json()
+    client.post(f"/booking/requests/{rb['id']}/accept", json={})
+    assert pa.get("/me/sessions").json()["upcoming"][0]["status"] == "confirmee"
+    assert any("1 joueur a rejoint" in body and "confirmée" in body for _, _, body in Notifier.sent)
+    # les deux acceptent un groupe: la séance reste visible pour qui cherche un groupe (3e joueur)
+    g = pc.get(f"/me/offers?day={day}&kinds=groupe").json()["groups"]
+    assert len(g) == 1 and g[0]["kind"] == "groupe" and g[0]["spots_left"] == 2
+
+
+def test_cannot_open_group_alone_within_24h(client):
+    open_week(client)
+    p, pc = player_client(client)
+    soon = pc.get("/me/slots").json()[0]  # dans moins de 24 h
+    off = pc.get(f"/me/offers?day={_day_of(soon)}&kinds=groupe").json()
+    assert soon[:16] not in [x["start"][:16] for x in off["slots_with_court"] + off["slots_other"]] and "groupe" in off["too_late"]
+    assert pc.post("/me/book", json={"kind": "groupe", "start": soon, "kinds": ["groupe"]}).status_code == 409
+    assert pc.post("/me/book", json={"kind": "individuel", "start": soon, "kinds": ["individuel", "groupe"]}).status_code == 201
+
+
+def test_six_hours_before_players_can_reconsider(client):
+    from app.notify import Notifier
+    from app.services.booking import remind_incomplete
+    open_week(client, auto_confirm=False)
+    p, pc = player_client(client)
+    client.post(f"/players/{p['id']}/credits", json={"amount_millimes": 100000})
+    start = _future_slot(pc, 30)
+    r = pc.post("/me/book", json={"kind": "duo", "start": start, "kinds": ["individuel", "duo"]}).json()
+    client.post(f"/booking/requests/{r['id']}/accept", json={})
+    assert pc.get("/me").json()["credits_millimes"] == 60000  # 40 TND (duo) débités à la validation
+    Notifier.sent.clear()
+    db = TestSession()
+    when = datetime.fromisoformat(start.replace("Z", "+00:00"))
+    when = when if when.tzinfo else when.replace(tzinfo=timezone.utc)
+    assert remind_incomplete(db, now=when - timedelta(hours=7)) == 0  # trop tôt
+    assert remind_incomplete(db, now=when - timedelta(hours=5)) == 1
+    assert remind_incomplete(db, now=when - timedelta(hours=4)) == 0  # une seule fois
+    db.close()
+    assert "pas encore assez de joueurs (1/2)" in Notifier.sent[-1][2]
+    # il passe en solo: la séance est confirmée, prix du solo (60 TND), différence débitée
+    out = pc.post(f"/me/bookings/{r['id']}/formula", json={"kind": "individuel"}).json()
+    assert out["status"] == "confirmee" and out["price_millimes"] == 60000 and out["credits_millimes"] == 40000
+    # annuler une demande dont le groupe ne s'est pas formé est toujours remboursé
+    p2, pc2 = player_client(client, name="Ines", phone="20999999")
+    r2 = pc2.post("/me/book", json={"kind": "duo", "start": _future_slot(pc2, 30), "kinds": ["duo"]}).json()
+    client.post(f"/booking/requests/{r2['id']}/accept", json={})
+    assert pc2.post(f"/me/bookings/{r2['id']}/cancel").json()["refunded"] is True
+
+
+def test_coach_invites_players_who_trained_with_him(client):
+    from app.notify import Notifier
+    open_week(client)
+    host = mkplayer(client, name="Host", category="P250-")
+    ok = mkplayer(client, phone="22 000 001", name="Ancien", category="P250+", contact_channel="whatsapp")
+    far = mkplayer(client, phone="22 000 002", name="TropFort", category="P1000-")
+    mkplayer(client, phone="22 000 003", name="Nouveau", category="P250-")  # jamais entraîné
+    for pid in (ok["id"], far["id"]):
+        s = client.post("/sessions", json={"start": "2026-01-05T10:00:00Z", "player_ids": [pid]}).json()[0]
+        client.patch(f"/sessions/{s['id']}", json={"status": "effectuee"})
+    g = open_duo(client, host, hours=72, kind="groupe")
+    inv = client.get(f"/sessions/{g['id']}/invitable").json()
+    assert [p["name"] for p in inv["players"]] == ["Ancien"] and inv["spots_left"] == 3
+    Notifier.sent.clear()
+    assert client.post(f"/sessions/{g['id']}/invite", json={"player_ids": [ok["id"], far["id"]]}).json()["sent"] == 1  # TropFort ignoré
+    assert Notifier.sent[0][0] == "whatsapp" and "en groupe" in Notifier.sent[0][2]
+    assert [p["name"] for p in client.get("/groups").json()[0]["proposed"]] == ["Ancien"]  # proposition visible dans son appli

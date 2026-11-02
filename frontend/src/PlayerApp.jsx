@@ -9,7 +9,26 @@ import { Avatar, CategoryBadge, CHANNELS, ChannelPicker, InstallCard, KIND, Load
 
 const TZ = "Africa/Tunis";
 const REASONS = { recharge: "Recharge", reservation: "Réservation", remboursement: "Remboursement", ajustement: "Ajustement" };
-const STATUS_TXT = { en_attente: "En attente du coach", acceptee: "Terrain à confirmer", confirmee: "Confirmée" };
+const STATUS_TXT = { en_attente: "En attente du coach", attente_joueurs: "En attente d'autres joueurs", acceptee: "Terrain à confirmer", confirmee: "Confirmée" };
+const statusText = (s) => (s.status === "attente_joueurs" ? `En attente d'autres joueurs (${s.players_count}/${s.min_needed})` : STATUS_TXT[s.status] ?? "Confirmée");
+const HOW = { individuel: "Seul", duo: "À deux", groupe: "En groupe" };
+
+// Groupe pas encore formé: le joueur peut passer à une autre formule (ex. seul) ou annuler (remboursé)
+function Reconsider({ s, reload }) {
+  const [open, setOpen] = useState(false);
+  const change = (kind) => api(`/me/bookings/${s.booking_id}/formula`, { method: "POST", body: { kind } })
+    .then((r) => { toast(r.status === "confirmee" ? `Séance confirmée en formule « ${HOW[kind].toLowerCase()} » · ${tnd(r.price_millimes)}` : `Formule changée · ${tnd(r.price_millimes)}`); setOpen(false); reload(); })
+    .catch(toastError);
+  if (s.status !== "attente_joueurs") return null;
+  return (
+    <div className="reconsider-box">
+      <div className="small-p">Pas encore assez de joueurs. Vous pouvez attendre, changer de formule ou annuler (remboursé).</div>
+      {!open ? <button className="small sec" onClick={() => setOpen(true)}>Changer de formule</button> : (
+        <div className="chips">{Object.keys(HOW).filter((k) => k !== s.booking_kind).map((k) => <button key={k} className="chip small" onClick={() => change(k)}>{HOW[k]}</button>)}</div>
+      )}
+    </div>
+  );
+}
 const fmt = (iso, o) => toDate(iso).toLocaleDateString("fr-FR", { ...o, timeZone: TZ });
 
 function DateBlock({ iso }) {
@@ -161,7 +180,8 @@ function Home({ me, sessions, progress, credits, proposals, promos, go, reload }
             <div className="time">{hhmm(next.start)} <span className="mut">· {next.duration_min} min</span></div>
             <KindPill kind={next.kind} />
             <div className="mut" style={{ marginTop: 4 }}><Icon name="user" size={13} /> {next.coach_name}{next.club && <> · <Icon name="pin" size={13} /> {next.club}</>}</div>
-            <div className={"status-line " + next.status}>{STATUS_TXT[next.status] ?? "Confirmée"}</div>
+            <div className={"status-line " + next.status}>{statusText(next)}</div>
+            <Reconsider s={next} reload={reload} />
           </div>
           {next.booking_id && <button className="small sec" onClick={() => cancelBooking(me, next, reload)}>Annuler</button>}
         </div>
@@ -248,7 +268,8 @@ function Mine({ me, sessions, reload }) {
                 <KindPill kind={s.kind} />
                 <div className="mut" style={{ marginTop: 4 }}><Icon name="user" size={13} /> {s.coach_name}{s.club && <> · <Icon name="pin" size={13} /> {s.club}</>}</div>
                 {s.partners.length > 0 && <div className="partners">{s.partners.map((x) => <span key={x.name} className="partner"><Avatar name={x.name} size={20} /> {x.name.split(" ")[0]}</span>)}</div>}
-                <div className={"status-line " + s.status}>{STATUS_TXT[s.status] ?? "Confirmée"}</div>
+                <div className={"status-line " + s.status}>{statusText(s)}</div>
+                <Reconsider s={s} reload={reload} />
               </div>
               {s.booking_id ? <button className="small sec" onClick={() => cancelBooking(me, s, reload)}>Annuler</button> : null}
             </div>

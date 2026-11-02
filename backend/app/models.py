@@ -78,6 +78,7 @@ class Attendance(Base):
     note: Mapped[str] = mapped_column(Text, default="")
     to_improve: Mapped[str] = mapped_column(Text, default="")
     credit_paid_millimes: Mapped[int] = mapped_column(Integer, default=0)  # payé avec les crédits: rien à facturer
+    accepted_kinds: Mapped[str] = mapped_column(String(40), default="")  # formules acceptées (séance formée par les joueurs, services/groups)
 
 
 class Club(Base):

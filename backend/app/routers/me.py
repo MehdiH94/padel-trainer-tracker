@@ -12,7 +12,7 @@ from ..constants import CAPACITY
 from ..db import get_db
 from ..models import Attendance, Booking, Coach, CreditTx, Player, Proposal, TrainingSession
 from ..services import booking as svc
-from ..services import marketplace
+from ..services import groups, marketplace
 from ..services import email_verification as verification
 from ..services.accounts import linked, row_for_coach
 from ..services.common import aware
@@ -145,7 +145,8 @@ def my_sessions(player: Player = Depends(current_player), db: Session = Depends(
             "session_id": s.id, "booking_id": b.id if b else None, "start": s.start, "duration_min": s.duration_min,
             "kind": s.kind, "club": s.club, "court_state": svc.court_state(db, s), "spots_left": svc.spots_left(db, s) if s.open else 0,
             "partners": _partners(db, s, ids), "status": b.status if b else "confirmee", "session_status": s.status,
-            "coach_name": coach_names.get(s.coach_id, ""),
+            "coach_name": coach_names.get(s.coach_id, ""), "players_count": len(s.attendances), "min_needed": groups.min_needed(s),
+            "booking_kind": b.kind if b else s.kind, "accepted_kinds": groups.split(b.accepted_kinds) if b else [],
             "worked_on": [t for t in a.worked_on.split(",") if t], "note": a.note, "to_improve": a.to_improve,
         }
         (upcoming if s.status == "prevue" and aware(s.start) >= now else history).append(item)
@@ -172,6 +173,25 @@ def cancel(booking_id: int, player: Player = Depends(current_player), db: Sessio
         raise HTTPException(409, str(e))
     db.commit()
     return {"refunded": refunded, "refunded_millimes": b.charged_millimes if refunded else 0, "credits_millimes": credit_balance(db, b.player_id)}
+
+
+class FormulaIn(BaseModel):
+    kind: str
+
+
+@router.post("/bookings/{booking_id}/formula")
+def change_formula(booking_id: int, body: FormulaIn, player: Player = Depends(current_player), db: Session = Depends(get_db)):
+    """Le joueur reconsidère son choix (ex. passer de « à deux » à « seul » si personne ne l'a rejoint)."""
+    b = db.get(Booking, booking_id)
+    if not b or b.player_id not in {p.id for p in linked(db, player)}:
+        raise HTTPException(404, "Réservation introuvable")
+    try:
+        svc.reconsider(db, db.get(Coach, b.coach_id), b, body.kind)
+    except svc.BookingError as e:
+        db.rollback()
+        raise HTTPException(409, str(e))
+    db.commit()
+    return {"status": b.status, "kind": b.kind, "price_millimes": b.price_millimes, "credits_millimes": credit_balance(db, b.player_id)}
 
 
 @router.get("/proposals")

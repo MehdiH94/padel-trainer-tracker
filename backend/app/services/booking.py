@@ -9,13 +9,15 @@ from ..constants import CAPACITY, category_index, compatible
 from ..models import Attendance, Availability, Booking, Club, Coach, CourtBooking, CreditTx, Player, Proposal, TrainingSession
 from ..sms.base import SmsProvider
 from . import courts
+from . import groups
 from .common import TUNIS, aware
 from .finance import credit_balance
 from .pricing import duration_for, quote
 
 HORIZON_DAYS = 14
 MIN_NOTICE_H = 2
-ACTIVE = ("en_attente", "acceptee", "confirmee")
+# attente_joueurs: acceptée par le coach, mais la séance n'a pas encore le nombre minimum de joueurs voulu
+ACTIVE = ("en_attente", "attente_joueurs", "acceptee", "confirmee")
 
 
 class BookingError(Exception):
@@ -30,12 +32,33 @@ def attendee_ids(s: TrainingSession) -> list[int]:
     return [a.player_id for a in s.attendances]
 
 
+def pending_bookings(db: Session, s: TrainingSession) -> list[Booking]:
+    return list(db.scalars(select(Booking).where(Booking.session_id == s.id, Booking.status == "en_attente")))
+
+
 def pending_joins(db: Session, s: TrainingSession) -> int:
-    return len(db.scalars(select(Booking.id).where(Booking.session_id == s.id, Booking.status == "en_attente")).all())
+    return len(pending_bookings(db, s))
+
+
+def pending_kinds(db: Session, s: TrainingSession) -> list[list[str]]:
+    return [groups.split(b.accepted_kinds) for b in pending_bookings(db, s)]
 
 
 def spots_left(db: Session, s: TrainingSession) -> int:
-    return CAPACITY[s.kind] - len(s.attendances) - pending_joins(db, s)
+    """Places restantes: la plus grande taille qui convient à tous (groups.capacity), moins les inscrits et demandes."""
+    return groups.capacity(s, pending_kinds(db, s)) - len(s.attendances) - pending_joins(db, s)
+
+
+def join_target(db: Session, s: TrainingSession, kinds: list[str] | None) -> int | None:
+    """Taille visée si un joueur qui accepte ces formules rejoint la séance (None = pas possible)."""
+    return groups.join_target(s, kinds, len(s.attendances) + pending_joins(db, s), pending_kinds(db, s))
+
+
+def join_price(coach: Coach, s: TrainingSession, target: int) -> int:
+    """Séance formée par les joueurs: prix de la formule visée; séance du coach: son prix."""
+    if groups.is_dynamic(s):
+        return price_for(coach, groups.kind_for_size(target))
+    return s.price_millimes or price_for(coach, s.kind)
 
 
 # --- Créneaux libres ----------------------------------------------------
@@ -134,20 +157,23 @@ def _debit(db: Session, b: Booking) -> None:
 
 def request_join(db: Session, coach: Coach, player: Player, s: TrainingSession, sms: SmsProvider | None = None, *, force_accept: bool = False,
                  kinds: list[str] | None = None) -> Booking:
-    """Le joueur demande une place dans une séance existante (kinds: formules qu'il a choisies, s'il les a précisées)."""
-    if kinds and s.kind not in kinds:
-        raise BookingError("Cette séance ne correspond pas aux formules que vous avez choisies")
+    """Le joueur demande une place dans une séance existante (kinds: formules qu'il a choisies, s'il les a précisées).
+    La taille de la séance après son arrivée doit convenir à tous (voir services/groups)."""
     if not s.open or s.status != "prevue" or aware(s.start) < datetime.now(timezone.utc):
         raise BookingError("Cette séance n'est plus disponible")
     if player.id in attendee_ids(s) or db.scalar(select(Booking).where(Booking.session_id == s.id, Booking.player_id == player.id, Booking.status.in_(ACTIVE))):
         raise BookingError("Vous êtes déjà inscrit à cette séance")
     if spots_left(db, s) <= 0:
         raise BookingError("Cette séance est complète")
+    target = join_target(db, s, kinds)
+    if target is None:
+        raise BookingError("Cette séance ne correspond pas aux formules que vous avez choisies")
     if not force_accept and not fits_session(db, player, s)[0]:
         raise BookingError("Votre classement n'est pas compatible avec les joueurs de cette séance")
-    price = s.price_millimes or price_for(coach, s.kind)
-    b = Booking(coach_id=coach.id, player_id=player.id, kind=s.kind, start=s.start, duration_min=s.duration_min, session_id=s.id, charged_millimes=0,
-                price_millimes=price, accepted_kinds=s.kind)
+    price = join_price(coach, s, target)
+    b = Booking(coach_id=coach.id, player_id=player.id, kind=groups.kind_for_size(target) if groups.is_dynamic(s) or kinds else s.kind,
+                start=s.start, duration_min=s.duration_min, session_id=s.id, charged_millimes=0,
+                price_millimes=price, accepted_kinds=",".join(k for k in groups.ORDER if k in (kinds or [])))
     db.add(b)
     db.flush()
     if force_accept or coach.auto_confirm:
@@ -162,6 +188,8 @@ def request_new(db: Session, coach: Coach, player: Player, kind: str, start: dat
     accepted_kinds: toutes les formules qu'il accepte (seul, duo, groupe), montrées au coach."""
     if kind not in CAPACITY:
         raise BookingError("Type de séance invalide")
+    if not groups.can_open(kind, start):
+        raise BookingError("Pour ouvrir une séance à deux ou en groupe, elle doit avoir lieu dans plus de 24 h (le temps de compléter le groupe)")
     q = quote(db, coach, kind, start)  # durée de la formule, prix avec happy hour / promotion
     if aware(start) not in free_slots(db, coach, minutes=q["duration_min"]):
         raise BookingError("Ce créneau n'est plus disponible")
@@ -186,12 +214,16 @@ def accept(db: Session, coach: Coach, b: Booking, sms: SmsProvider | None = None
     player = db.get(Player, b.player_id)
     if b.session_id:  # rejoindre une séance existante
         s = db.get(TrainingSession, b.session_id)
-        if len(s.attendances) >= CAPACITY[s.kind]:
+        kinds = groups.split(b.accepted_kinds)
+        n = len(s.attendances)
+        if n + 1 > groups.capacity(s) or (kinds and not any(x >= n + 1 for x in groups.allowed(s) & groups.sizes(kinds))):
             raise BookingError("Cette séance est complète")
         _debit(db, b)
-        s.attendances.append(Attendance(player_id=player.id, credit_paid_millimes=b.charged_millimes))
-        state = court_state(db, s)
-        b.status = "confirmee" if state in (None, "confirmee") else "acceptee"
+        # formules retenues: celles qui permettent sa taille actuelle ou plus
+        mine = [k for k in kinds if max(groups.SIZES[k]) >= n + 1]
+        s.attendances.append(Attendance(player_id=player.id, credit_paid_millimes=b.charged_millimes, accepted_kinds=",".join(mine)))
+        b.status = "acceptee"
+        refresh(db, s)
         return
     if not b.price_millimes:
         b.price_millimes = price_for(coach, b.kind)
@@ -200,7 +232,9 @@ def accept(db: Session, coach: Coach, b: Booking, sms: SmsProvider | None = None
         coach_id=coach.id, start=b.start, duration_min=b.duration_min, kind=b.kind, level=player.category,
         price_millimes=b.price_millimes or b.charged_millimes or price_for(coach, b.kind), price_mode="par_joueur", open=b.kind != "individuel",
     )
-    s.attendances = [Attendance(player_id=player.id, credit_paid_millimes=b.charged_millimes)]
+    # formule choisie = taille minimale voulue; les plus grandes qu'il accepte restent possibles
+    mine = groups.from_kind(groups.split(b.accepted_kinds) or [b.kind], b.kind)
+    s.attendances = [Attendance(player_id=player.id, credit_paid_millimes=b.charged_millimes, accepted_kinds=",".join(mine))]
     db.add(s)
     db.flush()
     b.session_id = s.id
@@ -217,6 +251,102 @@ def accept(db: Session, coach: Coach, b: Booking, sms: SmsProvider | None = None
         b.status = "acceptee"
     else:
         b.status = "acceptee"
+    refresh(db, s)  # pas encore assez de joueurs: « en attente d'autres joueurs »
+
+
+def _when(s: TrainingSession) -> str:
+    t = aware(s.start).astimezone(TUNIS)
+    return f"{courts.JOURS[t.weekday()]} {t:%d/%m} à {t:%H}h{t:%M}" + (f" ({s.club})" if s.club else "")
+
+
+def notify(db: Session, players: list[Player], subject: str, body_for) -> int:
+    """Message à des joueurs, par le moyen qu'ils ont choisi (voir app/notify.py)."""
+    from ..notify import Notifier  # import local: notify importe les modèles
+    from ..sms import get_sms_provider
+    from .accounts import contact_email
+    notifier, sent = Notifier(get_sms_provider()), 0
+    for p in players:
+        channel = p.contact_channel or "sms"
+        if channel == "email" and not contact_email(db, p):
+            channel = "sms"
+        try:
+            notifier.send(p, channel, subject, body_for(p), email=contact_email(db, p))
+            sent += 1
+        except Exception:  # un envoi raté ne bloque pas les autres
+            continue
+    return sent
+
+
+def refresh(db: Session, s: TrainingSession) -> None:
+    """Après une arrivée ou un départ: libellé, ouverture et état des réservations de la séance.
+    - pas assez de joueurs pour tous: « attente_joueurs »
+    - assez de joueurs: « acceptee » (terrain à confirmer) ou « confirmee »; les joueurs qui attendaient sont prévenus."""
+    db.flush()
+    if groups.is_dynamic(s):
+        s.kind = groups.kind_for_size(max(len(s.attendances), groups.min_needed(s)))
+        s.open = groups.capacity(s) > len(s.attendances)
+    complete, state = groups.is_complete(s), court_state(db, s)
+    coach = db.get(Coach, s.coach_id)
+    newly = []
+    for b in db.scalars(select(Booking).where(Booking.session_id == s.id, Booking.status.in_(("attente_joueurs", "acceptee", "confirmee")))):
+        new = "attente_joueurs" if not complete else "acceptee" if state not in (None, "confirmee") else "confirmee"
+        if b.status == "attente_joueurs" and new != "attente_joueurs":
+            newly.append(b)
+            b.notified_at = datetime.now(timezone.utc)  # prévenu automatiquement ci-dessous
+        b.status = new
+    if newly:
+        others = len(s.attendances) - 1
+        notify(db, [db.get(Player, b.player_id) for b in newly], "Votre séance de padel est confirmée", lambda p: (
+            f"Bonne nouvelle {p.name.split()[0]} ! {others} joueur{'s ont' if others > 1 else ' a'} rejoint votre séance de padel du {_when(s)} : "
+            f"elle est confirmée{'' if state in (None, 'confirmee') else ' (terrain en cours de réservation)'}. — {coach.name}"))
+
+
+def reconsider(db: Session, coach: Coach, b: Booking, kind: str) -> None:
+    """Le joueur change de formule (ex. de « à deux » à « seul »): nouveau prix, état de la séance recalculé."""
+    if kind not in CAPACITY:
+        raise BookingError("Formule invalide")
+    if b.status not in ACTIVE or aware(b.start) <= datetime.now(timezone.utc):
+        raise BookingError("Cette réservation ne peut plus être modifiée")
+    s = db.get(TrainingSession, b.session_id) if b.session_id else None
+    mine = groups.from_kind(list(set(groups.split(b.accepted_kinds)) | {kind}), kind)
+    if s and b.status != "en_attente":
+        a = next(x for x in s.attendances if x.player_id == b.player_id)
+        old = a.accepted_kinds
+        a.accepted_kinds = ",".join(mine)
+        if len(s.attendances) > groups.capacity(s):
+            a.accepted_kinds = old
+            raise BookingError("Cette formule n'est pas compatible avec les autres joueurs de la séance")
+    price = quote(db, coach, kind, b.start)["price_millimes"]
+    if b.charged_millimes and price != b.charged_millimes:  # déjà débité: on ajuste la différence
+        db.add(CreditTx(coach_id=b.coach_id, player_id=b.player_id, amount_millimes=b.charged_millimes - price, reason="ajustement", booking_id=b.id))
+        b.charged_millimes = price
+        if s:
+            next(x for x in s.attendances if x.player_id == b.player_id).credit_paid_millimes = price
+    b.kind, b.price_millimes = kind, price
+    b.accepted_kinds = ",".join(k for k in groups.ORDER if k in set(groups.split(b.accepted_kinds)) | {kind})
+    if s and b.status != "en_attente":
+        refresh(db, s)
+
+
+def remind_incomplete(db: Session, now: datetime | None = None) -> int:
+    """6 h avant: séance toujours sans le nombre minimum de joueurs -> les joueurs qui attendent sont invités
+    à reconsidérer leur choix (passer à une autre formule) ou à annuler. Une seule fois par joueur."""
+    from ..models import SessionReminder
+    now = now or datetime.now(timezone.utc)
+    done = {(r.session_id, r.player_id) for r in db.scalars(select(SessionReminder).where(SessionReminder.kind == "min"))}
+    count = 0
+    for b in db.scalars(select(Booking).where(Booking.status == "attente_joueurs")):
+        if not (now < aware(b.start) <= now + groups.REMIND_BEFORE) or (b.session_id, b.player_id) in done:
+            continue
+        s, p, coach = db.get(TrainingSession, b.session_id), db.get(Player, b.player_id), db.get(Coach, b.coach_id)
+        body = (f"Bonjour {p.name.split()[0]}, votre séance de padel du {_when(s)} n'a pas encore assez de joueurs "
+                f"({len(s.attendances)}/{groups.min_needed(s)}). Ouvrez l'appli pour changer de formule (par exemple passer en solo) "
+                f"ou annuler votre demande (remboursée). — {coach.name}")
+        notify(db, [p], "Votre séance de padel n'est pas encore complète", lambda _p: body)
+        db.add(SessionReminder(coach_id=b.coach_id, session_id=s.id, player_id=p.id, kind="min", channel=p.contact_channel or "sms", message=body))
+        count += 1
+    db.commit()
+    return count
 
 
 def _refund(db: Session, b: Booking) -> None:
@@ -237,6 +367,8 @@ def _release(db: Session, b: Booking) -> None:
         return
     s = db.get(TrainingSession, b.session_id)
     s.attendances = [a for a in s.attendances if a.player_id != b.player_id]
+    if s.attendances and s.status == "prevue":
+        refresh(db, s)  # les autres repassent éventuellement en « attente d'autres joueurs »
     if not s.attendances and s.status == "prevue":
         s.status = "annulee"
         for cb in db.scalars(select(CourtBooking).where(CourtBooking.session_id == s.id)):
@@ -252,7 +384,8 @@ def cancel_booking(db: Session, coach: Coach, b: Booking) -> bool:
         raise BookingError("Cette réservation ne peut plus être annulée")
     if aware(b.start) <= datetime.now(timezone.utc):
         raise BookingError("Cette séance est déjà passée")
-    refund = b.status == "en_attente" or aware(b.start) - datetime.now(timezone.utc) >= timedelta(hours=coach.cancel_hours)
+    # groupe pas encore formé: toujours remboursé
+    refund = b.status in ("en_attente", "attente_joueurs") or aware(b.start) - datetime.now(timezone.utc) >= timedelta(hours=coach.cancel_hours)
     was_pending = b.status == "en_attente"
     b.status = "annulee"
     if not was_pending:
