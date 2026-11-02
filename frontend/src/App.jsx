@@ -123,7 +123,7 @@ function CoachApp() {
       </nav>
       <div className="topbtns">
         {summary.admin && (
-          <button onClick={() => go("admin")} title="Inscriptions à confirmer" aria-label={`Inscriptions à confirmer : ${summary.signups}`} className="navico">
+          <button onClick={() => go("admin")} title="Administration" aria-label={`Administration (${summary.signups} inscription(s) à confirmer)`} className="navico">
             <Icon name="shield" size={17} />{summary.signups > 0 && <b className="navbadge">{summary.signups}</b>}
           </button>
         )}

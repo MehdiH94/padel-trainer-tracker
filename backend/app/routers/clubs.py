@@ -53,7 +53,7 @@ def owned_club(db: Session, coach: Coach, club_id: int) -> Club:
 @router.get("/clubs")
 def list_clubs(all: bool = False, coach: Coach = Depends(current_coach), db: Session = Depends(get_db)):
     """Clubs où le coach entraîne (all=true: y compris ceux qu'il a retirés)."""
-    q = select(Club).where(Club.coach_id == coach.id).order_by(Club.name)
+    q = select(Club).where(Club.coach_id == coach.id, Club.removed.is_(False)).order_by(Club.name)
     return [club_out(c) for c in db.scalars(q if all else q.where(Club.active.is_(True)))]
 
 
@@ -62,7 +62,7 @@ def clubs_catalog(coach: Coach = Depends(current_coach), db: Session = Depends(g
     """Clubs connus dans l'application (ceux de tous les coachs), et ceux où ce coach entraîne."""
     mine = sorted((c.name for c in db.scalars(select(Club).where(Club.coach_id == coach.id, Club.active.is_(True)))), key=_key)
     known: dict[str, dict] = {}
-    for c in db.scalars(select(Club).order_by(Club.name)):
+    for c in db.scalars(select(Club).where(Club.removed.is_(False)).order_by(Club.name)):
         if _key(c.name) not in known and _key(c.name) not in {_key(m) for m in mine}:
             known[_key(c.name)] = {"name": c.name.strip(), "phone": c.phone}
     return {"mine": mine, "known": sorted(known.values(), key=lambda x: x["name"])}
@@ -86,7 +86,7 @@ class SelectionIn(BaseModel):
 @router.put("/clubs/selection")
 def select_clubs(body: SelectionIn, coach: Coach = Depends(current_coach), db: Session = Depends(get_db)):
     """Le coach choisit ses clubs: ceux qu'il quitte restent en base (historique, terrains) mais ne sont plus proposés."""
-    known = {_key(c.name): c for c in db.scalars(select(Club))}  # nom et téléphone de référence
+    known = {_key(c.name): c for c in db.scalars(select(Club).where(Club.removed.is_(False)))}  # nom et téléphone de référence
     wanted = {_key(n): n.strip() for n in body.names if n.strip()}
     extra = {_key(c.name): c for c in body.new if c.name.strip()}
     own = {_key(c.name): c for c in db.scalars(select(Club).where(Club.coach_id == coach.id))}

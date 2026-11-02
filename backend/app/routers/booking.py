@@ -160,7 +160,7 @@ def summary(coach: Coach = Depends(current_coach), db: Session = Depends(get_db)
     count = lambda st: sum(1 for i in items if i["status"] == st and (st != "confirmee" or i["notified_at"] is None))  # noqa: E731
     out = {"pending": count("en_attente"), "waiting_court": count("acceptee"), "to_notify": count("confirmee"), "waiting_players": count("attente_joueurs")}
     if signups.is_admin(coach):  # administrateur: inscriptions de joueurs à confirmer
-        out |= {"admin": True, "signups": db.scalar(select(func.count(Player.id)).where(Player.signup_status == "a_valider"))}
+        out |= {"admin": True, "coach_id": coach.id, "signups": db.scalar(select(func.count(Player.id)).where(Player.signup_status == "a_valider"))}
     return out
 
 

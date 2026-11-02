@@ -1453,3 +1453,40 @@ def test_complete_session_from_planning_opens_it(client):
     prop = pc.get("/me/proposals").json()[0]
     assert pc.post(f"/me/proposals/{prop['id']}/accept").status_code == 200
     assert sorted(next(x for x in client.get("/sessions").json() if x["id"] == s["id"])["player_ids"]) == sorted([a["id"], p["id"]])
+
+
+def test_admin_manages_players_coaches_and_clubs(client, monkeypatch):
+    monkeypatch.setenv("ADMIN_EMAILS", "boss@padel.tn")
+    boss = register("boss@padel.tn")
+    assert client.get("/admin/players").status_code == 403  # réservé à l'administrateur
+    # un coach ajouté par l'administrateur peut se connecter
+    new = boss.post("/admin/coaches", json={"name": "Coach Neuf", "email": "neuf@padel.tn"}).json()
+    assert TestClient(app).post("/auth/login", json={"email": "neuf@padel.tn", "password": new["password"]}).json()["role"] == "coach"
+    # élève ajouté chez un coach: dans sa liste, avec son lien d'inscription
+    coach_id = next(c["id"] for c in boss.get("/admin/coaches").json() if c["email"] == "a@b.tn")
+    added = boss.post("/admin/players", json={"name": "Lina", "phone": "20 000 111", "coach_id": coach_id}).json()
+    assert added["invite_path"].startswith("/invite/") and [p["name"] for p in client.get("/players").json()] == ["Lina"]
+    # joueur avec compte chez deux coachs: supprimer la fiche compte garde l'accès chez l'autre coach
+    p, pc = player_client(client, name="Sami", phone="22 123 456")
+    other = register("other@b.tn")
+    other.put("/booking/settings", json={"auto_confirm": False, "slot_minutes": 60, "price_individuel": 60000, "price_duo": 40000,
+                                         "price_groupe": 30000, "cancel_hours": 24, "booking_mode": "disponibilites",
+                                         "availability": [{"weekday": d, "start_time": "09:00", "end_time": "21:00"} for d in range(7)]})
+    other_id = next(c["id"] for c in boss.get("/admin/coaches").json() if c["email"] == "other@b.tn")
+    when = (datetime.now(timezone.utc) + timedelta(days=3)).replace(hour=9, minute=0, second=0, microsecond=0)  # 10 h à Tunis
+    assert pc.post("/me/book", json={"kind": "individuel", "start": when.isoformat(), "coach_id": other_id}).status_code == 201
+    s = client.post("/sessions", json={"start": (datetime.now(timezone.utc) + timedelta(days=4)).isoformat(), "kind": "individuel", "player_ids": [p["id"]]}).json()[0]
+    assert boss.delete(f"/admin/players/{p['id']}").json()["ok"]
+    assert next(x for x in client.get("/sessions").json() if x["id"] == s["id"])["status"] == "annulee"  # restée vide
+    again = TestClient(app).post("/auth/login", json={"email": f"p{p['id']}@x.tn", "password": "secret1"}).json()
+    assert again["role"] == "player"  # la fiche chez l'autre coach est devenue le compte
+    # supprimer un coach: ses élèves et ses séances disparaissent
+    assert boss.delete(f"/admin/coaches/{coach_id}").json()["ok"]
+    assert all(x["coach_id"] != coach_id for x in boss.get("/admin/players").json())
+    assert client.get("/players").status_code == 401
+    # clubs: ajout au catalogue, puis retrait
+    boss.post("/admin/clubs", json={"name": "Padel Arena Sousse", "phone": "73 000 000"})
+    assert "Padel Arena Sousse" in [c["name"] for c in other.get("/clubs/catalog").json()["known"]]
+    assert boss.delete("/admin/clubs/padel arena sousse").json()["ok"]
+    assert "Padel Arena Sousse" not in [c["name"] for c in other.get("/clubs/catalog").json()["known"]]
+    assert boss.delete(f"/admin/coaches/{next(c['id'] for c in boss.get('/admin/coaches').json() if c['email'] == 'boss@padel.tn')}").status_code == 409

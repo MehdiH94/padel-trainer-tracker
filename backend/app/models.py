@@ -98,6 +98,7 @@ class Club(Base):
     sms_template: Mapped[str] = mapped_column(Text, default="")  # vide = modèle par défaut
     auto_send: Mapped[bool] = mapped_column(default=True)  # envoyer le SMS dès la création de la séance
     active: Mapped[bool] = mapped_column(default=True)  # le coach entraîne dans ce club (Réglages › Mes clubs)
+    removed: Mapped[bool] = mapped_column(default=False)  # retiré de l'application par un administrateur (historique gardé)
 
 
 class TrainingSession(Base):
