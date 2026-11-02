@@ -13,7 +13,7 @@ from ..schemas import PlayerIn, PlayerOut
 from sqlalchemy.orm import object_session
 
 from ..services.accounts import account_of, has_account
-from ..services.finance import credit_balance
+from ..services.finance import credit_balance, settle
 
 router = APIRouter(prefix="/players", tags=["players"])
 
@@ -93,6 +93,8 @@ def recharge(player_id: int, body: CreditIn, coach: Coach = Depends(current_coac
         raise HTTPException(422, "Recharge invalide")
     db.add(Payment(coach_id=coach.id, player_id=p.id, amount_millimes=body.amount_millimes, method=body.method, kind="credit"))
     db.add(CreditTx(coach_id=coach.id, player_id=p.id, amount_millimes=body.amount_millimes, reason="recharge"))
+    db.flush()
+    settle(db, coach.id, [p.id])  # la recharge règle d'abord les séances effectuées encore dues
     db.commit()
     return {"balance_millimes": credit_balance(db, p.id)}
 

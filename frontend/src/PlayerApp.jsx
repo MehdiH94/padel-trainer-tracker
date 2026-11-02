@@ -8,7 +8,7 @@ import { useRoute } from "./router.js";
 import { Avatar, CategoryBadge, CHANNELS, ChannelPicker, InstallCard, KIND, Loading, OfflineBar, RadarChart } from "./ui.jsx";
 
 const TZ = "Africa/Tunis";
-const REASONS = { recharge: "Recharge", reservation: "Réservation", remboursement: "Remboursement", ajustement: "Ajustement" };
+const REASONS = { recharge: "Recharge", reservation: "Réservation", remboursement: "Remboursement", ajustement: "Ajustement", seance: "Séance effectuée", seance_annulee: "Séance effectuée" };
 const STATUS_TXT = { en_attente: "En attente du coach", attente_joueurs: "En attente d'autres joueurs", acceptee: "Terrain à confirmer", confirmee: "Confirmée" };
 const statusText = (s) => (s.status === "attente_joueurs" ? `En attente d'autres joueurs (${s.players_count}/${s.min_needed})` : STATUS_TXT[s.status] ?? "Confirmée");
 const HOW = { individuel: "Seul", duo: "À deux", groupe: "En groupe" };

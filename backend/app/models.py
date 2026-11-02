@@ -162,6 +162,7 @@ class CreditTx(Base):
     amount_millimes: Mapped[int] = mapped_column(Integer)  # + recharge / remboursement, - réservation
     reason: Mapped[str] = mapped_column(String(20))  # recharge / reservation / remboursement / ajustement
     booking_id: Mapped[int | None] = mapped_column(ForeignKey("bookings.id"), nullable=True)
+    session_id: Mapped[int | None] = mapped_column(ForeignKey("sessions.id"), nullable=True)  # séance payée en crédits (« seance »)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
 
 

@@ -3,14 +3,15 @@ import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
-from sqlalchemy import inspect, text
+from sqlalchemy import inspect, select, text
 
 from .db import Base, SessionLocal, engine
 from .constants import TIERS
 from .routers import admin, auth, booking, clubs, dashboard, exercises, me, payments, players, profile, promotions, reminders, sessions
 from .notify import Notifier
 from .services import booking as booking_svc
-from .services import courts, planner, session_reminders
+from .services import courts, finance, planner, session_reminders
+from .models import Coach, Player
 from .sms import get_sms_provider
 
 Base.metadata.create_all(engine)
@@ -23,7 +24,7 @@ NEW_COLUMNS = [
     ("bookings", "price_millimes", "INTEGER DEFAULT 0"), ("clubs", "active", "BOOLEAN DEFAULT 1"),
     ("attendances", "accepted_kinds", "VARCHAR(40) DEFAULT ''"), ("bookings", "discount_pct", "INTEGER DEFAULT 0"),
     ("court_bookings", "series_id", "VARCHAR(36)"), ("coaches", "booking_mode", "VARCHAR(16) DEFAULT 'terrains'"),
-    ("players", "signup_status", "VARCHAR(12)"), ("players", "invited_category", "VARCHAR(6)"), ("players", "signup_at", "TIMESTAMP"),
+    ("credit_tx", "session_id", "INTEGER"), ("players", "signup_status", "VARCHAR(12)"), ("players", "invited_category", "VARCHAR(6)"), ("players", "signup_at", "TIMESTAMP"),
     ("players", "email_verified_at", "TIMESTAMP"), ("players", "email_token", "VARCHAR(48)"), ("players", "email_token_sent_at", "TIMESTAMP"),
 ]
 with engine.begin() as conn:
@@ -38,6 +39,10 @@ with engine.begin() as conn:
         conn.execute(text("UPDATE sessions SET level = :new WHERE level = :old"), {"new": t + "-", "old": t})
 with SessionLocal() as _db:
     planner.ensure_builtin(_db)  # exercices proposés par l'application
+    # Crédits restants et séances encore dues en même temps (données d'avant la règle): les crédits les règlent
+    for _c in _db.scalars(select(Coach)):
+        finance.settle(_db, _c.id, _db.scalars(select(Player.id).where(Player.coach_id == _c.id)).all())
+    _db.commit()
 
 
 async def _court_sender():

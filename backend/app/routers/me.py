@@ -16,7 +16,7 @@ from ..services import groups, marketplace
 from ..services import email_verification as verification
 from ..services.accounts import linked, row_for_coach
 from ..services.common import aware
-from ..services.finance import credit_balance, player_due
+from ..services.finance import credit_balance, net_balance
 from ..sms import get_sms_provider
 from ..sms.base import SmsProvider
 from ..schemas import CHANNELS
@@ -39,10 +39,14 @@ def me(player: Player = Depends(current_player), db: Session = Depends(get_db)):
         "email_verified": verification.is_verified(player), "can_book": verification.can_book(player),
         "slot_minutes": coach.slot_minutes, "prices": _prices(coach), "auto_confirm": coach.auto_confirm, "cancel_hours": coach.cancel_hours,
         "signup_status": player.signup_status,
-        # Crédits et impayés propres à chaque coach (pas de solde global)
-        "wallets": [{"coach_id": p.coach_id, "coach_name": db.get(Coach, p.coach_id).name, "credits_millimes": credit_balance(db, p.id),
-                     "due_millimes": player_due(db, p)} for p in linked(db, player)],
+        # Un solde par coach (pas de solde global): soit des crédits, soit un impayé, jamais les deux
+        "wallets": [_wallet(db, p) for p in linked(db, player)],
     }
+
+
+def _wallet(db: Session, p: Player) -> dict:
+    net = net_balance(db, p)
+    return {"coach_id": p.coach_id, "coach_name": db.get(Coach, p.coach_id).name, "credits_millimes": max(net, 0), "due_millimes": max(-net, 0)}
 
 
 class ContactIn(BaseModel):

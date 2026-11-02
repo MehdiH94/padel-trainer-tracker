@@ -1282,5 +1282,33 @@ def test_wallet_per_coach_with_credits_and_dues(client):
     s = client.post("/sessions", json={"start": (datetime.now(timezone.utc) - timedelta(days=1)).isoformat(), "kind": "individuel",
                                        "price_millimes": 60000, "player_ids": [p["id"]]}).json()[0]
     client.patch(f"/sessions/{s['id']}", json={"status": "effectuee"})
+    # la séance effectuée est payée avec les crédits: un seul solde, jamais solde et impayé en même temps
     [w] = pc.get("/me").json()["wallets"]
-    assert (w["coach_name"], w["credits_millimes"], w["due_millimes"]) == ("Coach Test", 200000, 60000)
+    assert (w["coach_name"], w["credits_millimes"], w["due_millimes"]) == ("Coach Test", 140000, 0)
+    assert client.get("/sessions").json()[0]["payments"][0]["credit_millimes"] == 60000
+    # retour à « prévue »: crédits rendus; de nouveau effectuée: débités une seule fois
+    client.patch(f"/sessions/{s['id']}", json={"status": "prevue"})
+    assert pc.get("/me").json()["wallets"][0]["credits_millimes"] == 200000
+    client.patch(f"/sessions/{s['id']}", json={"status": "effectuee"})
+    assert pc.get("/me").json()["wallets"][0]["credits_millimes"] == 140000
+
+
+def test_no_credits_means_debt_then_recharge_settles_it(client):
+    p, pc = player_client(client)
+    for d in (2, 1):
+        s = client.post("/sessions", json={"start": (datetime.now(timezone.utc) - timedelta(days=d)).isoformat(), "kind": "individuel",
+                                           "price_millimes": 60000, "player_ids": [p["id"]]}).json()[0]
+        client.patch(f"/sessions/{s['id']}", json={"status": "effectuee"})
+    w = pc.get("/me").json()["wallets"][0]
+    assert (w["credits_millimes"], w["due_millimes"]) == (0, 120000)  # rien en crédits: dans le rouge
+    client.post(f"/players/{p['id']}/credits", json={"amount_millimes": 200000})  # la recharge règle les deux séances
+    w = pc.get("/me").json()["wallets"][0]
+    assert (w["credits_millimes"], w["due_millimes"]) == (80000, 0)
+    client.post(f"/players/{p['id']}/credits", json={"amount_millimes": 0})  # refusé, sans effet
+    p2, pc2 = player_client(client, phone="98 111 222", name="Ali")
+    client.post(f"/players/{p2['id']}/credits", json={"amount_millimes": 50000})
+    s = client.post("/sessions", json={"start": (datetime.now(timezone.utc) - timedelta(days=1)).isoformat(), "kind": "individuel",
+                                       "price_millimes": 60000, "player_ids": [p2["id"]]}).json()[0]
+    client.patch(f"/sessions/{s['id']}", json={"status": "effectuee"})
+    w = pc2.get("/me").json()["wallets"][0]
+    assert (w["credits_millimes"], w["due_millimes"]) == (0, 10000)  # crédits insuffisants: le reste en impayé

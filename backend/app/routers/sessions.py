@@ -15,7 +15,8 @@ from ..services import booking as booking_svc
 from ..services import courts
 from ..services.accounts import has_account
 from ..services import groups
-from ..services.finance import share
+from ..services import finance
+from ..services.finance import session_payments, share
 from ..sms import get_sms_provider
 from ..sms.base import SmsProvider
 from .players import get_owned_player
@@ -39,28 +40,6 @@ def to_out(s: TrainingSession, court_status: str | None = None, paid: dict[tuple
             )
             for i, a in enumerate(s.attendances)
         ]
-    return out
-
-
-def session_payments(db: Session, coach_id: int) -> dict[tuple[int, int], int]:
-    """Montant réglé par (séance, joueur). Un paiement rattaché à une séance compte pour elle; un paiement
-    saisi sans séance (depuis la fiche joueur) couvre les plus anciennes séances effectuées encore dues."""
-    out: dict[tuple[int, int], int] = {}
-    loose: dict[int, int] = {}  # paiements sans séance, par joueur
-    for p in db.scalars(select(Payment).where(Payment.coach_id == coach_id, Payment.kind == "seance")):
-        if p.session_id is None:
-            loose[p.player_id] = loose.get(p.player_id, 0) + p.amount_millimes
-        else:
-            out[(p.session_id, p.player_id)] = out.get((p.session_id, p.player_id), 0) + p.amount_millimes
-    if loose:
-        q = select(TrainingSession).where(TrainingSession.coach_id == coach_id, TrainingSession.status == "effectuee")
-        for s in db.scalars(q.order_by(TrainingSession.start)):
-            for i, a in enumerate(s.attendances):
-                left = share(s, i) - out.get((s.id, a.player_id), 0)
-                use = min(left, loose.get(a.player_id, 0))
-                if use > 0:
-                    out[(s.id, a.player_id)] = out.get((s.id, a.player_id), 0) + use
-                    loose[a.player_id] -= use
     return out
 
 
@@ -156,10 +135,15 @@ def patch_session(
             paid = db.scalar(select(Payment.id).where(Payment.session_id == s.id).limit(1))
             if body.status != "prevue" or paid:
                 raise HTTPException(409, "Une séance effectuée et déjà réglée ne peut plus changer de statut")
+            finance.unsettle(db, s)  # crédits débités pour cette séance rendus
         if body.status == "annulee" and s.status != "annulee":
             booking_svc.coach_cancel_session(db, s)  # réservations payées en crédits: remboursement
             courts.release_or_cancel(db, coach, s, sms)  # terrain manuel libéré, club prévenu sinon
+        was = s.status
         s.status = body.status
+        if body.status == "effectuee" and was != "effectuee":
+            db.flush()
+            finance.settle(db, coach.id, [a.player_id for a in s.attendances])  # payée avec les crédits disponibles
     if body.start is not None:  # report
         s.start = body.start
     db.commit()
