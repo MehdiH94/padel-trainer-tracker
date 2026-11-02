@@ -1,5 +1,5 @@
 """Teste l'envoi d'e-mail avec les réglages SMTP du serveur et affiche la réponse exacte du serveur d'e-mail.
-Usage (sur le VPS): docker compose exec app python test_smtp.py [adresse_destinataire]"""
+Usage (sur le VPS): docker compose exec app python check_smtp.py [adresse_destinataire]"""
 import os
 import smtplib
 import sys
