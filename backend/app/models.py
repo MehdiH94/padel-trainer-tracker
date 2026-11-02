@@ -193,7 +193,8 @@ class Booking(Base):
     notified_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)  # joueur prévenu de la confirmation
     charged_millimes: Mapped[int] = mapped_column(Integer, default=0)  # débité des crédits (0 = à régler sur place)
     price_millimes: Mapped[int] = mapped_column(Integer, default=0)  # prix actuel (formule réellement jouée, remise comprise)
-    discount_pct: Mapped[int] = mapped_column(Integer, default=0)  # remise obtenue à la réservation (happy hour / promotion)
+    discount_pct: Mapped[int] = mapped_column(Integer, default=0)
+    replace_token: Mapped[str | None] = mapped_column(String(40), nullable=True, unique=True)  # lien « remplacez-moi » (après le délai d'annulation)  # remise obtenue à la réservation (happy hour / promotion)
     session_id: Mapped[int | None] = mapped_column(ForeignKey("sessions.id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
 

@@ -46,12 +46,11 @@ function KindPill({ kind }) {
   return <span className="kind-pill" style={{ background: k.color + "1a", color: k.color }}><Icon name={k.icon} size={13} /> {k.label}</span>;
 }
 
-async function cancelBooking(me, b, reload) {
-  const late = toDate(b.start) - Date.now() < me.cancel_hours * 3600000 && b.status !== "en_attente";
+async function cancelBooking(b, reload) {
   const ok = await confirmDialog({
     title: "Annuler cette séance ?",
-    message: late ? `Vous êtes à moins de ${me.cancel_hours} h de la séance : vos crédits ne seront pas remboursés.` : "Vos crédits vous seront remboursés.",
-    confirm: "Annuler la séance", cancel: "Garder ma séance", danger: late,
+    message: b.status === "en_attente" ? "Votre demande sera retirée." : "Vos crédits vous seront remboursés.",
+    confirm: "Annuler la séance", cancel: "Garder ma séance",
   });
   if (!ok) return;
   try {
@@ -90,6 +89,48 @@ function bookPromo(p, go) {
     sessionStorage.setItem("book-filters", JSON.stringify({ coachId: p.coach_id, day: toDate(p.start).toLocaleDateString("fr-CA", { timeZone: TZ }), kinds: ["individuel", "duo", "groupe"], period: "", hour: "", club: "" }));
   } catch { /* stockage indisponible */ }
   go("book");
+}
+
+// Annulation: jusqu'à 24 h avant (seul) ou 48 h avant (à deux, en groupe). Après, le bouton est grisé
+// et le joueur peut envoyer un lien pour qu'un autre joueur prenne sa place (ses crédits lui sont alors rendus).
+function CancelBox({ s, reload }) {
+  const [url, setUrl] = useState(null);
+  if (!s.booking_id) return null;
+  const when = (iso) => `${dayLabel(iso)} à ${hhmm(iso)}`;
+  if (s.can_cancel) {
+    return (
+      <div className="cancel-row">
+        <button className="small sec" onClick={() => cancelBooking(s, reload)}>Annuler</button>
+        {s.cancel_until && <small className="mut">Annulable jusqu'au {when(s.cancel_until)}</small>}
+      </div>
+    );
+  }
+  const h = s.booking_kind === "individuel" ? 24 : 48;
+  const get = () => api(`/me/bookings/${s.booking_id}/replacement`, { method: "POST" }).then((r) => setUrl(location.origin + r.path)).catch(toastError);
+  const msg = url && `Je ne peux plus venir à ma séance de padel du ${when(s.start)} avec ${s.coach_name}${s.club ? ` (${s.club})` : ""}. Tu veux prendre ma place ? ${url}`;
+  const share = async () => {
+    try {
+      if (navigator.share) await navigator.share({ text: msg });
+      else { await navigator.clipboard.writeText(msg); toast("Message copié"); }
+    } catch { /* partage annulé */ }
+  };
+  return (
+    <div className="cancel-row late">
+      <button className="small sec" disabled aria-disabled="true" title="Délai d'annulation dépassé">Annuler</button>
+      <small>Trop tard pour annuler : une séance {s.booking_kind === "individuel" ? "seul" : "à deux ou en groupe"} s'annule au plus tard {h} h avant. Trouvez quelqu'un pour vous remplacer, vos crédits vous seront rendus.</small>
+      {!url ? <button className="small" onClick={get}><Icon name="users" size={14} /> Me faire remplacer</button> : (
+        <div className="replace-share">
+          <input readOnly value={url} aria-label="Lien de la séance" onFocus={(e) => e.target.select()} />
+          <div className="actions">
+            <a className="btnlink wa" href={`https://wa.me/?text=${encodeURIComponent(msg)}`} target="_blank" rel="noreferrer"><Icon name="whatsapp" size={15} /> WhatsApp</a>
+            <button className="small sec" onClick={share}><Icon name="send" size={14} /> Partager</button>
+            <button className="small sec" onClick={() => navigator.clipboard?.writeText(url).then(() => toast("Lien copié"))}><Icon name="copy" size={14} /> Copier</button>
+          </div>
+          <small className="mut">Dès que quelqu'un prend votre place, vous êtes prévenu et vos crédits vous sont rendus.</small>
+        </div>
+      )}
+    </div>
+  );
 }
 
 function Home({ me, sessions, progress, credits, proposals, promos, go, reload }) {
@@ -187,8 +228,8 @@ function Home({ me, sessions, progress, credits, proposals, promos, go, reload }
             <div className="mut" style={{ marginTop: 4 }}><Icon name="user" size={13} /> {next.coach_name}{next.club && <> · <Icon name="pin" size={13} /> {next.club}</>}</div>
             <div className={"status-line " + next.status}>{statusText(next)}</div>
             <Reconsider s={next} reload={reload} />
+            <CancelBox s={next} reload={reload} />
           </div>
-          {next.booking_id && <button className="small sec" onClick={() => cancelBooking(me, next, reload)}>Annuler</button>}
         </div>
       ) : <div className="card mut">Aucune séance prévue. Réservez la prochaine !</div>}
 
@@ -275,8 +316,8 @@ function Mine({ me, sessions, reload }) {
                 {s.partners.length > 0 && <div className="partners">{s.partners.map((x) => <span key={x.name} className="partner"><Avatar name={x.name} size={20} /> {x.name.split(" ")[0]}</span>)}</div>}
                 <div className={"status-line " + s.status}>{statusText(s)}</div>
                 <Reconsider s={s} reload={reload} />
+                <CancelBox s={s} reload={reload} />
               </div>
-              {s.booking_id ? <button className="small sec" onClick={() => cancelBooking(me, s, reload)}>Annuler</button> : null}
             </div>
           ))}
           {sessions.upcoming.some((s) => !s.booking_id && s.status !== "en_attente") && <div className="mut small-p">Pour modifier une séance fixée par {me.coach_name}, contactez-le.</div>}

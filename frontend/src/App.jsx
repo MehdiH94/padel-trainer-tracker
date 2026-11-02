@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import Courts from "./Courts.jsx";
 import Admin from "./Admin.jsx";
+import Replace from "./Replace.jsx";
 import Exercises from "./Exercises.jsx";
 import Home from "./Home.jsx";
 import Icon from "./Icon.jsx";
@@ -138,6 +139,7 @@ function CoachApp() {
 export default function App() {
   let page;
   if (location.pathname.startsWith("/invite/")) page = <Invite token={location.pathname.split("/")[2]} />;
+  else if (location.pathname.startsWith("/remplacer/")) page = <Replace token={location.pathname.split("/")[2]} />;
   else if (location.pathname.startsWith("/verify/")) page = <VerifyEmail token={location.pathname.split("/")[2]} />;
   else if (!getToken()) page = <Login />;
   else page = getRole() === "player" ? <PlayerApp /> : <CoachApp />;

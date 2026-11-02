@@ -423,21 +423,72 @@ def _release(db: Session, b: Booking) -> None:
                 cb.status = "annulee"
 
 
+# Annulation par le joueur: jusqu'à 24 h avant pour une séance seul, 48 h avant à deux ou en groupe.
+# Après ce délai, il ne peut plus annuler: il envoie un lien pour se faire remplacer (`replace`).
+CANCEL_BEFORE = {"individuel": timedelta(hours=24), "duo": timedelta(hours=48), "groupe": timedelta(hours=48)}
+
+
+def cancel_deadline(b: Booking) -> datetime:
+    return aware(b.start) - CANCEL_BEFORE.get(b.kind, timedelta(hours=48))
+
+
+def can_cancel(b: Booking, now: datetime | None = None) -> bool:
+    """Demande pas encore acceptée ou groupe pas encore formé: toujours annulable (et remboursé)."""
+    now = now or datetime.now(timezone.utc)
+    return b.status in ("en_attente", "attente_joueurs") or now <= cancel_deadline(b)
+
+
 def cancel_booking(db: Session, coach: Coach, b: Booking) -> bool:
-    """Annulation par le joueur. Retourne True si les crédits sont remboursés."""
+    """Annulation par le joueur, dans les délais: les crédits sont remboursés. Retourne True (remboursé)."""
     if b.status not in ACTIVE:
         raise BookingError("Cette réservation ne peut plus être annulée")
     if aware(b.start) <= datetime.now(timezone.utc):
         raise BookingError("Cette séance est déjà passée")
-    # groupe pas encore formé: toujours remboursé
-    refund = b.status in ("en_attente", "attente_joueurs") or aware(b.start) - datetime.now(timezone.utc) >= timedelta(hours=coach.cancel_hours)
+    if not can_cancel(b):
+        h = int(CANCEL_BEFORE.get(b.kind, timedelta(hours=48)).total_seconds() // 3600)
+        raise BookingError(f"Trop tard pour annuler (au plus tard {h} h avant). Envoyez le lien de la séance à un joueur qui peut vous remplacer.")
     was_pending = b.status == "en_attente"
     b.status = "annulee"
     if not was_pending:
         _release(db, b)
-    if refund:
-        _refund(db, b)
-    return refund
+    _refund(db, b)
+    return True
+
+
+def replace(db: Session, b: Booking, newcomer: Player) -> Booking:
+    """Un autre joueur prend la place: il reprend la réservation (même formule, même prix) et paie avec ses
+    crédits chez ce coach (solde négatif possible = impayé); celui qui part récupère ses crédits."""
+    from .accounts import account_of
+    if b.status not in ("acceptee", "confirmee", "attente_joueurs") or not b.session_id:
+        raise BookingError("Cette place n'est plus disponible")
+    if aware(b.start) <= datetime.now(timezone.utc):
+        raise BookingError("Cette séance a déjà commencé")
+    if account_of(db, newcomer).id == account_of(db, db.get(Player, b.player_id)).id:
+        raise BookingError("C'est votre propre réservation")
+    s = db.get(TrainingSession, b.session_id)
+    if newcomer.id in attendee_ids(s):
+        raise BookingError("Vous êtes déjà inscrit à cette séance")
+    others = [db.get(Player, i) for i in attendee_ids(s) if i != b.player_id]
+    if others and not all(compatible(newcomer.category, newcomer.gender, o.category, o.gender) for o in others):
+        raise BookingError("Votre niveau n'est pas compatible avec celui des autres joueurs de cette séance")
+    nb = Booking(coach_id=b.coach_id, player_id=newcomer.id, kind=b.kind, start=b.start, duration_min=b.duration_min, status=b.status,
+                 session_id=b.session_id, accepted_kinds=b.accepted_kinds, price_millimes=b.price_millimes, discount_pct=b.discount_pct,
+                 charged_millimes=0, notified_at=b.notified_at)
+    db.add(nb)
+    db.flush()
+    if b.charged_millimes:
+        db.add(CreditTx(coach_id=b.coach_id, player_id=newcomer.id, amount_millimes=-b.charged_millimes, reason="reservation", booking_id=nb.id))
+        nb.charged_millimes = b.charged_millimes
+    for a in s.attendances:
+        if a.player_id == b.player_id:
+            a.player_id = newcomer.id  # même place, mêmes formules acceptées
+            a.credit_paid_millimes = nb.charged_millimes
+    _refund(db, b)
+    b.status, b.replace_token = "remplacee", None
+    leaving = db.get(Player, b.player_id)
+    notify(db, [leaving], "Vous avez été remplacé", lambda p: f"Bonjour {p.name.split()[0]}, {newcomer.name} a pris votre place à la séance du {_when(s)}. "
+           f"{'Vos crédits vous ont été rendus.' if b.charged_millimes else ''}".strip())
+    return nb
 
 
 def coach_cancel_session(db: Session, s: TrainingSession) -> None:

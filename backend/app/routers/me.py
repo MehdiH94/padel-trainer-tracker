@@ -1,5 +1,6 @@
 """Côté joueur: l'application simplifiée (solde de crédits, réservation, séances, propositions, progression).
 Le joueur peut réserver chez tous les coachs: ses fiches chez chaque coach sont reliées à son compte (services/accounts)."""
+import secrets
 from datetime import date, datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -154,6 +155,7 @@ def my_sessions(player: Player = Depends(current_player), db: Session = Depends(
             "partners": _partners(db, s, ids), "status": b.status if b else "confirmee", "session_status": s.status,
             "coach_name": coach_names.get(s.coach_id, ""), "players_count": len(s.attendances), "min_needed": groups.min_needed(s),
             "booking_kind": b.kind if b else s.kind, "accepted_kinds": groups.split(b.accepted_kinds) if b else [],
+            "can_cancel": svc.can_cancel(b) if b else False, "cancel_until": svc.cancel_deadline(b) if b else None,
             "worked_on": [t for t in a.worked_on.split(",") if t], "note": a.note, "to_improve": a.to_improve,
         }
         (upcoming if s.status == "prevue" and aware(s.start) >= now else history).append(item)
@@ -163,7 +165,7 @@ def my_sessions(player: Player = Depends(current_player), db: Session = Depends(
             upcoming.append({
                 "session_id": None, "booking_id": b.id, "start": b.start, "duration_min": b.duration_min, "kind": b.kind,
                 "club": s.club if s else "", "court_state": None, "spots_left": 0, "partners": _partners(db, s, ids) if s else [],
-                "coach_name": coach_names.get(b.coach_id, ""),
+                "coach_name": coach_names.get(b.coach_id, ""), "can_cancel": True, "cancel_until": None,
                 "status": "en_attente", "session_status": "prevue", "worked_on": [], "note": "", "to_improve": "",
             })
     return {"upcoming": sorted(upcoming, key=lambda x: aware(x["start"])), "history": history[::-1][:60]}
@@ -180,6 +182,20 @@ def cancel(booking_id: int, player: Player = Depends(current_player), db: Sessio
         raise HTTPException(409, str(e))
     db.commit()
     return {"refunded": refunded, "refunded_millimes": b.charged_millimes if refunded else 0, "credits_millimes": credit_balance(db, b.player_id)}
+
+
+@router.post("/bookings/{booking_id}/replacement")
+def replacement_link(booking_id: int, player: Player = Depends(current_player), db: Session = Depends(get_db)):
+    """Trop tard pour annuler: lien de la séance à envoyer à un joueur qui prendra la place."""
+    b = db.get(Booking, booking_id)
+    if not b or b.player_id not in {p.id for p in linked(db, player)}:
+        raise HTTPException(404, "Réservation introuvable")
+    if b.status not in ("acceptee", "confirmee", "attente_joueurs") or not b.session_id or aware(b.start) <= datetime.now(timezone.utc):
+        raise HTTPException(409, "Cette réservation ne peut plus être cédée")
+    if not b.replace_token:
+        b.replace_token = secrets.token_urlsafe(16)
+        db.commit()
+    return {"path": f"/remplacer/{b.replace_token}"}
 
 
 class FormulaIn(BaseModel):

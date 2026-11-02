@@ -7,7 +7,7 @@ from sqlalchemy import inspect, select, text
 
 from .db import Base, SessionLocal, engine
 from .constants import TIERS
-from .routers import admin, auth, booking, clubs, dashboard, exercises, me, payments, players, profile, promotions, reminders, sessions
+from .routers import admin, auth, replace, booking, clubs, dashboard, exercises, me, payments, players, profile, promotions, reminders, sessions
 from .notify import Notifier
 from .services import booking as booking_svc
 from .services import courts, finance, planner, session_reminders
@@ -24,7 +24,7 @@ NEW_COLUMNS = [
     ("bookings", "price_millimes", "INTEGER DEFAULT 0"), ("clubs", "active", "BOOLEAN DEFAULT 1"),
     ("attendances", "accepted_kinds", "VARCHAR(40) DEFAULT ''"), ("bookings", "discount_pct", "INTEGER DEFAULT 0"),
     ("court_bookings", "series_id", "VARCHAR(36)"), ("coaches", "booking_mode", "VARCHAR(16) DEFAULT 'terrains'"),
-    ("credit_tx", "session_id", "INTEGER"), ("players", "signup_status", "VARCHAR(12)"), ("players", "invited_category", "VARCHAR(6)"), ("players", "signup_at", "TIMESTAMP"),
+    ("credit_tx", "session_id", "INTEGER"), ("bookings", "replace_token", "VARCHAR(40)"), ("players", "signup_status", "VARCHAR(12)"), ("players", "invited_category", "VARCHAR(6)"), ("players", "signup_at", "TIMESTAMP"),
     ("players", "email_verified_at", "TIMESTAMP"), ("players", "email_token", "VARCHAR(48)"), ("players", "email_token_sent_at", "TIMESTAMP"),
 ]
 with engine.begin() as conn:
@@ -74,7 +74,7 @@ async def lifespan(_: FastAPI):
 
 
 app = FastAPI(title="Padel Trainer Tracker", lifespan=lifespan)
-for r in (admin, auth, players, sessions, payments, dashboard, booking, profile, clubs, reminders, promotions, me, exercises):
+for r in (admin, auth, replace, players, sessions, payments, dashboard, booking, profile, clubs, reminders, promotions, me, exercises):
     app.include_router(r.router)
 
 

@@ -271,10 +271,14 @@ def test_cancellation_policy(client):
     assert pc.get("/me").json()["credits_millimes"] == 0
     assert pc.post(f"/me/bookings/{far_id}/cancel").json()["refunded"] is True
     assert pc.get("/me").json()["credits_millimes"] == 60000
-    assert pc.post(f"/me/bookings/{near_id}/cancel").json()["refunded"] is False  # moins de 24 h avant
+    # moins de 24 h avant une séance seul: annulation impossible, il peut se faire remplacer
+    r = pc.post(f"/me/bookings/{near_id}/cancel")
+    assert r.status_code == 409 and "remplacer" in r.json()["detail"]
+    near_item = next(x for x in pc.get("/me/sessions").json()["upcoming"] if x["booking_id"] == near_id)
+    assert near_item["can_cancel"] is False
     assert pc.get("/me").json()["credits_millimes"] == 60000
     assert pc.post(f"/me/bookings/{far_id}/cancel").status_code == 409  # déjà annulée
-    assert all(c["free"] for c in client.get("/court-bookings").json())  # les terrains sont redevenus libres
+    assert sum(not c["free"] for c in client.get("/court-bookings").json()) == 1  # seul le terrain de la séance maintenue est pris
 
 
 def test_coach_cancelling_booked_session_refunds(client):
@@ -1123,7 +1127,7 @@ def test_price_follows_the_formula_actually_played(client):
     s, ps = player_client(client, name="Solo", phone="20333333")
     for p in (a, b, s):
         client.post(f"/players/{p['id']}/credits", json={"amount_millimes": 100000})
-    start = _future_slot(pa, 30)
+    start = _future_slot(pa, 54)  # à plus de 48 h: un duo peut encore être annulé
     bal = lambda pc: pc.get("/me").json()["credits_millimes"]  # noqa: E731
     # Ali accepte seul ou à deux: validé seul, il paie le solo (60)
     r = pa.post("/me/book", json={"kind": "individuel", "start": start, "kinds": ["individuel", "duo"]}).json()
@@ -1312,3 +1316,54 @@ def test_no_credits_means_debt_then_recharge_settles_it(client):
     client.patch(f"/sessions/{s['id']}", json={"status": "effectuee"})
     w = pc2.get("/me").json()["wallets"][0]
     assert (w["credits_millimes"], w["due_millimes"]) == (0, 10000)  # crédits insuffisants: le reste en impayé
+
+
+def test_late_cancel_replaced_by_another_player(client):
+    """Après le délai (24 h seul, 48 h à deux ou en groupe), le joueur envoie un lien: un autre joueur prend sa place,
+    paie avec ses crédits, et celui qui part récupère les siens."""
+    open_week(client)
+    p, pc = player_client(client, category="P250-")
+    q, qc = player_client(client, name="Rim", phone="20111222", category="P250-")
+    client.post(f"/players/{p['id']}/credits", json={"amount_millimes": 100000})
+    start = _future_slot(pc, 30)  # entre 24 et 48 h: un duo ne peut plus être annulé
+    free_court(client, start)
+    r = pc.post("/me/book", json={"kind": "duo", "start": start, "kinds": ["duo"]}).json()
+    client.post(f"/booking/requests/{r['id']}/accept", json={})
+    sid = next(x["id"] for x in client.get("/sessions").json() if x["player_ids"] == [p["id"]])
+    client.post(f"/booking/requests/{qc.post('/me/book', json={'session_id': sid, 'kinds': ['duo']}).json()['id']}/accept", json={})
+    assert pc.post(f"/me/bookings/{r['id']}/cancel").status_code == 409
+    path = pc.post(f"/me/bookings/{r['id']}/replacement").json()["path"]
+    token = path.split("/")[-1]
+    anon = TestClient(app)
+    info = anon.get(f"/replace/{token}").json()
+    assert info["leaving"] == "Sami" and info["coach_name"] == "Coach Test"
+    assert pc.post(f"/replace/{token}/take").status_code == 409  # pas sa propre place
+    # un ami sans compte s'inscrit depuis le lien et prend la place (dans le rouge: pas encore de crédits)
+    out = anon.post(f"/replace/{token}/signup", json={"name": "Ali Ben Salah", "phone": "98 123 000", "email": "ali@x.tn",
+                                                      "password": "secret1", "category": "P250+"}).json()
+    ali = login_as(TestClient(app), out["token"])
+    [mine] = ali.get("/me/sessions").json()["upcoming"]
+    assert mine["status"] in ("confirmee", "acceptee", "attente_joueurs")
+    w = ali.get("/me").json()["wallets"][0]
+    assert w["due_millimes"] == r["price_millimes"]
+    assert pc.get("/me").json()["wallets"][0]["credits_millimes"] == 100000  # Sami récupère ses crédits
+    assert pc.get("/me/sessions").json()["upcoming"] == []
+    names = {x["name"] for x in client.get("/players").json()}
+    assert "Ali Ben Salah" in names  # le remplaçant devient élève du coach
+    assert anon.get(f"/replace/{token}").status_code == 404  # lien à usage unique
+
+
+def test_replacement_requires_compatible_level(client):
+    open_week(client)
+    p, pc = player_client(client, category="P1000-")
+    q, qc = player_client(client, name="Rim", phone="20111222", category="P1000-")
+    start = _future_slot(pc, 30)
+    free_court(client, start)
+    r = pc.post("/me/book", json={"kind": "duo", "start": start, "kinds": ["duo"]}).json()
+    client.post(f"/booking/requests/{r['id']}/accept", json={})
+    sid = next(x["id"] for x in client.get("/sessions").json() if x["player_ids"] == [p["id"]])
+    r2 = qc.post("/me/book", json={"session_id": sid, "kinds": ["duo"]}).json()
+    client.post(f"/booking/requests/{r2['id']}/accept", json={})
+    token = qc.post(f"/me/bookings/{r2['id']}/replacement").json()["path"].split("/")[-1]
+    _, low = player_client(client, name="Novice", phone="20333444", category="P25-")
+    assert low.post(f"/replace/{token}/take").status_code == 409  # trop d'écart avec Sami

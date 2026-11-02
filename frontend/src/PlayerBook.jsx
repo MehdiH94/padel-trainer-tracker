@@ -299,7 +299,7 @@ export function CoachPage({ id, go, onBack }) {
         {byDay.map(([d, ws]) => (
           <div key={d} className="row avail"><span>{d}</span><span className={ws.length ? "" : "mut"}>{ws.length ? ws.map((w) => `${w.start_time}–${w.end_time}`).join(" · ") : "Fermé"}</span></div>
         ))}
-        <div className="mut small-p" style={{ marginTop: 8 }}>Durées : seul {c.durations.individuel} min · à deux {c.durations.duo} min · en groupe {c.durations.groupe} min · annulation remboursée jusqu'à {c.cancel_hours} h avant.</div>
+        <div className="mut small-p" style={{ marginTop: 8 }}>Durées : seul {c.durations.individuel} min · à deux {c.durations.duo} min · en groupe {c.durations.groupe} min · annulation jusqu'à 24 h avant (seul) ou 48 h avant (à deux, en groupe).</div>
       </div>
       {c.happy_hours.length > 0 && (
         <>

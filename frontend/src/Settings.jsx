@@ -134,14 +134,7 @@ export default function Settings({ onBack }) {
         <div className="mut" style={{ marginTop: -4, marginBottom: 10 }}>
           {s.auto_confirm ? "Si un terrain que vous avez réservé couvre le créneau, la réservation est confirmée sans votre intervention." : "Vous validez chaque demande depuis l'onglet Demandes."}
         </div>
-        <div className="grid">
-          <label className="field"><span className="mut">Annulation remboursée jusqu'à</span>
-            <select value={s.cancel_hours} onChange={(e) => setS({ ...s, cancel_hours: +e.target.value })}>
-              {[[0, "À tout moment"], [2, "2 h avant"], [12, "12 h avant"], [24, "24 h avant"], [48, "48 h avant"]].map(([h, l]) => <option key={h} value={h}>{l}</option>)}
-            </select>
-          </label>
-        </div>
-        <div className="mut">Après ce délai, la séance est due : les crédits ne sont pas rendus.</div>
+        <div className="mut">Annulation par le joueur : jusqu'à 24 h avant pour une séance seul, 48 h avant à deux ou en groupe (crédits rendus). Après ce délai, il ne peut plus annuler mais peut envoyer un lien pour se faire remplacer.</div>
       </div>
 
       <h2>Disponibilités</h2>
