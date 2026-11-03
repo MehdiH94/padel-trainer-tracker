@@ -2,9 +2,10 @@ import { useEffect, useState } from "react";
 import { api } from "./api.js";
 import Icon from "./Icon.jsx";
 import { toast, toastError } from "./feedback.jsx";
-import { KIND, Loading, TimeSelect } from "./ui.jsx";
+import { ClockPicker, KIND, Loading, MoneyInput } from "./ui.jsx";
 
 const DAYS = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"];
+const FULL_DAYS = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"];
 const DUR = { individuel: "slot_minutes", duo: "duration_duo", groupe: "duration_groupe" }; // champ de durée par formule
 
 export default function Settings({ onBack, sub }) {
@@ -99,7 +100,7 @@ export default function Settings({ onBack, sub }) {
             <select aria-label={`Durée ${v.label}`} value={s[DUR[k]]} onChange={(e) => setS({ ...s, [DUR[k]]: +e.target.value })}>
               {[45, 60, 75, 90, 120].map((m) => <option key={m} value={m}>{m} min</option>)}
             </select>
-            <span className="inputunit"><input type="number" step="0.001" min="0" aria-label={`Prix ${v.label}`} value={s["price_" + k] / 1000} onChange={(e) => setS({ ...s, ["price_" + k]: Math.round(e.target.value * 1000) })} /><em>TND</em></span>
+            <span className="inputunit"><MoneyInput label={`Prix ${v.label}`} value={s["price_" + k]} onChange={(m) => setS({ ...s, ["price_" + k]: m })} /><em>TND</em></span>
           </div>
         ))}
       </div>
@@ -110,8 +111,8 @@ export default function Settings({ onBack, sub }) {
         {s.happy_hours.map((h, i) => (
           <div className="happy" key={i}>
             <select aria-label="Jour" value={h.weekday} onChange={(e) => setHappy(i, { weekday: +e.target.value })}>{DAYS.map((d, j) => <option key={j} value={j}>{d}</option>)}</select>
-            <TimeSelect label="Début" value={h.start_time} onChange={(v) => setHappy(i, { start_time: v })} />
-            <TimeSelect label="Fin" value={h.end_time} onChange={(v) => setHappy(i, { end_time: v })} />
+            <ClockPicker label="Happy hour · début" value={h.start_time} onChange={(v) => setHappy(i, { start_time: v })} />
+            <ClockPicker label="Happy hour · fin" value={h.end_time} onChange={(v) => setHappy(i, { end_time: v })} />
             <span className="inputunit pct"><input type="number" min="1" max="90" aria-label="Remise" value={h.discount_pct} onChange={(e) => setHappy(i, { discount_pct: +e.target.value })} /><em>%</em></span>
             <button className="small sec iconbtn" aria-label="Supprimer la happy hour" onClick={() => setS({ ...s, happy_hours: s.happy_hours.filter((_, j) => j !== i) })}><Icon name="trash" size={14} /></button>
           </div>
@@ -133,37 +134,55 @@ export default function Settings({ onBack, sub }) {
 
       <h2>Validation et annulation</h2>
       <div className="card">
-        <label className="check">
-          <input type="checkbox" checked={s.auto_confirm} onChange={(e) => setS({ ...s, auto_confirm: e.target.checked })} />
-          Accepter automatiquement quand un terrain est disponible
-        </label>
-        <div className="mut" style={{ marginTop: -4, marginBottom: 10 }}>
-          {s.auto_confirm ? "Si un terrain que vous avez réservé couvre le créneau, la réservation est confirmée sans votre intervention." : "Vous validez chaque demande depuis l'onglet Demandes."}
+        <div className={"autoconfirm" + (s.auto_confirm ? " on" : "")}>
+          <label className="check" style={{ margin: 0 }}>
+            <input type="checkbox" checked={s.auto_confirm} onChange={(e) => setS({ ...s, auto_confirm: e.target.checked })} />
+            <b>Validation automatique des réservations</b>
+          </label>
+          {s.auto_confirm ? (
+            <p className="small-p warn-txt" style={{ margin: "8px 0 0" }}>
+              <Icon name="alert" size={14} /> Attention : un joueur pourra réserver directement, sans votre confirmation, dès qu'un de vos terrains réservés couvre le créneau. La séance s'ajoute alors à votre planning et le joueur reçoit sa confirmation.
+            </p>
+          ) : (
+            <p className="mut small-p" style={{ margin: "8px 0 0" }}>Désactivée : chaque demande de réservation attend votre accord dans l'onglet Demandes (le joueur est prévenu dès que vous acceptez).</p>
+          )}
         </div>
+        <div style={{ height: 10 }} />
         <div className="mut">Annulation par le joueur : jusqu'à 24 h avant pour une séance seul, 48 h avant à deux ou en groupe (crédits rendus). Après ce délai, il ne peut plus annuler mais peut envoyer un lien pour se faire remplacer.</div>
       </div>
 
       <h2 id="disponibilites">Disponibilités</h2>
-      {(s.booking_mode ?? "terrains") === "terrains" && <p className="mut small-p" style={{ marginTop: -4 }}>En mode « terrains réservés », ce sont vos terrains qui fixent les créneaux proposés ; ces plages restent affichées sur votre page publique.</p>}
       <div className="card">
+        <div className="mut small-p" style={{ marginBottom: 4 }}>Vos heures de travail, jour par jour (format 24 h). Touchez une heure pour la changer.</div>
         {DAYS.map((name, d) => {
           const ws = dayWindows(d);
+          const pos = (t) => ((+t.slice(0, 2) + +t.slice(3, 5) / 60) / 24) * 100;
           return (
-            <div key={d} style={{ padding: "6px 0", borderTop: d ? "1px solid var(--line)" : "none" }}>
+            <div key={d} className="dayrow">
               <div className="row">
                 <label className="check" style={{ margin: 0 }}>
                   <input type="checkbox" checked={ws.length > 0} onChange={(e) => setDay(d, e.target.checked ? [{ start_time: "09:00", end_time: "13:00" }, { start_time: "15:00", end_time: "21:00" }] : [])} />
-                  {name}
+                  <b>{FULL_DAYS[d]}</b>
                 </label>
-                {ws.length === 0 && <span className="mut">Fermé</span>}
+                {ws.length === 0 ? <span className="mut small-p">Fermé</span>
+                  : <button type="button" className="link small-p" onClick={() => setS({ ...s, availability: [0, 1, 2, 3, 4, 5, 6].flatMap((x) => ws.map((w) => ({ ...w, weekday: x }))) })}>Copier sur tous les jours</button>}
               </div>
-              {ws.map((w, i) => (
-                <div className="row" key={i} style={{ gap: 6, marginTop: 4 }}>
-                  <TimeSelect label="Début" style={{ margin: 0 }} value={w.start_time} onChange={(v) => setDay(d, ws.map((x, j) => (j === i ? { ...x, start_time: v } : x)))} />
-                  <Icon name="arrowR" size={16} />
-                  <TimeSelect label="Fin" style={{ margin: 0 }} value={w.end_time} onChange={(v) => setDay(d, ws.map((x, j) => (j === i ? { ...x, end_time: v } : x)))} />
-                </div>
-              ))}
+              {ws.length > 0 && (
+                <>
+                  <div className="dayline" aria-hidden="true">{ws.map((w, i) => <i key={i} style={{ left: `${pos(w.start_time)}%`, width: `${Math.max(pos(w.end_time) - pos(w.start_time), 1)}%` }} />)}</div>
+                  <div className="dayticks" aria-hidden="true"><span>00</span><span>06</span><span>12</span><span>18</span><span>24</span></div>
+                  {ws.map((w, i) => (
+                    <div className="window" key={i}>
+                      <ClockPicker label={`${FULL_DAYS[d]} · début`} value={w.start_time} onChange={(v) => setDay(d, ws.map((x, j) => (j === i ? { ...x, start_time: v } : x)))} />
+                      <Icon name="arrowR" size={16} />
+                      <ClockPicker label={`${FULL_DAYS[d]} · fin`} value={w.end_time} onChange={(v) => setDay(d, ws.map((x, j) => (j === i ? { ...x, end_time: v } : x)))} />
+                      {w.start_time >= w.end_time && <span className="err small-p" style={{ margin: 0 }}>La fin doit être après le début</span>}
+                      <button type="button" className="small sec iconbtn" aria-label="Retirer cette plage" onClick={() => setDay(d, ws.filter((_, j) => j !== i))}><Icon name="trash" size={14} /></button>
+                    </div>
+                  ))}
+                  <button type="button" className="link small-p" style={{ marginTop: 6 }} onClick={() => setDay(d, [...ws, { start_time: "17:00", end_time: "21:00" }])}><Icon name="plus" size={13} /> Ajouter une plage</button>
+                </>
+              )}
             </div>
           );
         })}

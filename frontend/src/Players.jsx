@@ -92,7 +92,15 @@ export default function Players({ playerId, openPlayer, closePlayer }) {
         </div>
       ))}
       {!shown.length && <p className="mut">Aucun joueur trouvé.</p>}
-      <button className="fab" onClick={() => setAdding(!adding)}>{adding ? <><Icon name="x" size={18} /> Fermer</> : <><Icon name="plus" size={18} /> Joueur</>}</button>
+      {list.length === 0 && !adding && !added && (
+        <div className="card empty first-player">
+          <Icon name="userPlus" size={30} />
+          <b>Ajoutez votre premier élève</b>
+          <div className="mut">Touchez le bouton « + Joueur » en bas : nom, téléphone et niveau suffisent. Il reçoit ensuite un lien pour créer son compte.</div>
+          <button onClick={() => setAdding(true)}><Icon name="plus" size={16} /> Ajouter un élève</button>
+        </div>
+      )}
+      <button className={"fab" + (list.length === 0 && !adding ? " hint-pulse" : "")} onClick={() => setAdding(!adding)}>{adding ? <><Icon name="x" size={18} /> Fermer</> : <><Icon name="plus" size={18} /> Joueur</>}</button>
     </>
   );
 }

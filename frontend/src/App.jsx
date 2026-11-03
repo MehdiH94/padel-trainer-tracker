@@ -17,6 +17,7 @@ import Settings from "./Settings.jsx";
 import VerifyEmail from "./VerifyEmail.jsx";
 import { actingAs, api, getRole, getToken, setSession, setToken, stopActing } from "./api.js";
 import { FeedbackHost, Modal } from "./feedback.jsx";
+import { guideHidden, loadGuide, newlyDone } from "./guide.js";
 import { useRoute } from "./router.js";
 import { Avatar, CategoryBadge, OfflineBar } from "./ui.jsx";
 
@@ -97,6 +98,25 @@ function CoachApp() {
   const [[tab = "home", sub], go] = useRoute("home");
   const [summary, setSummary] = useState({ pending: 0, waiting_court: 0, to_notify: 0 });
   const [search, setSearch] = useState(false);
+  // Guide « Bien démarrer »: après chaque enregistrement, une étape terminée est fêtée et le guide relancé
+  const [guide, setGuide] = useState(null); // étapes du guide (null = guide fini ou masqué)
+  const [bravo, setBravo] = useState(null); // étape qui vient d'être terminée
+  const checkGuide = () => {
+    if (guideHidden()) return setGuide(null);
+    loadGuide().then((steps) => {
+      const fresh = newlyDone(steps);
+      setGuide(steps.every((s) => s.ok) && !fresh.length ? null : steps);
+      if (fresh.length) setBravo(fresh[fresh.length - 1]);
+    }).catch(() => {});
+  };
+  useEffect(() => {
+    checkGuide();
+    let t;
+    const later = () => { clearTimeout(t); t = setTimeout(checkGuide, 400); }; // après la fin de l'enregistrement
+    window.addEventListener("data:changed", later);
+    return () => { window.removeEventListener("data:changed", later); clearTimeout(t); };
+  }, []);
+  const needPlayer = guide && !guide.find((s) => s.key === "eleve")?.ok; // première fois: on montre où ajouter un élève
   const refresh = () => api("/booking/summary").then(setSummary).catch(() => {});
   useEffect(() => {
     refresh();
@@ -117,7 +137,7 @@ function CoachApp() {
       <nav aria-label="Navigation principale">
         <span className="brandmark"><Icon name="ball" size={20} /> Padel Coach</span>
         {TABS.map(([k, icon, label]) => (
-          <button key={k} className={navOn === k ? "on" : ""} aria-current={navOn === k ? "page" : undefined} onClick={() => go(k)}>
+          <button key={k} className={(navOn === k ? "on" : "") + (k === "players" && needPlayer && navOn !== "players" ? " hint-pulse" : "")} aria-current={navOn === k ? "page" : undefined} onClick={() => go(k)}>
             <span className="navico">
               <Icon name={icon} size={22} strokeWidth={navOn === k ? 2.3 : 1.8} />
               {k === "requests" && alerts > 0 && <b className="navbadge" aria-label={`${alerts} à traiter`}>{alerts}</b>}
@@ -136,8 +156,35 @@ function CoachApp() {
         <button onClick={() => go("settings")} title="Réglages" aria-label="Réglages"><Icon name="sliders" size={17} /></button>
         <button onClick={() => { setToken(null); location.hash = ""; location.reload(); }} title="Se déconnecter" aria-label="Se déconnecter"><Icon name="logout" size={17} /></button>
       </div>
+      {bravo && <Bravo step={bravo} steps={guide} onClose={() => setBravo(null)} go={(to) => { setBravo(null); go(to); }} />}
       {search && <PlayerSearch onClose={() => setSearch(false)} onPick={(id) => { setSearch(false); openPlayer(id); }} />}
     </>
+  );
+}
+
+// Félicitations quand une étape du guide « Bien démarrer » vient d'être terminée
+function Bravo({ step, steps, onClose, go }) {
+  const all = steps ?? [];
+  const done = all.filter((s) => s.ok).length;
+  const next = all.find((s) => !s.ok);
+  return (
+    <Modal onClose={onClose} label="Étape terminée">
+      <div className="bravo">
+        <div className="bravo-ico" aria-hidden="true"><Icon name="checkCircle" size={34} /></div>
+        <b className="sheet-title">{next ? "Bravo, une étape de plus !" : "Votre espace est prêt !"}</b>
+        <p>{step.bravo}</p>
+        {all.length > 0 && (
+          <>
+            <div className="bar"><div style={{ width: `${(done / all.length) * 100}%`, background: "var(--green)" }} /></div>
+            <div className="mut small-p">{done} étape{done > 1 ? "s" : ""} sur {all.length} terminée{done > 1 ? "s" : ""}{next ? ` · prochaine : ${next.label}` : " : vos joueurs peuvent réserver en ligne."}</div>
+          </>
+        )}
+        <div className="actions" style={{ flexDirection: "column" }}>
+          {next && <button onClick={() => go("home")}><Icon name="arrowR" size={15} /> Continuer le guide</button>}
+          <button className="sec" onClick={onClose}>{next ? "Rester sur cette page" : "Super !"}</button>
+        </div>
+      </div>
+    </Modal>
   );
 }
 

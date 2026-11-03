@@ -579,3 +579,37 @@ small.err { display: block; margin: 4px 0 0; font-size: .8rem; }
 .onboard .step.next .stepnum { background: var(--brand); color: var(--on-brand); }
 .focus-step { scroll-margin-top: 70px; animation: focusstep 2.4s ease; border-radius: 8px; }
 @keyframes focusstep { 0%, 60% { background: var(--brand-l); box-shadow: 0 0 0 6px var(--brand-l); } 100% { background: transparent; box-shadow: none; } }
+
+/* Choix d'une heure (24 h) */
+.clockbtn { background: var(--soft); color: var(--txt); font-variant-numeric: tabular-nums; font-weight: 700; padding: 8px 12px; min-height: 40px; border-radius: 12px; gap: 6px; }
+.clockbtn svg { color: var(--brand); }
+.clockgrid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; margin-top: 6px; }
+.clockgrid.mins { grid-template-columns: repeat(2, 1fr); }
+.clockcell { background: var(--soft); color: var(--txt); min-height: 42px; padding: 6px 0; font-variant-numeric: tabular-nums; font-weight: 700; border-radius: 10px; }
+.clockcell.on { background: var(--brand); color: var(--on-brand); }
+/* Disponibilités: une ligne par jour avec la frise de la journée */
+.dayrow { padding: 10px 0; border-top: 1px solid var(--line); }
+.dayrow:first-child { border-top: 0; }
+.dayline { position: relative; height: 10px; border-radius: 99px; background: var(--soft); margin: 8px 0 4px; overflow: hidden; }
+.dayline i { position: absolute; top: 0; bottom: 0; background: var(--brand); border-radius: 99px; }
+.dayticks { display: flex; justify-content: space-between; font-size: .62rem; color: var(--mut); font-variant-numeric: tabular-nums; }
+.window { display: flex; align-items: center; gap: 6px; margin-top: 6px; flex-wrap: wrap; }
+/* Validation automatique: avertissement bien visible */
+.autoconfirm { border: 2px solid var(--line); border-radius: 14px; padding: 12px; }
+.autoconfirm.on { border-color: var(--amber); background: var(--amber-l); }
+.autoconfirm .warn-txt { color: var(--warn-txt); font-weight: 600; }
+.pricebox { background: var(--soft); border-radius: 12px; padding: 10px 12px; margin-bottom: 10px; }
+.pricebox b { font-family: var(--font-display); font-size: 1.15rem; }
+.pricebox .field { margin: 8px 0 0; }
+
+/* Guide: mise en évidence de l'endroit où agir, félicitations */
+.hint-pulse { position: relative; }
+.hint-pulse::after { content: ""; position: absolute; inset: -4px; border-radius: 16px; border: 2px solid var(--brand); animation: hintpulse 1.4s ease-in-out infinite; pointer-events: none; }
+nav .hint-pulse { color: var(--brand); }
+@keyframes hintpulse { 0%, 100% { opacity: .2; transform: scale(.94); } 50% { opacity: 1; transform: scale(1.02); } }
+@media (prefers-reduced-motion: reduce) { .hint-pulse::after { animation: none; opacity: .8; } }
+.first-player button { margin-top: 10px; }
+.bravo { text-align: center; }
+.bravo-ico { width: 64px; height: 64px; border-radius: 50%; margin: 4px auto 8px; display: grid; place-items: center; background: var(--green-l); color: var(--ok-txt); }
+.bravo .bar { margin: 12px 0 6px; }
+.clockcell:not(.on):focus { background: var(--soft); color: var(--txt); outline: 2px solid var(--brand-ring); outline-offset: 1px; }

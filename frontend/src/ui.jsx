@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import Icon from "./Icon.jsx";
+import { Modal } from "./feedback.jsx";
 
 const COLORS = ["#2563eb", "#7c3aed", "#0891b2", "#db2777", "#ea580c", "#0d9488", "#4f46e5", "#be123c"];
 
@@ -267,4 +268,64 @@ export function clubCodes(names) {
     if (new Set(Object.values(out)).size === uniq.length) break;
   }
   return out;
+}
+
+// Montant en TND (valeur en millimes): champ vide au lieu de « 0 » (le 0 ne reste plus collé devant le chiffre tapé),
+// virgule ou point acceptés, 3 décimales au plus.
+export function MoneyInput({ value, onChange, label, ...rest }) {
+  const fmt = (m) => (m ? String(m / 1000) : "");
+  const [txt, setTxt] = useState(fmt(value));
+  useEffect(() => {
+    if (Math.round((parseFloat(txt.replace(",", ".")) || 0) * 1000) !== (value || 0)) setTxt(fmt(value));
+  }, [value]); // eslint-disable-line react-hooks/exhaustive-deps
+  return (
+    <input inputMode="decimal" placeholder="0" aria-label={label} value={txt} {...rest}
+      onFocus={(e) => e.target.select()}
+      onChange={(e) => {
+        const t = e.target.value.replace(/\s/g, "");
+        if (!/^\d*[.,]?\d{0,3}$/.test(t)) return;
+        setTxt(t);
+        onChange(Math.round((parseFloat(t.replace(",", ".")) || 0) * 1000));
+      }} />
+  );
+}
+
+// Heure au format 24 h (« 08 h 30 »): un bouton qui ouvre une grille d'heures (00 à 23) puis de minutes, plus simple
+// qu'une longue liste déroulante.
+const pad = (n) => String(n).padStart(2, "0");
+export const hLabel = (v) => (v ? `${v.slice(0, 2)} h ${v.slice(3, 5)}` : "--");
+export function ClockPicker({ value, onChange, label }) {
+  const [open, setOpen] = useState(false);
+  const [h, setH] = useState(value?.slice(0, 2) ?? "09");
+  const pick = (m) => { onChange(`${h}:${m}`); setOpen(false); };
+  return (
+    <>
+      <button type="button" className="clockbtn" aria-label={`${label} : ${hLabel(value)}`} onClick={() => { setH(value?.slice(0, 2) ?? "09"); setOpen(true); }}>
+        <Icon name="clock" size={15} /> {hLabel(value)}
+      </button>
+      {open && (
+        <ClockModal label={label} h={h} setH={setH} pick={pick} current={value} onClose={() => setOpen(false)} />
+      )}
+    </>
+  );
+}
+
+function ClockModal({ label, h, setH, pick, current, onClose }) {
+  return (
+    <Modal onClose={onClose} label={label}>
+      <div className="row"><b className="sheet-title">{label}</b><button type="button" className="small sec iconbtn" aria-label="Fermer" onClick={onClose}><Icon name="x" size={15} /></button></div>
+      <div className="mut small-p">1. L'heure</div>
+      <div className="clockgrid">
+        {Array.from({ length: 24 }, (_, i) => pad(i)).map((x) => (
+          <button type="button" key={x} className={"clockcell" + (x === h ? " on" : "")} onClick={() => setH(x)}>{x}</button>
+        ))}
+      </div>
+      <div className="mut small-p" style={{ marginTop: 8 }}>2. Les minutes</div>
+      <div className="clockgrid mins">
+        {["00", "15", "30", "45"].map((m) => (
+          <button type="button" key={m} className={"clockcell" + (current === `${h}:${m}` ? " on" : "")} onClick={() => pick(m)}>{h} h {m}</button>
+        ))}
+      </div>
+    </Modal>
+  );
 }

@@ -87,6 +87,7 @@ export async function api(path, { method = "GET", body } = {}) {
     const e = await res.json().catch(() => ({}));
     throw new Error(explain(res.status, e.detail));
   }
+  if (method !== "GET") window.dispatchEvent(new Event("data:changed")); // ex. guide « Bien démarrer »
   return res.json();
 }
 

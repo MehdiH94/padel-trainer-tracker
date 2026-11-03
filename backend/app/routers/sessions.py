@@ -18,6 +18,7 @@ from ..services.accounts import has_account
 from ..services import groups
 from ..services import finance
 from ..services.finance import session_payments, share
+from ..services.pricing import base_price
 from ..sms import get_sms_provider
 from ..sms.base import SmsProvider
 from .players import get_owned_player
@@ -95,7 +96,12 @@ def create_sessions(
         if not club or club.coach_id != coach.id:
             raise HTTPException(404, "Club introuvable")
     rec = str(uuid.uuid4()) if body.repeat_weeks > 1 else None
-    data = body.model_dump(exclude={"player_ids", "repeat_weeks", "start", "court_booked"})
+    data = body.model_dump(exclude={"player_ids", "repeat_weeks", "start", "court_booked", "discount_pct"})
+    if body.discount_pct is not None:  # prix des réglages (par joueur), promotion éventuelle
+        if not 0 <= body.discount_pct <= 90:
+            raise HTTPException(422, "Promotion : entre 0 et 90 %.")
+        data["price_millimes"] = round(base_price(coach, body.kind) * (100 - body.discount_pct) / 100)
+        data["price_mode"] = "par_joueur"
     if club:
         data["club"] = club.name
     created = []

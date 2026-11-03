@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api } from "./api.js";
+import { api, tnd } from "./api.js";
 import Icon from "./Icon.jsx";
 import { CATEGORIES, catOption, KIND, DateSelect, TimeSelect } from "./ui.jsx";
 
@@ -18,17 +18,25 @@ export default function SessionForm({ players, onDone }) {
   const today = new Date().toLocaleDateString("fr-CA", { timeZone: "Africa/Tunis" });
   const [f, setF] = useState({
     date: today, time: "18:00", duration_min: 60, kind: "individuel", club_id: "", court_booked: false, court: "",
-    price: "", price_mode: "par_joueur", repeat: false, repeat_weeks: 4, player_ids: [], open: false, level: "",
+    discount_pct: 0, repeat: false, repeat_weeks: 4, player_ids: [], open: false, level: "",
   });
   const [err, setErr] = useState("");
   const [clubs, setClubs] = useState([]);
-  useEffect(() => { api("/clubs").then(setClubs); }, []);
+  const [prefs, setPrefs] = useState(null); // réglages du coach: prix et durée de chaque formule
+  useEffect(() => {
+    api("/clubs").then(setClubs);
+    api("/booking/settings").then((st) => { setPrefs(st); setF((x) => ({ ...x, duration_min: st.slot_minutes || x.duration_min })); }).catch(() => {});
+  }, []);
+  const DUR = { individuel: "slot_minutes", duo: "duration_duo", groupe: "duration_groupe" };
+  const base = prefs ? prefs["price_" + f.kind] : 0; // prix par joueur de la formule (Réglages)
+  const price = Math.round(base * (100 - f.discount_pct) / 100);
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
   const max = KIND[f.kind].cap;
   const club = clubs.find((c) => c.id === +f.club_id);
 
   function setKind(kind) {
-    setF({ ...f, kind, player_ids: f.player_ids.slice(0, KIND[kind].cap), open: kind !== "individuel", price_mode: kind === "individuel" || f.open ? "par_joueur" : f.price_mode });
+    setF({ ...f, kind, player_ids: f.player_ids.slice(0, KIND[kind].cap), open: kind !== "individuel",
+      duration_min: prefs?.[DUR[kind]] || f.duration_min }); // durée de la formule dans vos réglages
   }
   function togglePlayer(id) {
     if (max === 1) return setF({ ...f, player_ids: [id] });
@@ -46,7 +54,7 @@ export default function SessionForm({ players, onDone }) {
           start: `${f.date}T${f.time}:00+01:00`, // Tunisie: UTC+1 toute l'année
           duration_min: f.duration_min, kind: f.kind, club_id: f.club_id ? +f.club_id : null, court_booked: !!f.club_id && f.court_booked,
           court: f.court, level: f.open ? f.level : "", open: f.open && f.kind !== "individuel",
-          price_millimes: Math.round(parseFloat(f.price || 0) * 1000), price_mode: f.open ? "par_joueur" : f.price_mode,
+          discount_pct: +f.discount_pct, // le prix vient des réglages (par joueur), moins la promotion
           repeat_weeks: f.repeat ? +f.repeat_weeks : 1, player_ids: f.player_ids,
         },
       });
@@ -128,18 +136,19 @@ export default function SessionForm({ players, onDone }) {
         </>
       )}
 
-      <div className="grid">
-        <Field label={f.open ? "Prix par joueur (TND)" : "Prix (TND)"}>
-          <input type="number" step="0.001" min="0" placeholder="0,000" value={f.price} onChange={set("price")} />
+      <div className="pricebox">
+        <div className="row">
+          <span className="mut">Prix par joueur</span>
+          <b>{prefs ? tnd(price) : "…"}{f.discount_pct > 0 && <s className="mut small-p" style={{ marginLeft: 6 }}>{tnd(base)}</s>}</b>
+        </div>
+        <div className="mut small-p">D'après vos réglages ({KIND[f.kind].label.toLowerCase()}). Pour le changer : Réglages › Formules.</div>
+        {prefs && !base && <div className="err small-p">Vous n'avez pas encore fixé ce prix : Réglages › Formules.</div>}
+        <Field label="Promotion (facultatif)">
+          <select value={f.discount_pct} onChange={(e) => setF({ ...f, discount_pct: +e.target.value })}>
+            <option value={0}>Aucune promotion</option>
+            {[10, 15, 20, 25, 30, 40, 50].map((p) => <option key={p} value={p}>−{p} %</option>)}
+          </select>
         </Field>
-        {f.kind !== "individuel" && !f.open && (
-          <Field label="Ce prix est…">
-            <select value={f.price_mode} onChange={set("price_mode")}>
-              <option value="par_joueur">par joueur</option>
-              <option value="groupe">pour tout le groupe</option>
-            </select>
-          </Field>
-        )}
       </div>
 
       <label className="check">

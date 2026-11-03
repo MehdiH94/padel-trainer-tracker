@@ -1673,3 +1673,14 @@ def test_slots_never_overlap_and_leave_no_unusable_gap(client):
     assert r.status_code == 201
     after = pc.get(f"/me/offers?day={day}&kinds=individuel,duo,groupe").json()["slots_with_court"]
     assert hhmm(after)[0] == "09:30" and "09:00" not in hhmm(after)
+
+
+def test_coach_session_price_comes_from_settings_with_optional_promo(client):
+    open_week(client)  # prix: 60 / 40 / 30 TND par joueur
+    a, b = mkplayer(client, name="A"), mkplayer(client, name="B")
+    start = (datetime.now(timezone.utc) + timedelta(days=3)).isoformat()
+    s = client.post("/sessions", json={"start": start, "kind": "duo", "player_ids": [a["id"], b["id"]], "discount_pct": 0, "price_millimes": 999000}).json()[0]
+    assert (s["price_millimes"], s["price_mode"]) == (40000, "par_joueur")  # le prix saisi est ignoré
+    s = client.post("/sessions", json={"start": start, "kind": "individuel", "player_ids": [a["id"]], "discount_pct": 25}).json()[0]
+    assert s["price_millimes"] == 45000  # 60 TND - 25 %
+    assert client.post("/sessions", json={"start": start, "kind": "individuel", "discount_pct": 95}).status_code == 422

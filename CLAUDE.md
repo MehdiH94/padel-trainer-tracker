@@ -17,14 +17,14 @@ Application de gestion pour un coach de padel indépendant (Tunisie) + espace jo
 # Backend (depuis backend/)
 python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
-python -m pytest -q                                  # 115 tests, doivent rester verts
+python -m pytest -q                                  # 116 tests, doivent rester verts
 uvicorn app.main:app --port 8000
 python seed_demo.py                                  # données de démo (base vide): coach demo@padel.tn / demo1234, joueur sami@demo.tn / demo1234
 python seed_more_coaches.py                          # + 2 coachs fictifs (coach.youssef@demo.tn, coach.meriem@demo.tn / demo1234), sans effet s'ils existent
 # Frontend (depuis frontend/)
 npm install && npm run dev                           # http://localhost:5173
 npm run build
-npx playwright test                                  # parcours de bout en bout (9), sur l'appli construite (npm run build avant)
+npx playwright test                                  # parcours de bout en bout (11), sur l'appli construite (npm run build avant)
 ```
 Tests de bout en bout (`frontend/e2e/`, Playwright): l'application est servie comme en production (`e2e/serve.sh`, `app.web`) sur une base neuve avec les données de démo (`e2e/setup.js`); en local, `PYTHON=../backend/.venv/bin/python npx playwright test`. Sur GitHub, le job `e2e` tourne à chaque push et le déploiement attend qu'il soit vert (rapport et captures en artefact si échec). Ajouter un parcours à chaque nouvelle fonctionnalité visible.
 Le schéma est créé par `create_all`: après un changement de modèle, supprimer `backend/padel.db` et relancer le seed.
@@ -41,6 +41,7 @@ Le schéma est créé par `create_all`: après un changement de modèle, supprim
 - Promotion: notifie une fois chaque compte joueur du coach (moyen de contact choisi), s'arrête quand le terrain est pris.
 - Pas de chevauchement ni de trou (`booking._busy`, `booking._fits`): une séance encore ouverte retient la durée de la plus longue formule qu'elle peut devenir (ouverte « seul ou en groupe » à 8 h avec groupe de 90 min = 8 h-9 h 30 bloqué), une demande pas encore traitée aussi; un début n'est proposé que s'il touche la séance voisine (ou le bord du terrain / de la disponibilité) ou laisse au moins la plus courte séance avant et après.
 - Guide « Bien démarrer » du coach (`Home.jsx` `Onboarding`, 6 étapes qui se cochent seules: profil (nom + présentation), clubs, formules (durée et prix), créneaux (terrains ou disponibilités selon le mode), premier élève, première séance; chaque étape ouvre le bon écran, sections des réglages par ancre `#settings/profil|clubs|formules|reservation|disponibilites`; `settings_out` fournit `clubs_count` et `free_courts`; masquable). Réserver (joueur): choisir une heure précise retire le filtre de période.
+- Saisie: montants avec `MoneyInput` (champ vide au lieu de 0, virgule acceptée), heures avec `ClockPicker` (grille 00-23 puis minutes, format « 08 h 30 », jamais AM/PM) pour les disponibilités (frise de la journée, « Copier sur tous les jours ») et les happy hours. Validation automatique mise en avant avec l'avertissement « un joueur pourra réserver sans votre confirmation ». Séance créée par le coach: plus de prix libre, prix par joueur de la formule (Réglages) moins une promotion facultative (`SessionIn.discount_pct`, calcul côté serveur; sans `discount_pct`, ancien prix saisi accepté par l'API). Guide « Bien démarrer » vivant (`guide.js`): toute modification réussie déclenche `data:changed` (`api.js`), l'appli vérifie les étapes et félicite pour une étape terminée (`Bravo` dans `App.jsx`, « Continuer le guide »); tant qu'il n'y a pas d'élève, le bouton « Joueurs » et « + Joueur » clignotent (`hint-pulse`).
 - Créneaux proposés aux joueurs (`Coach.booking_mode`, `booking.free_slots`): « terrains » (par défaut) = seulement dans les terrains réservés libres du coach; « disponibilites » = ses plages de disponibilité (il réserve le terrain après). Une séance qui utilise une partie d'un terrain le découpe (`courts.take_part`): le reste du bloc reste libre; une séance montée par le coach sur un de ses terrains libres l'utilise.
 - Dates: toujours stockées en UTC (`db.UTCDateTime`); une heure reçue avec décalage (« +01:00 », Tunis) est convertie. L'interface choisit les heures en 24 h (`TimeSelect`) et les dates en toutes lettres (`DateSelect`).
 - Calendrier des terrains (Terrains › Calendrier, `CourtCalendar.jsx`): un bloc par terrain, couleur selon `cb_out.state` (`clubs.court_state_label`): complet (minimum de joueurs atteint), incomplet, demande (au club, pas confirmé), libre (réservé, aucun joueur), refuse. Coach dans plusieurs clubs: code court du club sur chaque bloc + légende (`clubCodes` de `ui.jsx`, aussi dans `SessionCalendar.jsx`).

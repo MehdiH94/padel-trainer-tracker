@@ -3,6 +3,7 @@ import { api, dayKey, dayLabel, hhmm, shortDate, tnd, toDate, useLive } from "./
 import FeedbackEditor from "./FeedbackEditor.jsx";
 import SessionPayments from "./SessionPayments.jsx";
 import Icon from "./Icon.jsx";
+import { guideHidden, guideSteps, hideGuide } from "./guide.js";
 import { toast, toastError } from "./feedback.jsx";
 import { sessionStatus } from "./sessionActions.js";
 import { Avatar, AvatarStack, BarChart, COURT_STATUS, InstallCard, KIND, Loading, PlayerTag, PlayerTags, Where } from "./ui.jsx";
@@ -103,39 +104,24 @@ function UnpaidRow({ u, openPlayer, go, onPaid }) {
 // Guide « Bien démarrer » d'un nouveau coach: une liste qui se coche toute seule au fil de la configuration.
 // Chaque étape mène directement au bon écran (section des réglages, terrains, joueurs, planning).
 function Onboarding({ settings, players, sessions, go }) {
-  const [hidden, setHidden] = useState(() => { try { return localStorage.getItem("guide-masque") === "1"; } catch { return false; } });
-  const courtsMode = (settings.booking_mode ?? "terrains") === "terrains";
-  const steps = [
-    ["Mon profil : nom et présentation", Boolean(settings.name?.trim() && settings.bio?.trim()), "settings/profil",
-      "Ce que les joueurs voient quand ils choisissent un coach : présentez-vous et vos spécialités."],
-    ["Mes clubs", settings.clubs_count > 0, "settings/clubs", "Les clubs où vous entraînez : les joueurs vous trouvent en filtrant par club."],
-    ["Mes formules : durée et prix", Boolean(settings.price_individuel || settings.price_duo || settings.price_groupe), "settings/formules",
-      "Seul, à deux, en groupe : la durée d'une séance et le prix par joueur pour chaque formule."],
-    courtsMode
-      ? ["Ouvrir des créneaux : ajouter mes terrains", settings.free_courts > 0, "courts",
-        "Ajoutez les terrains que vous avez réservés (une fois ou chaque semaine) : les joueurs réservent dans ces créneaux."]
-      : ["Ouvrir des créneaux : mes disponibilités", settings.availability.length > 0, "settings/disponibilites",
-        "Vos jours et heures de travail : les joueurs réservent dans ces plages, vous réservez le terrain ensuite."],
-    ["Ajouter mon premier élève", players.length > 0, "players", "Il reçoit un lien pour créer son compte, sa fiche déjà remplie."],
-    ["Planifier ma première séance", sessions.length > 0, "planning", "Créez une séance depuis le planning, ou attendez la première réservation d'un joueur."],
-  ];
-  const done = steps.filter((s) => s[1]).length;
-  const next = steps.findIndex((s) => !s[1]);
+  const [hidden, setHidden] = useState(guideHidden);
+  const steps = guideSteps(settings, players, sessions);
+  const done = steps.filter((s) => s.ok).length;
+  const next = steps.findIndex((s) => !s.ok);
   if (done === steps.length || hidden) return null;
-  const hide = () => { try { localStorage.setItem("guide-masque", "1"); } catch { /* stockage indisponible */ } setHidden(true); };
   return (
     <div className="card onboard">
       <div className="row"><b>{done === 0 ? `Bienvenue${settings.name ? " " + settings.name.split(" ")[0] : ""} ! Configurons votre espace` : "Bien démarrer"}</b><span className="mut">{done}/{steps.length}</span></div>
       {done === 0 && <p className="mut small-p" style={{ margin: "4px 0 6px" }}>Six étapes rapides, dans l'ordre : vos joueurs pourront ensuite trouver vos créneaux et réserver en ligne.</p>}
       <div className="bar"><div style={{ width: `${(done / steps.length) * 100}%`, background: "var(--green)" }} /></div>
-      {steps.map(([label, ok, to, hint], i) => (
-        <button key={label} className={"step" + (ok ? " ok" : "") + (i === next ? " next" : "")} onClick={() => go(to)}>
-          <span className="stepnum">{ok ? <Icon name="check" size={14} /> : i + 1}</span>
-          <span className="steptxt">{label}{i === next && <small>{hint}</small>}</span>
-          {!ok && <Icon name="chevR" size={16} />}
+      {steps.map((st, i) => (
+        <button key={st.key} className={"step" + (st.ok ? " ok" : "") + (i === next ? " next" : "")} onClick={() => go(st.to)}>
+          <span className="stepnum">{st.ok ? <Icon name="check" size={14} /> : i + 1}</span>
+          <span className="steptxt">{st.label}{i === next && <small>{st.hint}</small>}</span>
+          {!st.ok && <Icon name="chevR" size={16} />}
         </button>
       ))}
-      <button className="link" style={{ marginTop: 6 }} onClick={hide}>Masquer ce guide</button>
+      <button className="link" style={{ marginTop: 6 }} onClick={() => { hideGuide(); setHidden(true); }}>Masquer ce guide</button>
     </div>
   );
 }

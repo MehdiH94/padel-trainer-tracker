@@ -96,6 +96,9 @@ class SessionIn(BaseModel):
     court: str = ""
     price_millimes: int = 0
     price_mode: str = "par_joueur"  # par_joueur: prix pour chacun / groupe: prix total partagé
+    # Prix fixé par les réglages du coach (prix par joueur de la formule), moins cette promotion en %.
+    # None = ancien fonctionnement (prix saisi dans price_millimes).
+    discount_pct: int | None = None
     player_ids: list[int] = []
     repeat_weeks: int = 1  # >1 crée une série hebdomadaire
 

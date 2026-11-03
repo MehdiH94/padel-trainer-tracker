@@ -176,10 +176,18 @@ test("nouveau coach: le guide « Bien démarrer » mène à chaque réglage et s
   await expect(page.locator("#profil")).toBeInViewport();
   await page.getByLabel("Présentation").fill("Coach diplômé, tous niveaux.");
   await page.getByLabel("Prix Individuel").fill("60");
+  await page.getByLabel("Prix Individuel").fill("060"); // le 0 de départ ne reste pas collé: « 60 »
+  await expect(page.getByLabel("Prix Individuel")).toHaveValue("060");
   await page.getByRole("button", { name: /Enregistrer/ }).click();
-  await page.getByRole("button", { name: "Accueil" }).click();
+  // étape terminée: message de félicitations, puis retour au guide
+  const bravo = page.getByRole("dialog", { name: "Étape terminée" });
+  await expect(bravo).toContainText("Bravo, une étape de plus !");
+  await expect(bravo).toContainText("2 étapes sur 6");
+  await bravo.getByRole("button", { name: "Continuer le guide" }).click();
   await expect(page.locator(".onboard")).toContainText("2/6"); // profil et formules cochés
   await expect(page.locator(".onboard .step.next")).toContainText("Mes clubs");
+  // pas encore d'élève: le bouton « Joueurs » est mis en évidence
+  await expect(page.getByRole("navigation", { name: "Navigation principale" }).getByRole("button", { name: "Joueurs" })).toHaveClass(/hint-pulse/);
 });
 
 test("réserver: choisir une heure précise remplace la période (matin, soir…)", async ({ page }) => {
@@ -190,4 +198,28 @@ test("réserver: choisir une heure précise remplace la période (matin, soir…
   await expect(page.getByRole("button", { name: "Soir" })).toHaveCount(0); // la période n'est plus proposée
   await page.getByLabel("Heure idéale (facultatif)").selectOption("");
   await expect(page.getByRole("button", { name: "Toute la journée" })).toBeVisible();
+});
+
+test("nouvelle séance: le prix vient des réglages, seule une promotion peut le baisser", async ({ page }) => {
+  await login(page, "demo@padel.tn");
+  await page.getByRole("navigation", { name: "Navigation principale" }).getByRole("button", { name: "Planning" }).click();
+  await page.getByRole("button", { name: "Séance" }).click();
+  const form = page.locator("form.card");
+  await expect(form.getByText("Prix par joueur")).toBeVisible();
+  await expect(form.locator("input[type=number][step='0.001']")).toHaveCount(0); // plus de prix libre
+  const before = await form.locator(".pricebox b").innerText();
+  await form.getByLabel("Promotion (facultatif)").selectOption("20");
+  await expect(form.locator(".pricebox s")).toHaveText(before.trim()); // ancien prix barré
+});
+
+test("disponibilités: heures au format 24 h choisies dans une grille", async ({ page }) => {
+  await login(page, "demo@padel.tn");
+  await page.goto("/#settings/disponibilites");
+  const start = page.getByRole("button", { name: /^Lundi · début/ }).first();
+  await expect(start).toBeVisible();
+  await start.click();
+  const clock = page.getByRole("dialog", { name: "Lundi · début" });
+  await clock.getByRole("button", { name: "08", exact: true }).click();
+  await clock.getByRole("button", { name: "08 h 30" }).click();
+  await expect(page.getByRole("button", { name: /^Lundi · début : 08 h 30/ }).first()).toBeVisible();
 });
