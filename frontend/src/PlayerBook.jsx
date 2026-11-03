@@ -196,7 +196,8 @@ export function Book({ me, reload, go, coachParam }) {
       </div>
       <div className="chips" style={{ marginBottom: 8 }}>
         {/* Une heure précise remplace la période (matin, soir…): les deux ne se combinent pas */}
-        {hour === "" && PERIODS.map(([k, l]) => <button key={k} className={"chip small" + (period === k ? " on" : "")} onClick={() => setPeriod(k)}>{l}</button>)}
+        {/* heure précise choisie: les périodes restent affichées mais aucune n'est sélectionnée; en choisir une retire l'heure */}
+        {PERIODS.map(([k, l]) => <button key={k} className={"chip small" + (hour === "" && period === k ? " on" : "")} aria-pressed={hour === "" && period === k} onClick={() => { setPeriod(k); setHour(""); }}>{l}</button>)}
         <select className="hoursel" aria-label="Heure idéale (facultatif)" value={hour} onChange={(e) => { setHour(e.target.value); if (e.target.value !== "") setPeriod(""); }}>
           <option value="">Heure : peu importe</option>
           {Array.from({ length: 15 }, (_, i) => i + 8).map((h) => <option key={h} value={h}>Vers {h} h</option>)}

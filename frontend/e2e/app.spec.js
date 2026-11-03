@@ -242,14 +242,19 @@ test("nouveau coach: confirmé par l'administrateur, puis le guide « Bien déma
   await expect(page.locator(".onboard")).toContainText("3/6");
 });
 
-test("réserver: choisir une heure précise remplace la période (matin, soir…)", async ({ page }) => {
+test("réserver: choisir une heure précise désélectionne la période (matin, soir…), qui reste affichée", async ({ page }) => {
   await login(page, "sami@demo.tn");
   await page.getByRole("button", { name: "Réserver", exact: true }).click();
   await page.getByRole("button", { name: "Soir" }).click();
   await page.getByLabel("Heure idéale (facultatif)").selectOption("10");
-  await expect(page.getByRole("button", { name: "Soir" })).toHaveCount(0); // la période n'est plus proposée
-  await page.getByLabel("Heure idéale (facultatif)").selectOption("");
-  await expect(page.getByRole("button", { name: "Toute la journée" })).toBeVisible();
+  // les périodes restent affichées, mais plus aucune n'est sélectionnée
+  await expect(page.getByRole("button", { name: "Soir" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Soir" })).toHaveAttribute("aria-pressed", "false");
+  await expect(page.getByRole("button", { name: "Toute la journée" })).toHaveAttribute("aria-pressed", "false");
+  // choisir une période retire l'heure précise
+  await page.getByRole("button", { name: "Matin" }).click();
+  await expect(page.getByRole("button", { name: "Matin" })).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByLabel("Heure idéale (facultatif)")).toHaveValue("");
 });
 
 test("nouvelle séance: le prix vient des réglages, seule une promotion peut le baisser", async ({ page }) => {
