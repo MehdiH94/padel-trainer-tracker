@@ -106,7 +106,9 @@ function CoachApp() {
     loadGuide().then((steps) => {
       const fresh = newlyDone(steps);
       setGuide(steps.every((s) => s.ok) && !fresh.length ? null : steps);
-      if (fresh.length) setBravo(fresh[fresh.length - 1]);
+      // le premier élève n'est pas fêté ici: la page Joueurs montre d'abord son lien à envoyer, puis « continuer le guide »
+      const shown = fresh.filter((s) => s.key !== "eleve");
+      if (shown.length) setBravo(shown[shown.length - 1]);
     }).catch(() => {});
   };
   useEffect(() => {
@@ -116,7 +118,7 @@ function CoachApp() {
     window.addEventListener("data:changed", later);
     return () => { window.removeEventListener("data:changed", later); clearTimeout(t); };
   }, []);
-  const needPlayer = guide && !guide.find((s) => s.key === "eleve")?.ok; // première fois: on montre où ajouter un élève
+  const needPlayer = guide?.find((s) => !s.ok)?.key === "eleve"; // seulement quand c'est l'étape en cours du guide
   const refresh = () => api("/booking/summary").then(setSummary).catch(() => {});
   useEffect(() => {
     refresh();

@@ -186,8 +186,23 @@ test("nouveau coach: le guide « Bien démarrer » mène à chaque réglage et s
   await bravo.getByRole("button", { name: "Continuer le guide" }).click();
   await expect(page.locator(".onboard")).toContainText("2/6"); // profil et formules cochés
   await expect(page.locator(".onboard .step.next")).toContainText("Mes clubs");
-  // pas encore d'élève: le bouton « Joueurs » est mis en évidence
-  await expect(page.getByRole("navigation", { name: "Navigation principale" }).getByRole("button", { name: "Joueurs" })).toHaveClass(/hint-pulse/);
+  // « Joueurs » n'est mis en évidence que lorsque c'est l'étape en cours (ici, ce sont les clubs)
+  await expect(page.getByRole("navigation", { name: "Navigation principale" }).getByRole("button", { name: "Joueurs" })).not.toHaveClass(/hint-pulse/);
+  // premier élève: un seul bouton pour l'ajouter, puis le lien à envoyer avant de reprendre le guide (pas de fenêtre « Bravo » qui le cache)
+  await page.getByRole("navigation", { name: "Navigation principale" }).getByRole("button", { name: "Joueurs" }).click();
+  await expect(page.getByText("Ajoutez votre premier élève")).toBeVisible();
+  await expect(page.getByRole("button", { name: /Ajouter un élève/ })).toHaveCount(0);
+  await page.getByRole("button", { name: "Joueur", exact: true }).click();
+  const form = page.locator("form.card");
+  await form.locator("input").first().fill("Premier Élève");
+  await form.locator("input[inputmode=tel]").fill("55 321 654");
+  await form.getByRole("button", { name: "Ajouter le joueur" }).click();
+  await expect(page.getByLabel("Lien d'inscription")).toHaveValue(/\/invite\//);
+  await expect(page.getByRole("dialog", { name: "Étape terminée" })).toHaveCount(0);
+  await page.getByRole("button", { name: "Copier" }).click();
+  await expect(page.getByText("Lien copié dans votre presse-papiers !")).toBeVisible();
+  await page.getByRole("button", { name: /continuer le guide/ }).click();
+  await expect(page.locator(".onboard")).toContainText("3/6");
 });
 
 test("réserver: choisir une heure précise remplace la période (matin, soir…)", async ({ page }) => {

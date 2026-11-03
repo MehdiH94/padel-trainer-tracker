@@ -5,7 +5,7 @@ import { toast } from "./feedback.jsx";
 import { ContactLinks } from "./ui.jsx";
 
 // Lien d'inscription pré-rempli: à copier ou à envoyer directement (SMS, WhatsApp, e-mail)
-export default function InviteLink({ player, path }) {
+export default function InviteLink({ player, path, onCopied }) {
   const [copied, setCopied] = useState(false);
   const url = location.origin + path;
   const msg = `Bonjour ${player.name.split(" ")[0]}, voici votre lien pour créer votre compte Padel Coach (fiche déjà pré-remplie, il suffit de la compléter) : ${url}`;
@@ -18,6 +18,7 @@ export default function InviteLink({ player, path }) {
     }
     setCopied(true);
     toast("Lien copié");
+    onCopied?.();
   };
   return (
     <>
@@ -26,7 +27,7 @@ export default function InviteLink({ player, path }) {
         <button type="button" className="small" onClick={copy}><Icon name={copied ? "check" : "copy"} size={15} /> {copied ? "Copié" : "Copier"}</button>
       </div>
       <ContactLinks phone={player.phone} email={player.email} message={msg} subject="Votre compte Padel Coach"
-        onSent={(ch) => api("/reminders/log", { method: "POST", body: { player_id: player.id, kind: "invitation", channel: ch } })} />
+        onSent={(ch) => { api("/reminders/log", { method: "POST", body: { player_id: player.id, kind: "invitation", channel: ch } }); onCopied?.(); }} />
     </>
   );
 }

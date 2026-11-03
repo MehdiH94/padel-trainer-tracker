@@ -3,9 +3,10 @@ import { api, emailProblem, tnd, useContactCheck } from "./api.js";
 import Icon from "./Icon.jsx";
 import InviteLink from "./InviteLink.jsx";
 import PlayerPage from "./PlayerPage.jsx";
+import { guideHidden } from "./guide.js";
 import { Avatar, CATEGORIES, catOption, CategoryBadge, TIERS, tierOf } from "./ui.jsx";
 
-export default function Players({ playerId, openPlayer, closePlayer }) {
+export default function Players({ playerId, openPlayer, closePlayer, go }) {
   const [list, setList] = useState([]);
   const [unpaid, setUnpaid] = useState({});
   const [q, setQ] = useState("");
@@ -28,7 +29,11 @@ export default function Players({ playerId, openPlayer, closePlayer }) {
   async function add(e) {
     e.preventDefault();
     try {
-      setAdded(await api("/players", { method: "POST", body: { ...f, email: f.email.trim() || null } }));
+      const first = list.length === 0; // premier élève: le guide « Bien démarrer » continue après l'envoi du lien
+      const r = await api("/players", { method: "POST", body: { ...f, email: f.email.trim() || null } });
+      let copied = false;
+      try { await navigator.clipboard.writeText(location.origin + r.invite_path); copied = true; } catch { /* copie refusée: bouton « Copier » */ }
+      setAdded({ ...r, copied, first });
       setF({ name: "", phone: "", email: "", gender: "M", category: "P100-" });
       setErr("");
       setAdding(false);
@@ -55,8 +60,15 @@ export default function Players({ playerId, openPlayer, closePlayer }) {
       {added?.invite_path && (
         <div className="card">
           <div className="row"><b><Icon name="checkCircle" size={16} /> {added.name} est dans votre liste</b><button className="small sec iconbtn" aria-label="Fermer" onClick={() => setAdded(null)}><Icon name="x" size={15} /></button></div>
-          <div className="mut small-p">Envoyez-lui ce lien : sa fiche est pré-remplie, il la complète et crée son compte.</div>
-          <InviteLink player={added} path={added.invite_path} />
+          {added.copied ? (
+            <div className="note ok" style={{ marginTop: 8 }}>
+              <Icon name="copy" size={14} /> <b>Lien copié dans votre presse-papiers !</b> Envoyez-le à {added.name.split(" ")[0]} (WhatsApp, SMS, e-mail) : sa fiche est déjà remplie, il n'a plus qu'à créer son compte.
+            </div>
+          ) : <div className="mut small-p">Copiez ce lien et envoyez-le à {added.name.split(" ")[0]} : sa fiche est pré-remplie, il la complète et crée son compte.</div>}
+          <InviteLink player={added} path={added.invite_path} onCopied={() => setAdded({ ...added, copied: true })} />
+          {added.first && added.copied && !guideHidden() && (
+            <button style={{ width: "100%", marginTop: 10 }} onClick={() => go("home")}><Icon name="arrowR" size={15} /> C'est envoyé : continuer le guide</button>
+          )}
         </div>
       )}
       {adding && (
@@ -91,13 +103,12 @@ export default function Players({ playerId, openPlayer, closePlayer }) {
           </div>
         </div>
       ))}
-      {!shown.length && <p className="mut">Aucun joueur trouvé.</p>}
+      {!shown.length && list.length > 0 && <p className="mut">Aucun joueur trouvé.</p>}
       {list.length === 0 && !adding && !added && (
         <div className="card empty first-player">
           <Icon name="userPlus" size={30} />
           <b>Ajoutez votre premier élève</b>
-          <div className="mut">Touchez le bouton « + Joueur » en bas : nom, téléphone et niveau suffisent. Il reçoit ensuite un lien pour créer son compte.</div>
-          <button onClick={() => setAdding(true)}><Icon name="plus" size={16} /> Ajouter un élève</button>
+          <div className="mut">Touchez le bouton « + Joueur » en bas de l'écran : nom, téléphone et niveau suffisent. Il reçoit ensuite un lien pour créer son compte.</div>
         </div>
       )}
       <button className={"fab" + (list.length === 0 && !adding ? " hint-pulse" : "")} onClick={() => setAdding(!adding)}>{adding ? <><Icon name="x" size={18} /> Fermer</> : <><Icon name="plus" size={18} /> Joueur</>}</button>
