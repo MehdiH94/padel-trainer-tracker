@@ -243,7 +243,7 @@ export default function PlayerPage({ id, onBack }) {
             )}
           </div>
           <form className="card" onSubmit={recharger}>
-            <div className="row"><b><Icon name="card" size={16} /> Crédits prépayés</b><b className={fin.credits_balance_millimes < 0 ? "red" : ""}>{tnd(fin.credits_balance_millimes)}{fin.credits_balance_millimes < 0 && " (dû)"}</b></div>
+            <div className="row"><b><Icon name="card" size={16} /> Crédits prépayés</b>{fin.credits_balance_millimes > 0 && <b>{tnd(fin.credits_balance_millimes)}</b>}</div>{/* négatif: déjà compté dans « Reste à payer » */}
             <div className="mut">{player.has_account ? "Le joueur réserve ses séances avec ce solde." : "Utilisables dès que le joueur aura créé son compte."}</div>
             <div className="grid" style={{ marginTop: 8 }}>
               <input type="number" step="0.001" placeholder="Montant TND" value={cr.amount} onChange={(e) => setCr({ ...cr, amount: e.target.value })} required />

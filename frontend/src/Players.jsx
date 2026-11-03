@@ -98,8 +98,10 @@ export default function Players({ playerId, openPlayer, closePlayer, go }) {
           </div>
           <div style={{ textAlign: "right" }}>
             <CategoryBadge category={p.category} gender={p.gender} />
-            {p.has_account && <div className={p.credits_millimes < 0 ? "red" : "mut"} style={{ fontSize: ".8rem" }}><Icon name="wallet" size={12} /> {tnd(p.credits_millimes)}</div>}
-            {unpaid[p.id] > 0 && <div className="red" style={{ fontSize: ".82rem" }}>{tnd(unpaid[p.id])} dû</div>}
+            {/* un seul montant chez ce coach: ce qu'il doit (séances non réglées + crédits passés dans le rouge), sinon ses crédits */}
+            {unpaid[p.id] > 0
+              ? <div className="red" style={{ fontSize: ".82rem" }}>{tnd(unpaid[p.id])} dû</div>
+              : p.credits_millimes > 0 && <div className="mut" style={{ fontSize: ".8rem" }}><Icon name="wallet" size={12} /> {tnd(p.credits_millimes)} de crédits</div>}
           </div>
         </div>
       ))}

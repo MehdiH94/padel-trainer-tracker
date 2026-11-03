@@ -114,7 +114,11 @@ def _free_on_courts(db: Session, coach: Coach, now: datetime, earliest: datetime
         lo, hi = aware(cb.start), aware(cb.start) + timedelta(minutes=cb.duration_min)
         cur = lo
         while cur + length <= hi and cur < horizon:
-            if cur >= earliest and _fits(cur, length, lo, hi, busy, shortest):
+            # terrain déjà payé: pas d'heure creuse, la séance colle au bord du terrain libre ou à une séance voisine
+            # (8 h-12 h: 8 h ou la fin à midi, jamais 8 h 30 qui laisserait la première demi-heure perdue)
+            end = cur + length
+            touches = cur == lo or end == hi or any(cur == b_end or end == b_start for b_start, b_end in busy)
+            if cur >= earliest and touches and _fits(cur, length, lo, hi, busy, shortest):
                 out.add(cur)
             cur += step
     return sorted(out)
