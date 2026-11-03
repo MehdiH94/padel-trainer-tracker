@@ -72,6 +72,13 @@ function explain(status, detail) {
   return BY_STATUS[status] ?? "Action impossible pour le moment. Réessayez.";
 }
 
+// Dernière réponse de chaque lecture (GET): un écran déjà visité s'affiche tout de suite avec ces données,
+// puis se met à jour dès que la nouvelle réponse arrive (pas de page blanche en changeant d'onglet).
+const memo = new Map();
+export const peek = (path) => memo.get(path);
+// Charger à l'avance les données d'un écran (ex. le planning pendant qu'on est sur l'accueil)
+export const prefetch = (paths) => paths.forEach((p) => { if (!memo.has(p)) api(p).catch(() => {}); });
+
 export async function api(path, { method = "GET", body } = {}) {
   let res;
   try {
@@ -91,8 +98,13 @@ export async function api(path, { method = "GET", body } = {}) {
     const e = await res.json().catch(() => ({}));
     throw new Error(explain(res.status, e.detail));
   }
-  if (method !== "GET") window.dispatchEvent(new Event("data:changed")); // ex. guide « Bien démarrer »
-  return res.json();
+  if (method !== "GET") {
+    window.dispatchEvent(new Event("data:changed")); // ex. guide « Bien démarrer »
+    return res.json();
+  }
+  const data = await res.json();
+  memo.set(path, data);
+  return data;
 }
 
 // Les montants sont en millimes (entiers); le TND s'affiche avec 3 décimales.

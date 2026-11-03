@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, dayLabel, hhmm, tnd, toDate, useLive } from "./api.js";
+import { api, dayLabel, hhmm, peek, tnd, toDate, useLive } from "./api.js";
 import Icon from "./Icon.jsx";
 import { confirmDialog } from "./feedback.jsx";
 import InvitePlayers from "./InvitePlayers.jsx";
@@ -196,7 +196,7 @@ function Groups({ reload: refresh }) {
 }
 
 export default function Requests({ go, refreshSummary }) {
-  const [items, setItems] = useState(null);
+  const [items, setItems] = useState(() => peek("/booking/requests") ?? null);
   const [clubs, setClubs] = useState([]);
   const [sub, setSub] = useState("requests");
   const load = () => { api("/booking/requests").then(setItems); api("/clubs").then(setClubs); refreshSummary?.(); };

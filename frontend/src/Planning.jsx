@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { api, dayKey, hhmm, useLive } from "./api.js";
+import { api, dayKey, hhmm, peek, useLive } from "./api.js";
 import Icon from "./Icon.jsx";
 import CourtCalendar, { offOn } from "./CourtCalendar.jsx";
 import { ManualForm } from "./Courts.jsx";
@@ -49,18 +49,19 @@ function TimeOffForm({ onCancel, onDone }) {
 }
 
 export default function Planning({ go, summary }) {
-  const [sessions, setSessions] = useState(null);
-  const [players, setPlayers] = useState([]);
+  // dernières données connues tout de suite (peek, voir api.js), mises à jour dès que les nouvelles arrivent
+  const [sessions, setSessions] = useState(() => peek("/sessions") ?? null);
+  const [players, setPlayers] = useState(() => peek("/players") ?? []);
   const [adding, setAdding] = useState(false);
   const [monday, setMonday] = useState(mondayOf(new Date()));
   const [sel, setSel] = useState(ymd(new Date()));
   const [openDone, setOpenDone] = useState(null);
   const [view, setView] = useState(location.hash.includes("jour") ? "liste" : "calendrier"); // le calendrier est la vue par défaut
   // Calendrier de la semaine: séances et terrains ensemble
-  const [courts, setCourts] = useState([]);
-  const [clubs, setClubs] = useState([]);
-  const [promos, setPromos] = useState([]);
-  const [offs, setOffs] = useState([]); // absences du coach
+  const [courts, setCourts] = useState(() => peek("/court-bookings") ?? []);
+  const [clubs, setClubs] = useState(() => peek("/clubs") ?? []);
+  const [promos, setPromos] = useState(() => peek("/promotions")?.items ?? []);
+  const [offs, setOffs] = useState(() => peek("/time-off") ?? []); // absences du coach
   const [addingOff, setAddingOff] = useState(false);
   const [inviteFor, setInviteFor] = useState(null); // séance qui vient d'être créée: inviter des joueurs
   const [addingCourt, setAddingCourt] = useState(false);

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, emailProblem, tnd, useContactCheck } from "./api.js";
+import { api, emailProblem, peek, tnd, useContactCheck } from "./api.js";
 import Icon from "./Icon.jsx";
 import InviteLink from "./InviteLink.jsx";
 import PlayerPage from "./PlayerPage.jsx";
@@ -7,7 +7,7 @@ import { guideHidden } from "./guide.js";
 import { Avatar, CATEGORIES, catOption, CategoryBadge, TIERS, tierOf } from "./ui.jsx";
 
 export default function Players({ playerId, openPlayer, closePlayer, go }) {
-  const [list, setList] = useState([]);
+  const [list, setList] = useState(() => peek("/players") ?? []); // liste du dernier passage, tout de suite
   const [unpaid, setUnpaid] = useState({});
   const [q, setQ] = useState("");
   const [cat, setCat] = useState("all");

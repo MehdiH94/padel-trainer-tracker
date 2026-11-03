@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 
 from fastapi import FastAPI
+from starlette.middleware.gzip import GZipMiddleware
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException
@@ -50,6 +51,8 @@ async def canonical_host(request, call_next):
         url = f"https://{CANONICAL_HOST}{request.url.path}" + (f"?{request.url.query}" if request.url.query else "")
         return RedirectResponse(url, status_code=301 if request.method in ("GET", "HEAD") else 308)
     return await call_next(request)
+# Réponses compressées (application et données): 3 à 8 fois moins à télécharger sur le téléphone
+web.add_middleware(GZipMiddleware, minimum_size=1000)
 web.mount("/api", api)
 if DIST.exists():
     web.mount("/", SinglePage(directory=DIST, html=True))

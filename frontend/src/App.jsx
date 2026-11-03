@@ -15,7 +15,7 @@ import Requests from "./Requests.jsx";
 import SessionPlan from "./SessionPlan.jsx";
 import Settings from "./Settings.jsx";
 import VerifyEmail from "./VerifyEmail.jsx";
-import { actingAs, api, getRole, getToken, setSession, setToken, stopActing } from "./api.js";
+import { actingAs, api, getRole, getToken, prefetch, setSession, setToken, stopActing } from "./api.js";
 import { FeedbackHost, Modal, toast, toastError } from "./feedback.jsx";
 import { guideHidden, loadGuide, newlyDone } from "./guide.js";
 import { useRoute } from "./router.js";
@@ -122,6 +122,11 @@ function CoachApp() {
   }, []);
   const needPlayer = guide?.find((s) => !s.ok)?.key === "eleve"; // seulement quand c'est l'étape en cours du guide
   const refresh = () => api("/booking/summary").then(setSummary).catch(() => {});
+  // données du planning chargées à l'avance, pendant que le coach regarde l'accueil: le planning s'ouvre tout de suite
+  useEffect(() => {
+    const t = setTimeout(() => prefetch(["/sessions", "/players", "/court-bookings", "/clubs", "/promotions", "/time-off"]), 1500);
+    return () => clearTimeout(t);
+  }, []);
   useEffect(() => {
     refresh();
     const t = setInterval(refresh, 20000);

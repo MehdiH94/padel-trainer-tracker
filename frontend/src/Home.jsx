@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, dayKey, dayLabel, hhmm, shortDate, tnd, toDate, useLive } from "./api.js";
+import { api, dayKey, dayLabel, hhmm, peek, shortDate, tnd, toDate, useLive } from "./api.js";
 import FeedbackEditor from "./FeedbackEditor.jsx";
 import SessionPayments from "./SessionPayments.jsx";
 import Icon from "./Icon.jsx";
@@ -127,16 +127,17 @@ function Onboarding({ settings, players, sessions, go }) {
 }
 
 export default function Home({ go, openPlayer, summary }) {
-  const [d, setD] = useState(null);
-  const [sessions, setSessions] = useState([]);
-  const [players, setPlayers] = useState([]);
-  const [pays, setPays] = useState([]);
-  const [strokes, setStrokes] = useState([]);
+  // données du dernier passage affichées tout de suite (peek), mises à jour ensuite
+  const [d, setD] = useState(() => peek("/dashboard") ?? null);
+  const [sessions, setSessions] = useState(() => peek("/sessions") ?? null); // null = pas encore chargées
+  const [players, setPlayers] = useState(() => peek("/players") ?? []);
+  const [pays, setPays] = useState(() => peek("/payments") ?? []);
+  const [strokes, setStrokes] = useState(() => peek("/strokes") ?? []);
   const [metric, setMetric] = useState("hours");
   const [now, setNow] = useState(new Date());
   const [openDone, setOpenDone] = useState(null);
-  const [settings, setSettings] = useState(null);
-  const [playersLoaded, setPlayersLoaded] = useState(false);
+  const [settings, setSettings] = useState(() => peek("/booking/settings") ?? null);
+  const [playersLoaded, setPlayersLoaded] = useState(() => !!peek("/players"));
   const load = () => {
     api("/booking/settings").then(setSettings).catch(() => {});
     api("/dashboard").then(setD);
@@ -151,26 +152,27 @@ export default function Home({ go, openPlayer, summary }) {
     return () => clearInterval(t);
   }, []);
   if (!d) return <Loading hero rows={3} />;
+  const all = sessions ?? [];
 
   const byId = (id) => players.find((p) => p.id === id);
   const name = (id) => byId(id)?.name ?? "?";
-  const todayAll = sessions.filter((s) => dayKey(s.start) === ymd(now) && s.status !== "annulee");
+  const todayAll = all.filter((s) => dayKey(s.start) === ymd(now) && s.status !== "annulee");
   const toDo = todayAll.filter((s) => s.status === "prevue"); // les séances terminées n'encombrent plus l'accueil
   const done = todayAll.length - toDo.length;
   const hoursToday = todayAll.reduce((a, s) => a + s.duration_min, 0);
   const expected = todayAll.reduce((a, s) => a + (s.price_mode === "groupe" ? s.price_millimes : s.price_millimes * s.player_ids.length), 0);
   const focus = toDo.find((s) => ["live", "validate"].includes(phase(s, now).key)) || toDo.find((s) => phase(s, now).key === "soon");
-  const finished = sessions.filter((s) => s.status === "effectuee").sort((a, b) => toDate(b.start) - toDate(a.start)).slice(0, 14);
+  const finished = all.filter((s) => s.status === "effectuee").sort((a, b) => toDate(b.start) - toDate(a.start)).slice(0, 14);
   const missing = finished.filter((s) => s.feedback_missing).length;
   const totalUnpaid = d.unpaid.reduce((a, u) => a + u.amount_millimes, 0);
-  const setStatus = sessionStatus(sessions, load);
+  const setStatus = sessionStatus(all, load);
   const alerts = (summary?.pending ?? 0) + (summary?.to_notify ?? 0);
 
   const weeks = Array.from({ length: 8 }, (_, i) => weekStart(new Date(Date.now() - (7 - i) * 7 * 86400000).toISOString()));
   const chart = weeks.map((w) => ({
     label: new Date(w + "T12:00:00Z").toLocaleDateString("fr-FR", { day: "numeric", month: "numeric", timeZone: "UTC" }),
     value: metric === "hours"
-      ? sessions.filter((s) => s.status === "effectuee" && weekStart(s.start) === w).reduce((a, s) => a + s.duration_min, 0) / 60
+      ? all.filter((s) => s.status === "effectuee" && weekStart(s.start) === w).reduce((a, s) => a + s.duration_min, 0) / 60
       : pays.filter((p) => weekStart(p.paid_at) === w).reduce((a, p) => a + p.amount_millimes, 0) / 1000,
   }));
 
@@ -211,7 +213,8 @@ export default function Home({ go, openPlayer, summary }) {
         </button>
       )}
 
-      {settings && playersLoaded && <Onboarding settings={settings} players={players} sessions={sessions} go={go} />}
+      {/* guide affiché seulement quand tout est chargé: sinon il apparaît puis disparaît */}
+      {settings && playersLoaded && sessions && <Onboarding settings={settings} players={players} sessions={sessions} go={go} />}
       <InstallCard />
 
       {focus && (() => {
