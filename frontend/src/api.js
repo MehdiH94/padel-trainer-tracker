@@ -20,6 +20,10 @@ export const setToken = (t) => {
   for (const s of [localStorage, sessionStorage]) { s.removeItem("token"); s.removeItem("role"); }
   window.caches?.delete("api"); // données hors-ligne du compte précédent
 };
+// Compte connecté (identifiant du jeton): pour mémoriser des préférences par compte sur un même appareil
+export function accountKey() {
+  try { return JSON.parse(atob(getToken().split(".")[1].replace(/-/g, "+").replace(/_/g, "/"))).sub; } catch { return ""; }
+}
 export const getRole = () => sessionStorage.getItem("role") || localStorage.getItem("role") || "coach";
 export const setSession = (r, remember) => {
   if (remember !== undefined) {

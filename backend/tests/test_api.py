@@ -1726,7 +1726,12 @@ def test_new_coach_waits_for_email_and_admin_then_more_admins(client, monkeypatc
     r = anon.post("/auth/register", json={"email": "neuf@b.tn", "password": "secret1", "name": "Coach Neuf", "phone": "22 333 444"}).json()
     new = login_as(TestClient(app), r["token"])
     acc = new.get("/auth/account").json()
-    assert (acc["pending"], acc["email_verified"], acc["signup_status"]) == (True, False, "a_valider")
+    assert (acc["pending"], acc["email_verified"], acc["email_required"], acc["signup_status"]) == (True, False, True, "a_valider")
+    monkeypatch.setenv("REQUIRE_EMAIL_VERIFICATION", "0")
+    monkeypatch.setenv("SMTP_HOST", "smtp.exemple.tn")  # e-mails possibles: le coach vérifie son e-mail quand même
+    assert new.get("/auth/account").json()["email_required"] is True
+    monkeypatch.setenv("REQUIRE_EMAIL_VERIFICATION", "1")
+    monkeypatch.delenv("SMTP_HOST")
     assert new.get("/booking/settings").status_code == 403
     assert any(to == "boss@padel.tn" and "Coach Neuf" in body for to, _, body in OUTBOX)  # l'administrateur est prévenu
     token = next(body for to, _, body in OUTBOX if to == "neuf@b.tn").split("/verify/")[1].split()[0]
@@ -1735,7 +1740,9 @@ def test_new_coach_waits_for_email_and_admin_then_more_admins(client, monkeypatc
     assert boss.get("/booking/summary").json()["signups"] == 1
     [c] = boss.get("/admin/coach-signups").json()
     assert (c["phone"], c["email_verified"]) == ("+21622333444", True)
-    boss.post(f"/admin/coach-signups/{c['id']}/validate")
+    OUTBOX.clear()
+    boss.post(f"/admin/coach-signups/{c['id']}/validate", json={"base": "http://padel.tn:8090"})
+    assert any(to == "neuf@b.tn" and "http://padel.tn:8090" in body and "Bien démarrer" in body for to, _, body in OUTBOX)  # lien du vrai site
     assert new.get("/auth/account").json()["pending"] is False and new.get("/booking/settings").status_code == 200
     # plusieurs administrateurs
     assert new.get("/admin/coaches").status_code == 403

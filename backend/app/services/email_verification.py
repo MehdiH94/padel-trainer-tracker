@@ -25,6 +25,12 @@ def required() -> bool:
     return flag == "1" if flag in ("0", "1") else bool(os.getenv("SMTP_HOST"))
 
 
+def coach_required() -> bool:
+    """Nouveau coach: e-mail toujours à vérifier dès que l'application envoie des e-mails (SMTP_HOST réglé),
+    même si REQUIRE_EMAIL_VERIFICATION=0 (qui ne concerne que la réservation des joueurs)."""
+    return bool(os.getenv("SMTP_HOST")) or os.getenv("REQUIRE_EMAIL_VERIFICATION") == "1"
+
+
 def is_verified(p: Player | Coach) -> bool:
     return p.email_verified_at is not None
 

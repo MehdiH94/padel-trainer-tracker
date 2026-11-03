@@ -207,7 +207,7 @@ function AdminBar() {
 function Waiting({ acc, reload }) {
   const [sent, setSent] = useState(false);
   useEffect(() => { const t = setInterval(reload, 15000); return () => clearInterval(t); }, []);
-  const emailOk = acc.email_verified || !acc.email_required;
+  const emailOk = acc.email_verified; // « c'est fait » seulement quand le lien a vraiment été ouvert
   const resend = () => api("/auth/account/resend", { method: "POST", body: { base: location.origin } })
     .then(() => { setSent(true); toast(`Nouveau lien envoyé à ${acc.email}`); }).catch(toastError);
   const logout = () => { setToken(null); location.reload(); };

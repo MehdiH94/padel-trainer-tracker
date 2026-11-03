@@ -12,7 +12,7 @@ function Signup({ s, onDone }) {
     if (what === "refuse" && !(await confirmDialog({ title: `Refuser l'inscription de ${s.name} ?`, message: "Son compte sera fermé (connexion impossible). Sa fiche reste chez son coach, qui pourra lui renvoyer un lien.", confirm: "Refuser", cancel: "Retour", danger: true }))) return;
     setBusy(true);
     try {
-      await api(`/admin/signups/${s.id}/${what}`, { method: "POST", body: what === "validate" ? { category: cat } : {} });
+      await api(`/admin/signups/${s.id}/${what}`, { method: "POST", body: what === "validate" ? { category: cat, base: location.origin } : {} });
       toast(what === "validate" ? `Inscription de ${s.name} confirmée` : "Inscription refusée");
       onDone();
     } catch (x) {
@@ -71,7 +71,7 @@ function CoachSignup({ c, onDone }) {
     if (what === "refuse" && !(await confirmDialog({ title: `Refuser le compte coach de ${c.name} ?`, message: "Il ne pourra pas utiliser l'application.", confirm: "Refuser", cancel: "Retour", danger: true }))) return;
     setBusy(true);
     try {
-      await api(`/admin/coach-signups/${c.id}/${what}`, { method: "POST" });
+      await api(`/admin/coach-signups/${c.id}/${what}`, { method: "POST", body: { base: location.origin } });
       toast(what === "validate" ? `Compte de ${c.name} confirmé : il est prévenu par e-mail` : "Compte refusé");
       onDone();
     } catch (x) {

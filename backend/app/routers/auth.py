@@ -65,7 +65,8 @@ def account(creds: HTTPAuthorizationCredentials | None = Depends(bearer), db: Se
         raise HTTPException(401, "Session expirée : reconnectez-vous.")
     pending = (signups.coach_pending(user) if role == "coach" else signups.player_pending(user)) and not data.get("admin")
     return {"role": role, "name": user.name, "email": user.email, "pending": pending, "signup_status": user.signup_status,
-            "email_verified": verification.is_verified(user), "email_required": verification.required()}
+            "email_verified": verification.is_verified(user),
+            "email_required": verification.coach_required() if role == "coach" else verification.required()}
 
 
 class BaseIn(BaseModel):

@@ -41,10 +41,10 @@ def review_coaches(db: Session) -> bool:
 def coach_pending(coach: Coach) -> bool:
     """Coach inscrit lui-même: rien n'est possible tant que son e-mail n'est pas vérifié et qu'un administrateur
     n'a pas confirmé son compte."""
-    from .email_verification import required
+    from .email_verification import coach_required
     if coach.signup_status in ("a_valider", "refusee"):
         return True
-    return coach.signup_status is not None and required() and coach.email_verified_at is None
+    return coach.signup_status is not None and coach_required() and coach.email_verified_at is None
 
 
 def player_pending(p: Player) -> bool:
@@ -67,12 +67,15 @@ def coach_submitted(db: Session, c: Coach, base: str = "") -> None:
             send_email(to, f"Nouveau coach à confirmer : {c.name}", body)
 
 
-def confirmed(email: str | None, name: str, what: str) -> None:
-    """Prévient le joueur ou le coach que son compte est confirmé."""
+def confirmed(email: str | None, name: str, what: str, base: str = "") -> None:
+    """Prévient le joueur ou le coach que son compte est confirmé. base = adresse du site vue par l'administrateur
+    (la même que celle des joueurs), sinon APP_URL."""
+    link = (base or os.getenv("APP_URL", "")).rstrip("/")
     if email:
         send_email(email, "Votre compte Padel Coach est confirmé", letter(
             name, f"Bonne nouvelle : un administrateur a confirmé votre compte {what}.",
-            "Vous pouvez maintenant utiliser l'application :", [("Lien", os.getenv("APP_URL", "").rstrip("/") or "l'application Padel Coach")]))
+            "Vous pouvez maintenant utiliser l'application :", [("Lien", link or "l'application Padel Coach")],
+            "Un guide « Bien démarrer » vous montre les premières étapes." if what == "coach" else ""))
 
 
 def coach_out(c: Coach) -> dict:

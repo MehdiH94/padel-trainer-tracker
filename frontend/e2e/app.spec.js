@@ -193,6 +193,7 @@ test("nouveau coach: confirmé par l'administrateur, puis le guide « Bien déma
   await page.getByRole("button", { name: "Créer mon compte coach" }).click();
   // en attente: un administrateur doit confirmer le compte
   await expect(page.getByText("Un administrateur va vérifier et confirmer votre compte", { exact: false })).toBeVisible();
+  await expect(page.getByText("C'est fait.")).toHaveCount(0); // e-mail pas encore vérifié: jamais affiché comme fait
   const admin = await (await browser.newContext()).newPage();
   await login(admin, "demo@padel.tn");
   await admin.getByRole("button", { name: /Administration/ }).click();

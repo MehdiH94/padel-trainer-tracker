@@ -1,5 +1,7 @@
 // Guide « Bien démarrer » du coach: étapes calculées d'après ses données (elles se cochent toutes seules).
-import { api } from "./api.js";
+import { accountKey, api } from "./api.js";
+
+const key = (name) => `${name}-${accountKey()}`; // un guide par compte coach (plusieurs coachs sur un même appareil)
 
 export function guideSteps(settings, players, sessions) {
   const courtsMode = (settings.booking_mode ?? "terrains") === "terrains";
@@ -29,8 +31,8 @@ export function guideSteps(settings, players, sessions) {
   ];
 }
 
-export const guideHidden = () => { try { return localStorage.getItem("guide-masque") === "1"; } catch { return false; } };
-export const hideGuide = () => { try { localStorage.setItem("guide-masque", "1"); } catch { /* stockage indisponible */ } };
+export const guideHidden = () => { try { return localStorage.getItem(key("guide-masque")) === "1"; } catch { return false; } };
+export const hideGuide = () => { try { localStorage.setItem(key("guide-masque"), "1"); } catch { /* stockage indisponible */ } };
 
 export async function loadGuide() {
   const [settings, players, sessions] = await Promise.all([api("/booking/settings"), api("/players"), api("/sessions")]);
@@ -41,6 +43,6 @@ export async function loadGuide() {
 export function newlyDone(steps) {
   const done = steps.filter((s) => s.ok).map((s) => s.key);
   let prev = null;
-  try { prev = JSON.parse(localStorage.getItem("guide-done") || "null"); localStorage.setItem("guide-done", JSON.stringify(done)); } catch { /* stockage indisponible */ }
+  try { prev = JSON.parse(localStorage.getItem(key("guide-done")) || "null"); localStorage.setItem(key("guide-done"), JSON.stringify(done)); } catch { /* stockage indisponible */ }
   return prev ? steps.filter((s) => s.ok && !prev.includes(s.key)) : [];
 }

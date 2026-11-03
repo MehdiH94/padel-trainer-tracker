@@ -42,6 +42,7 @@ def _signup(db: Session, player_id: int) -> Player:
 
 class ValidateIn(BaseModel):
     category: str | None = None  # niveau corrigé par l'administrateur
+    base: str = ""  # adresse du site (lien de l'e-mail de confirmation)
 
 
 @router.post("/signups/{player_id}/validate")
@@ -53,7 +54,7 @@ def validate(player_id: int, body: ValidateIn, admin: Coach = Depends(current_ad
         p.category = body.category
     p.signup_status = "validee"
     db.commit()
-    signups.confirmed(p.email, p.name, "joueur")
+    signups.confirmed(p.email, p.name, "joueur", body.base)
     return signups.out(db, p)
 
 
@@ -83,12 +84,12 @@ def _coach_signup(db: Session, coach_id: int) -> Coach:
 
 
 @router.post("/coach-signups/{coach_id}/validate")
-def validate_coach(coach_id: int, admin: Coach = Depends(current_admin), db: Session = Depends(get_db)):
+def validate_coach(coach_id: int, body: ValidateIn | None = None, admin: Coach = Depends(current_admin), db: Session = Depends(get_db)):
     """Le coach peut utiliser l'application (une fois son e-mail vérifié): il est prévenu par e-mail."""
     c = _coach_signup(db, coach_id)
     c.signup_status = "validee"
     db.commit()
-    signups.confirmed(c.email, c.name, "coach")
+    signups.confirmed(c.email, c.name, "coach", body.base if body else "")
     return signups.coach_out(c)
 
 
