@@ -64,13 +64,58 @@ function PublicLink() {
   );
 }
 
+// Coach inscrit lui-même: rien n'est possible pour lui tant qu'un administrateur ne l'a pas confirmé
+function CoachSignup({ c, onDone }) {
+  const [busy, setBusy] = useState(false);
+  const act = async (what) => {
+    if (what === "refuse" && !(await confirmDialog({ title: `Refuser le compte coach de ${c.name} ?`, message: "Il ne pourra pas utiliser l'application.", confirm: "Refuser", cancel: "Retour", danger: true }))) return;
+    setBusy(true);
+    try {
+      await api(`/admin/coach-signups/${c.id}/${what}`, { method: "POST" });
+      toast(what === "validate" ? `Compte de ${c.name} confirmé : il est prévenu par e-mail` : "Compte refusé");
+      onDone();
+    } catch (x) {
+      toastError(x);
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="card">
+      <div className="row">
+        <div className="row g10"><Avatar name={c.name} size={40} /><div><b>{c.name}</b><div className="mut small-p">Nouveau coach</div></div></div>
+        <span className="chip small static">Coach</span>
+      </div>
+      <div className="mut small-p" style={{ marginTop: 6 }}>{c.phone || "sans téléphone"} · {c.email}{c.signup_at && <> · inscrit le {dayLabel(c.signup_at)} à {hhmm(c.signup_at)}</>}</div>
+      <div className={"note " + (c.email_verified ? "ok" : "warn")} style={{ marginTop: 8 }}>
+        <Icon name={c.email_verified ? "checkCircle" : "mail"} size={15} /> {c.email_verified ? "E-mail vérifié." : "E-mail pas encore vérifié : même confirmé, il devra d'abord ouvrir le lien reçu."}
+      </div>
+      <div className="actions">
+        <button className="sec danger" disabled={busy} onClick={() => act("refuse")}><Icon name="x" size={15} /> Refuser</button>
+        <button disabled={busy} onClick={() => act("validate")}><Icon name="check" size={15} /> Confirmer le coach</button>
+      </div>
+    </div>
+  );
+}
+
 function Signups({ refreshSummary }) {
   const [list, setList] = useState(null);
+  const [coaches, setCoaches] = useState([]);
   const [status, setStatus] = useState("a_valider");
-  const load = () => { api(`/admin/signups?status=${status}`).then(setList).catch(toastError); refreshSummary?.(); };
+  const load = () => {
+    api(`/admin/signups?status=${status}`).then(setList).catch(toastError);
+    api("/admin/coach-signups").then(setCoaches).catch(() => {});
+    refreshSummary?.();
+  };
   useEffect(load, [status]);
   return (
     <>
+      {coaches.length > 0 && (
+        <>
+          <h2 style={{ marginTop: 0 }}>Coachs à confirmer ({coaches.length})</h2>
+          {coaches.map((c) => <CoachSignup key={c.id} c={c} onDone={load} />)}
+          <h2>Joueurs</h2>
+        </>
+      )}
       <p className="mut small-p">Joueurs inscrits par le lien de leur coach ou par le lien public : vérifiez le niveau et les doublons.</p>
       <PublicLink />
       <div className="seg mini" style={{ margin: "10px 0" }}>
@@ -223,6 +268,12 @@ function AdminCoaches({ list, load, me }) {
   const [editing, setEditing] = useState(null);
   const [f, setF] = useState({ name: "", email: "", password: "" });
   const [created, setCreated] = useState(null);
+  // Nommer un autre administrateur (ou lui retirer ce droit)
+  const setAdmin = async (c, on) => {
+    if (on && !(await confirmDialog({ title: `Nommer ${c.name} administrateur ?`, message: "Il aura tous les droits : confirmer les inscriptions, gérer joueurs, coachs et clubs, ouvrir l'espace de chacun.", confirm: "Nommer administrateur", cancel: "Retour" }))) return;
+    api(`/admin/coaches/${c.id}/admin`, { method: "PUT", body: { admin: on } })
+      .then(() => { toast(on ? `${c.name} est administrateur` : `${c.name} n'est plus administrateur`); load(); }).catch(toastError);
+  };
   const add = async (e) => {
     e.preventDefault();
     try {
@@ -259,7 +310,7 @@ function AdminCoaches({ list, load, me }) {
           <div className="row g10" style={{ minWidth: 0 }}>
             <Avatar name={c.name} size={36} />
             <div style={{ minWidth: 0 }}>
-              <b>{c.name}{c.admin && <span className="mut small-p"> · admin</span>}</b>
+              <b>{c.name}{c.admin && <span className="mut small-p"> · admin</span>}{c.signup_status === "a_valider" && <span className="warn-txt small-p"> · à confirmer</span>}{c.signup_status === "refusee" && <span className="red small-p"> · refusé</span>}</b>
               <div className="mut small-p">{c.email} · {c.players} joueur{c.players > 1 ? "s" : ""} · {c.sessions} séance{c.sessions > 1 ? "s" : ""}</div>
               {c.clubs.length > 0 && <div className="mut small-p"><Icon name="pin" size={12} /> {c.clubs.join(", ")}</div>}
             </div>
@@ -275,6 +326,12 @@ function AdminCoaches({ list, load, me }) {
           )}
           </div>
         </div>
+        {c.id !== me && !c.admin_fixed && (
+          <label className="check admin-toggle">
+            <input type="checkbox" checked={c.admin} onChange={(e) => setAdmin(c, e.target.checked)} />
+            Administrateur (accès à cette page : inscriptions, joueurs, coachs, clubs)
+          </label>
+        )}
         {editing === c.id && (
           <EditForm url={`/admin/coaches/${c.id}`} onCancel={() => setEditing(null)} onDone={() => { setEditing(null); load(); }}
             initial={{ name: c.name, email: c.email, password: "" }}

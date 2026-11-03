@@ -24,17 +24,69 @@ def session_for(user_id: int, role: str) -> dict:
     return {"token": create_token(user_id, role), "role": role}
 
 
+class RegisterIn(BaseModel):
+    email: str
+    password: str
+    name: str = ""
+    phone: str = ""
+    base: str = ""  # adresse de l'application (lien de vérification)
+
+
 @router.post("/register")
-def register(c: Creds, db: Session = Depends(get_db)):
-    """Création d'un compte coach."""
+def register(c: RegisterIn, db: Session = Depends(get_db)):
+    """Création d'un compte coach. Dès que l'application a un administrateur, le nouveau coach vérifie son e-mail
+    puis attend qu'un administrateur confirme son compte (rien n'est possible avant)."""
+    from ..schemas import normalize_tn_phone
     email = c.email.strip().lower()
     check_fields(name=c.name or email, email=email, password=c.password)
     if db.scalar(select(Coach).where(Coach.email == email)) or db.scalar(select(Player).where(Player.email == email, Player.password_hash.is_not(None))):
         raise HTTPException(409, "Cette adresse e-mail a déjà un compte : connectez-vous, ou utilisez une autre adresse.")
-    coach = Coach(email=email, password_hash=hash_password(c.password), name=c.name or email)
+    try:
+        phone = normalize_tn_phone(c.phone) if c.phone.strip() else ""
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+    coach = Coach(email=email, password_hash=hash_password(c.password), name=c.name.strip() or email, phone=phone)
     db.add(coach)
+    db.flush()
+    if signups.review_coaches(db) and email not in signups.admin_emails():
+        verification.send_link(db, coach, c.base)
+        signups.coach_submitted(db, coach, c.base)
     db.commit()
     return session_for(coach.id, "coach")
+
+
+@router.get("/account")
+def account(creds: HTTPAuthorizationCredentials | None = Depends(bearer), db: Session = Depends(get_db)):
+    """État du compte connecté, lisible même en attente: e-mail à vérifier, confirmation de l'administrateur."""
+    data = _decode(creds)
+    uid, role = int(data["sub"]), data.get("role")
+    user = db.get(Coach, uid) if role == "coach" else db.get(Player, uid) if role == "player" else None
+    if user is None:
+        raise HTTPException(401, "Session expirée : reconnectez-vous.")
+    pending = (signups.coach_pending(user) if role == "coach" else signups.player_pending(user)) and not data.get("admin")
+    return {"role": role, "name": user.name, "email": user.email, "pending": pending, "signup_status": user.signup_status,
+            "email_verified": verification.is_verified(user), "email_required": verification.required()}
+
+
+class BaseIn(BaseModel):
+    base: str = ""
+
+
+@router.post("/account/resend")
+def resend(body: BaseIn, creds: HTTPAuthorizationCredentials | None = Depends(bearer), db: Session = Depends(get_db)):
+    """Nouveau lien de vérification de l'e-mail (au plus un par minute), pour un compte en attente."""
+    data = _decode(creds)
+    uid, role = int(data["sub"]), data.get("role")
+    user = db.get(Coach, uid) if role == "coach" else db.get(Player, uid) if role == "player" else None
+    if user is None:
+        raise HTTPException(401, "Session expirée : reconnectez-vous.")
+    if verification.is_verified(user):
+        return {"ok": True, "already_verified": True}
+    if not verification.can_resend(user):
+        raise HTTPException(429, "Un e-mail vient d'être envoyé. Patientez une minute avant d'en demander un autre.")
+    verification.send_link(db, user, body.base)
+    db.commit()
+    return {"ok": True, "email": user.email}
 
 
 @router.post("/refresh")
@@ -154,9 +206,10 @@ def public_signup(body: SignupIn, db: Session = Depends(get_db)):
 @router.post("/verify/{token}")
 def verify_email(token: str, db: Session = Depends(get_db)):
     """Lien reçu par e-mail: l'adresse du compte est vérifiée."""
-    p = db.scalar(select(Player).where(Player.email_token == token))
+    p = db.scalar(select(Player).where(Player.email_token == token)) or db.scalar(select(Coach).where(Coach.email_token == token))
     if not p:
         raise HTTPException(404, "Lien invalide ou déjà utilisé. Demandez un nouveau lien depuis l'application.")
     p.email_verified_at, p.email_token = datetime.now(timezone.utc), None
     db.commit()
-    return {"ok": True, "email": p.email, "name": p.name}
+    waiting = signups.coach_pending(p) if isinstance(p, Coach) else signups.player_pending(p)  # reste la confirmation
+    return {"ok": True, "email": p.email, "name": p.name, "coach": isinstance(p, Coach), "waiting_admin": waiting}

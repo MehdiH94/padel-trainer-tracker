@@ -74,6 +74,24 @@ def session_feedback(session_id: int, coach: Coach = Depends(current_coach), db:
     ]
 
 
+def skills_of(db: Session, player_ids: list[int]) -> dict:
+    """Dernière note (et la précédente) de chaque coup, sur une ou plusieurs fiches du même joueur."""
+    ratings = db.scalars(select(SkillRating).where(SkillRating.player_id.in_(player_ids)).order_by(SkillRating.rated_at, SkillRating.id)).all()
+    by_stroke: dict[str, list[int]] = {}
+    for r in ratings:
+        by_stroke.setdefault(r.stroke, []).append(r.score)
+    skills = [
+        {"stroke": st, "score": by_stroke[st][-1] if st in by_stroke else None,
+         "previous": by_stroke[st][-2] if st in by_stroke and len(by_stroke[st]) > 1 else None}
+        for st in STROKES
+    ]
+    rated = [s for s in skills if s["score"] is not None]
+    strengths = [s["stroke"] for s in sorted(rated, key=lambda s: -s["score"]) if s["score"] >= 4][:3]
+    weaknesses = [s["stroke"] for s in sorted(rated, key=lambda s: s["score"]) if s["score"] <= 2][:3]
+
+    return {"skills": skills, "strengths": strengths, "weaknesses": weaknesses}
+
+
 def build_profile(db: Session, coach_id: int, player: Player) -> dict:
     rows = db.execute(
         select(TrainingSession, Attendance)
@@ -101,18 +119,8 @@ def build_profile(db: Session, coach_id: int, player: Player) -> dict:
     pays = db.scalars(select(Payment).where(Payment.player_id == player.id).order_by(Payment.paid_at.desc())).all()
     paid = sum(p.amount_millimes for p in pays if p.kind == "seance")  # les recharges servent aux réservations
 
-    ratings = db.scalars(select(SkillRating).where(SkillRating.player_id == player.id).order_by(SkillRating.rated_at, SkillRating.id)).all()
-    by_stroke: dict[str, list[int]] = {}
-    for r in ratings:
-        by_stroke.setdefault(r.stroke, []).append(r.score)
-    skills = [
-        {"stroke": st, "score": by_stroke[st][-1] if st in by_stroke else None,
-         "previous": by_stroke[st][-2] if st in by_stroke and len(by_stroke[st]) > 1 else None}
-        for st in STROKES
-    ]
-    rated = [s for s in skills if s["score"] is not None]
-    strengths = [s["stroke"] for s in sorted(rated, key=lambda s: -s["score"]) if s["score"] >= 4][:3]
-    weaknesses = [s["stroke"] for s in sorted(rated, key=lambda s: s["score"]) if s["score"] <= 2][:3]
+    sk = skills_of(db, [player.id])
+    skills, strengths, weaknesses = sk["skills"], sk["strengths"], sk["weaknesses"]
 
     last = next((h for h in done if h["worked_on"] or h["note"] or h["to_improve"]), None)
     return {

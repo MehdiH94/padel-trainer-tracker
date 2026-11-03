@@ -120,7 +120,24 @@ def _free_on_courts(db: Session, coach: Coach, now: datetime, earliest: datetime
     return sorted(out)
 
 
+def days_off(db: Session, coach: Coach) -> list[tuple]:
+    """Absences du coach (vacances…): (premier jour, dernier jour) en dates de Tunis."""
+    from ..models import TimeOff
+    return [(t.start_date, t.end_date) for t in db.scalars(select(TimeOff).where(TimeOff.coach_id == coach.id))]
+
+
+def is_day_off(offs: list[tuple], when: datetime) -> bool:
+    d = aware(when).astimezone(TUNIS).date()
+    return any(a <= d <= b for a, b in offs)
+
+
 def free_slots(db: Session, coach: Coach, now: datetime | None = None, minutes: int | None = None) -> list[datetime]:
+    """Créneaux libres, sauf les jours d'absence du coach."""
+    offs = days_off(db, coach)
+    return [s for s in _free_slots(db, coach, now, minutes) if not is_day_off(offs, s)]
+
+
+def _free_slots(db: Session, coach: Coach, now: datetime | None = None, minutes: int | None = None) -> list[datetime]:
     """Créneaux libres (UTC), triés, sur les HORIZON_DAYS prochains jours, pour une séance de `minutes` (défaut: individuelle).
     Les débuts possibles suivent une grille commune à toutes les formules (ex. 60 et 90 min -> toutes les 30 min),
     sans chevaucher une séance déjà ouverte et sans laisser de trou trop court entre deux séances."""

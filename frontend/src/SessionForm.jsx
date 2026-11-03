@@ -77,7 +77,8 @@ export default function SessionForm({ players, onDone, initial }) {
   const [clubs, setClubs] = useState([]);
   const [prefs, setPrefs] = useState(null); // réglages du coach: prix et durée de chaque formule
   useEffect(() => {
-    api("/clubs").then(setClubs);
+    // un seul club: choisi d'office (le menu apparaît quand le coach a plusieurs clubs)
+    api("/clubs").then((cs) => { setClubs(cs); if (cs.length === 1) setF((x) => ({ ...x, club_id: x.club_id || String(cs[0].id) })); });
     api("/booking/settings").then((st) => { setPrefs(st); setF((x) => ({ ...x, duration_min: st.slot_minutes || x.duration_min })); }).catch(() => {});
   }, []);
   const DUR = { individuel: "slot_minutes", duo: "duration_duo", groupe: "duration_groupe" };
@@ -111,7 +112,7 @@ export default function SessionForm({ players, onDone, initial }) {
       confirm: "Créer quand même", cancel: "Revoir les joueurs",
     }))) return;
     try {
-      await api("/sessions", {
+      const created = await api("/sessions", {
         method: "POST",
         body: {
           start: `${f.date}T${f.time}:00+01:00`, // Tunisie: UTC+1 toute l'année
@@ -121,7 +122,7 @@ export default function SessionForm({ players, onDone, initial }) {
           repeat_weeks: f.repeat ? +f.repeat_weeks : 1, player_ids: f.player_ids,
         },
       });
-      onDone();
+      onDone(created[0]); // première séance créée (la suite si elle se répète)
     } catch (x) {
       setErr(x.message);
     }
@@ -154,12 +155,16 @@ export default function SessionForm({ players, onDone, initial }) {
         </div>
       </Field>
 
-      <Field label="Club">
-        <select value={f.club_id} onChange={set("club_id")}>
-          <option value="">Aucun club</option>
-          {clubs.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-        </select>
-      </Field>
+      {clubs.length === 1 ? (
+        <div className="field"><span className="mut">Club</span><div className="onlyclub"><Icon name="pin" size={15} /> {clubs[0].name}</div></div>
+      ) : (
+        <Field label="Club">
+          <select value={f.club_id} onChange={set("club_id")}>
+            <option value="">Aucun club</option>
+            {clubs.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+        </Field>
+      )}
       {cover?.here && (
         <div className="note ok" style={{ margin: "-4px 0 10px" }}>
           <Icon name="checkCircle" size={14} /> <b>C'est bon : un terrain est déjà réservé pour ce créneau</b> ({cover.here.club_name}{cover.here.court_label && ` · ${cover.here.court_label}`}, {span(cover.here)}). La séance l'utilisera, aucun SMS au club.

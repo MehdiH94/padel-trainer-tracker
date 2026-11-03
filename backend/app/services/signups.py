@@ -24,7 +24,60 @@ def admin_emails() -> set[str]:
 
 
 def is_admin(coach: Coach) -> bool:
-    return coach.email.lower() in admin_emails()
+    """Administrateur: e-mail listé dans ADMIN_EMAILS, ou coach nommé administrateur par un autre administrateur."""
+    return bool(coach.is_admin) or coach.email.lower() in admin_emails()
+
+
+def admin_recipients(db: Session) -> set[str]:
+    """Adresses des administrateurs, prévenus des inscriptions à confirmer."""
+    return admin_emails() | {c.email.lower() for c in db.scalars(select(Coach).where(Coach.is_admin.is_(True)))}
+
+
+def review_coaches(db: Session) -> bool:
+    """Un nouveau coach attend la confirmation d'un administrateur dès que l'application en a un."""
+    return bool(admin_recipients(db))
+
+
+def coach_pending(coach: Coach) -> bool:
+    """Coach inscrit lui-même: rien n'est possible tant que son e-mail n'est pas vérifié et qu'un administrateur
+    n'a pas confirmé son compte."""
+    from .email_verification import required
+    if coach.signup_status in ("a_valider", "refusee"):
+        return True
+    return coach.signup_status is not None and required() and coach.email_verified_at is None
+
+
+def player_pending(p: Player) -> bool:
+    """Joueur inscrit par le lien public (sans coach): rien n'est possible avant la confirmation de l'administrateur."""
+    return p.signup_status == "a_valider" and p.coach_id is None and p.account_id is None
+
+
+def _admin_link(base: str) -> str:
+    return f"{(base or os.getenv('APP_URL', '')).rstrip('/')}/#admin"
+
+
+def coach_submitted(db: Session, c: Coach, base: str = "") -> None:
+    """Nouveau coach inscrit: les administrateurs sont prévenus."""
+    c.signup_status, c.signup_at = "a_valider", datetime.now(timezone.utc)
+    body = letter(None, "Un nouveau coach s'est inscrit et attend votre confirmation :",
+                  [("Coach", c.name), ("E-mail", c.email), ("Téléphone", c.phone or "—")],
+                  "Confirmez ou refusez son compte dans l'administration :", [("Lien", _admin_link(base))])
+    for to in admin_recipients(db):
+        if to != c.email.lower():
+            send_email(to, f"Nouveau coach à confirmer : {c.name}", body)
+
+
+def confirmed(email: str | None, name: str, what: str) -> None:
+    """Prévient le joueur ou le coach que son compte est confirmé."""
+    if email:
+        send_email(email, "Votre compte Padel Coach est confirmé", letter(
+            name, f"Bonne nouvelle : un administrateur a confirmé votre compte {what}.",
+            "Vous pouvez maintenant utiliser l'application :", [("Lien", os.getenv("APP_URL", "").rstrip("/") or "l'application Padel Coach")]))
+
+
+def coach_out(c: Coach) -> dict:
+    return {"id": c.id, "name": c.name, "email": c.email, "phone": c.phone, "status": c.signup_status, "signup_at": c.signup_at,
+            "email_verified": c.email_verified_at is not None}
 
 
 def _digits(phone: str) -> str:
@@ -68,8 +121,8 @@ def submitted(db: Session, p: Player, base: str = "") -> None:
     body = letter(None, "Une nouvelle inscription est à confirmer :",
                   [("Joueur", p.name), ("Téléphone", p.phone), ("E-mail", p.email), ("Niveau", level), ("Coach", coach_name)],
                   "Vérifiez le niveau et les doublons dans l'administration :",
-                  [("Lien", f"{(base or os.getenv('APP_URL', '')).rstrip('/')}/#admin")])
-    for to in admin_emails():
+                  [("Lien", _admin_link(base))])
+    for to in admin_recipients(db):
         send_email(to, f"Inscription à confirmer : {p.name}", body)
 
 

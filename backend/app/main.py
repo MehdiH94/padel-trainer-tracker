@@ -10,7 +10,7 @@ from sqlalchemy import inspect, select, text
 
 from .db import Base, SessionLocal, engine
 from .constants import TIERS
-from .routers import admin, auth, replace, booking, clubs, dashboard, exercises, me, payments, players, profile, promotions, reminders, sessions
+from .routers import admin, auth, replace, booking, clubs, dashboard, exercises, me, payments, players, profile, promotions, reminders, sessions, timeoff
 from .notify import Notifier
 from .services import booking as booking_svc
 from .services import courts, finance, planner, session_reminders
@@ -29,6 +29,9 @@ NEW_COLUMNS = [
     ("court_bookings", "series_id", "VARCHAR(36)"), ("coaches", "booking_mode", "VARCHAR(16) DEFAULT 'terrains'"),
     ("credit_tx", "session_id", "INTEGER"), ("clubs", "removed", "BOOLEAN DEFAULT 0"), ("bookings", "replace_token", "VARCHAR(40)"), ("players", "signup_status", "VARCHAR(12)"), ("players", "invited_category", "VARCHAR(6)"), ("players", "signup_at", "TIMESTAMP"),
     ("players", "email_verified_at", "TIMESTAMP"), ("players", "email_token", "VARCHAR(48)"), ("players", "email_token_sent_at", "TIMESTAMP"),
+    ("coaches", "phone", "VARCHAR(20) DEFAULT ''"), ("coaches", "is_admin", "BOOLEAN DEFAULT 0"), ("coaches", "signup_status", "VARCHAR(12)"),
+    ("coaches", "signup_at", "TIMESTAMP"), ("coaches", "email_verified_at", "TIMESTAMP"), ("coaches", "email_token", "VARCHAR(48)"),
+    ("coaches", "email_token_sent_at", "TIMESTAMP"),
 ]
 with engine.begin() as conn:
     for table, column, ddl in NEW_COLUMNS:
@@ -103,7 +106,7 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(title="Padel Trainer Tracker", lifespan=lifespan)
 app.add_exception_handler(RequestValidationError, validation_handler)  # erreurs de formulaire expliquées en français
-for r in (admin, auth, replace, players, sessions, payments, dashboard, booking, profile, clubs, reminders, promotions, me, exercises):
+for r in (admin, auth, replace, players, sessions, payments, dashboard, booking, profile, clubs, reminders, promotions, me, exercises, timeoff):
     app.include_router(r.router)
 
 

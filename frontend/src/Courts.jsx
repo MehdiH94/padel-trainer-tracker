@@ -366,7 +366,7 @@ export default function Courts({ onBack, go }) {
         <h1 style={{ margin: 0 }}>Mes terrains</h1>
         <button className="small" onClick={() => setAdding(true)}><Icon name="plus" size={15} /> Ajouter un terrain</button>
       </div>
-      <p className="mut small-p">Vos terrains réservés et les demandes aux clubs. Le calendrier de la semaine (terrains et séances ensemble) est dans <button className="link" onClick={() => go("planning/semaine")}>Planning › Semaine</button>.</p>
+      <p className="mut small-p">Vos terrains réservés et les demandes aux clubs. Le calendrier (terrains et séances ensemble) est dans <button className="link" onClick={() => go("planning")}>Planning › Calendrier</button>.</p>
       {adding && <ManualForm clubs={clubs} onCancel={() => setAdding(false)} onDone={() => { setAdding(false); load(); }} />}
       {promoFor && <PromoForm cb={promoFor} onClose={() => setPromoFor(null)} onDone={() => { setPromoFor(null); load(); }} />}
       {removing && (

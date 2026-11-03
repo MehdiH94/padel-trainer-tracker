@@ -231,13 +231,14 @@ function Home({ me, sessions, progress, credits, proposals, promos, go, reload }
         </div>
       ) : <div className="card mut">Aucune séance prévue. Réservez la prochaine !</div>}
 
-      {progress && progress.stats.done_count > 0 && (
+      {/* visible dès la première séance effectuée ou la première évaluation d'un coach */}
+      {progress && (progress.stats.done_count > 0 || rated > 0) && (
         <>
           <h2>Ma progression</h2>
-          <div className="grid kpis">
+          {progress.stats.done_count > 0 && <div className="grid kpis">
             <div className="kpi"><span className="ico"><Icon name="ball" size={18} /></span><div className="big">{progress.stats.done_count}</div><div className="mut">Séances</div></div>
             <div className="kpi"><span className="ico"><Icon name="clock" size={18} /></span><div className="big">{progress.stats.hours} h</div><div className="mut">De jeu</div></div>
-          </div>
+          </div>}
           {progress.goals && <div className="card"><div className="mut"><Icon name="target" size={14} /> Mon objectif</div><b>{progress.goals}</b></div>}
           {rated > 0 && (
             <div className="card">

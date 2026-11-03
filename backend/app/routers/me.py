@@ -21,7 +21,7 @@ from ..services.finance import credit_balance, net_balance
 from ..sms import get_sms_provider
 from ..sms.base import SmsProvider
 from ..schemas import CHANNELS
-from .profile import build_profile
+from .profile import build_profile, skills_of
 
 router = APIRouter(prefix="/me", tags=["joueur"])
 
@@ -305,9 +305,16 @@ def credits(player: Player = Depends(current_player), db: Session = Depends(get_
 
 @router.get("/progress")
 def progress(player: Player = Depends(current_player), db: Session = Depends(get_db)):
-    row = next((p for p in linked(db, player) if p.coach_id), player)  # sans coach: pas encore d'historique
-    full = build_profile(db, row.coach_id, row)
-    return {k: full[k] for k in ("stats", "skills", "strengths", "weaknesses", "last_session")} | {"goals": player.goals}
+    """Progression du joueur, tous coachs confondus: séances de chacune de ses fiches, et la dernière note
+    de chaque coup quel que soit le coach qui l'a donnée (radar visible dès la première évaluation)."""
+    rows = [p for p in linked(db, player) if p.coach_id]  # sans coach: pas encore d'historique
+    profiles = [build_profile(db, p.coach_id, p) for p in rows]
+    stats = {k: sum(pr["stats"][k] for pr in profiles) for k in ("done_count", "cancelled_count", "upcoming_count")}
+    stats["hours"] = round(sum(pr["stats"]["hours"] for pr in profiles), 1)
+    stats["since"] = min((pr["stats"]["since"] for pr in profiles if pr["stats"]["since"]), default=None)
+    skills = skills_of(db, [p.id for p in rows] or [player.id])
+    lasts = [pr["last_session"] for pr in profiles if pr["last_session"]]
+    return {"stats": stats, **skills, "last_session": max(lasts, key=lambda h: aware(h["start"]), default=None), "goals": player.goals}
 
 
 # --- Prise de rendez-vous tous coachs confondus ------------------------------

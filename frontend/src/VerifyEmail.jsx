@@ -17,7 +17,9 @@ export default function VerifyEmail({ token }) {
           <>
             <div className="bigcheck ok" style={{ margin: "0 auto 8px" }}><Icon name="checkCircle" size={44} strokeWidth={1.6} /></div>
             <h1>Adresse vérifiée</h1>
-            <p className="mut">Merci {state.name.split(" ")[0]} ! Vous recevrez vos rappels de séance sur {state.email} et vous pouvez réserver.</p>
+            {state.waiting_admin
+              ? <p className="mut">Merci {state.name.split(" ")[0]} ! Dernière étape : un administrateur va confirmer votre compte. Vous recevrez un e-mail, et vous pourrez alors utiliser l'application.</p>
+              : <p className="mut">Merci {state.name.split(" ")[0]} ! {state.coach ? "Votre espace coach est prêt." : `Vous recevrez vos rappels de séance sur ${state.email} et vous pouvez réserver.`}</p>}
             <button style={{ width: "100%" }} onClick={() => { location.href = "/"; }}>Ouvrir l'application</button>
           </>
         )}

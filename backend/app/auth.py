@@ -49,6 +49,9 @@ def current_coach(
     coach = db.get(Coach, int(data["sub"])) if data.get("role") == "coach" else None
     if coach is None:
         raise HTTPException(401, "Jeton invalide")
+    from .services.signups import coach_pending
+    if coach_pending(coach) and not data.get("admin"):  # l'administrateur peut ouvrir un compte en attente
+        raise HTTPException(403, "Votre compte coach attend encore la vérification de votre e-mail ou la confirmation d'un administrateur.")
     return coach
 
 
@@ -60,4 +63,7 @@ def current_player(
     player = db.get(Player, int(data["sub"])) if data.get("role") == "player" else None
     if player is None or player.signup_status == "refusee":  # inscription refusée par l'administrateur
         raise HTTPException(401, "Jeton invalide")
+    from .services.signups import player_pending
+    if player_pending(player) and not data.get("admin"):
+        raise HTTPException(403, "Votre compte attend la confirmation d'un administrateur.")
     return player

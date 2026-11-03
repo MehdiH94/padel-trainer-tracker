@@ -7,7 +7,7 @@ le joueur garde l'accès à ses autres coachs.
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
-from ..models import (Attendance, Availability, Booking, Club, Coach, CourtBooking, CreditTx, Exercise, HappyHour, Payment,
+from ..models import (Attendance, Availability, TimeOff, Booking, Club, Coach, CourtBooking, CreditTx, Exercise, HappyHour, Payment,
                       Player, Promotion, Proposal, ReminderLog, SessionReminder, SkillRating, TrainingSession)
 
 PLAYER_TABLES = (SkillRating, Attendance, Payment, CreditTx, Booking, ReminderLog, Proposal, SessionReminder)
@@ -60,7 +60,7 @@ def delete_coach(db: Session, coach: Coach) -> None:
     for table in (Payment, CreditTx, Booking, ReminderLog, Proposal, SessionReminder):  # restes liés à ses séances
         db.execute(delete(table).where(table.coach_id == coach.id))
     db.execute(delete(Attendance).where(Attendance.session_id.in_(sessions)))
-    for table in (Promotion, CourtBooking, HappyHour, Availability, Exercise, TrainingSession, Club):
+    for table in (Promotion, CourtBooking, HappyHour, Availability, TimeOff, Exercise, TrainingSession, Club):
         db.execute(delete(table).where(table.coach_id == coach.id))
     db.delete(coach)
     db.flush()

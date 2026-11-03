@@ -25,7 +25,7 @@ def required() -> bool:
     return flag == "1" if flag in ("0", "1") else bool(os.getenv("SMTP_HOST"))
 
 
-def is_verified(p: Player) -> bool:
+def is_verified(p: Player | Coach) -> bool:
     return p.email_verified_at is not None
 
 
@@ -33,19 +33,23 @@ def can_book(p: Player) -> bool:
     return is_verified(p) or not required()
 
 
-def send_link(db: Session, p: Player, base: str = "") -> None:
-    """Nouveau lien (l'ancien ne marche plus) envoyé à l'adresse du compte."""
+def send_link(db: Session, p: Player | Coach, base: str = "") -> None:
+    """Nouveau lien (l'ancien ne marche plus) envoyé à l'adresse du compte (joueur ou coach)."""
     if not p.email:
         return
     p.email_token = secrets.token_urlsafe(24)
     p.email_token_sent_at = datetime.now(timezone.utc)
-    coach = db.get(Coach, p.coach_id) if p.coach_id else None  # inscription publique: pas encore de coach
     link = f"{(base or APP_URL).rstrip('/')}/verify/{p.email_token}"
-    send_email(p.email, "Vérifiez votre adresse e-mail — Padel Coach", letter(
-        p.name, f"Bienvenue sur Padel Coach{f' avec {coach.name}' if coach else ''} !",
-        "Pour recevoir les rappels de vos séances et pouvoir réserver, confirmez votre adresse e-mail en ouvrant ce lien :",
-        link, "Si vous n'avez pas créé de compte, ignorez ce message."))
+    if isinstance(p, Coach):
+        intro = ("Bienvenue sur Padel Coach !",
+                 "Pour activer votre espace coach, confirmez votre adresse e-mail en ouvrant ce lien :", link,
+                 "Ensuite, un administrateur confirmera votre compte et vous pourrez commencer.")
+    else:
+        coach = db.get(Coach, p.coach_id) if p.coach_id else None  # inscription publique: pas encore de coach
+        intro = (f"Bienvenue sur Padel Coach{f' avec {coach.name}' if coach else ''} !",
+                 "Pour recevoir les rappels de vos séances et pouvoir réserver, confirmez votre adresse e-mail en ouvrant ce lien :", link)
+    send_email(p.email, "Vérifiez votre adresse e-mail — Padel Coach", letter(p.name, *intro, "Si vous n'avez pas créé de compte, ignorez ce message."))
 
 
-def can_resend(p: Player) -> bool:
+def can_resend(p: Player | Coach) -> bool:
     return not p.email_token_sent_at or datetime.now(timezone.utc) - aware(p.email_token_sent_at) >= RESEND_DELAY

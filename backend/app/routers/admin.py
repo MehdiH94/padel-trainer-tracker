@@ -53,6 +53,7 @@ def validate(player_id: int, body: ValidateIn, admin: Coach = Depends(current_ad
         p.category = body.category
     p.signup_status = "validee"
     db.commit()
+    signups.confirmed(p.email, p.name, "joueur")
     return signups.out(db, p)
 
 
@@ -64,6 +65,60 @@ def refuse(player_id: int, admin: Coach = Depends(current_admin), db: Session = 
     p.signup_status, p.password_hash, p.email, p.email_token = "refusee", None, None, None
     db.commit()
     return {"ok": True}
+
+
+# --- Coachs inscrits eux-mêmes, à confirmer ---------------------------------------------------
+
+@router.get("/coach-signups")
+def coach_signups(admin: Coach = Depends(current_admin), db: Session = Depends(get_db)):
+    q = select(Coach).where(Coach.signup_status == "a_valider").order_by(Coach.signup_at.desc())
+    return [signups.coach_out(c) for c in db.scalars(q)]
+
+
+def _coach_signup(db: Session, coach_id: int) -> Coach:
+    c = db.get(Coach, coach_id)
+    if not c or not c.signup_status:
+        raise HTTPException(404, "Inscription introuvable")
+    return c
+
+
+@router.post("/coach-signups/{coach_id}/validate")
+def validate_coach(coach_id: int, admin: Coach = Depends(current_admin), db: Session = Depends(get_db)):
+    """Le coach peut utiliser l'application (une fois son e-mail vérifié): il est prévenu par e-mail."""
+    c = _coach_signup(db, coach_id)
+    c.signup_status = "validee"
+    db.commit()
+    signups.confirmed(c.email, c.name, "coach")
+    return signups.coach_out(c)
+
+
+@router.post("/coach-signups/{coach_id}/refuse")
+def refuse_coach(coach_id: int, admin: Coach = Depends(current_admin), db: Session = Depends(get_db)):
+    c = _coach_signup(db, coach_id)
+    c.signup_status = "refusee"
+    db.commit()
+    return {"ok": True}
+
+
+class AdminRoleIn(BaseModel):
+    admin: bool
+
+
+@router.put("/coaches/{coach_id}/admin")
+def set_admin(coach_id: int, body: AdminRoleIn, admin: Coach = Depends(current_admin), db: Session = Depends(get_db)):
+    """Nommer un coach administrateur (ou lui retirer ce droit). Les e-mails de ADMIN_EMAILS le restent toujours."""
+    c = db.get(Coach, coach_id)
+    if not c:
+        raise HTTPException(404, "Coach introuvable")
+    if not body.admin and c.email.lower() in signups.admin_emails():
+        raise HTTPException(409, "Cet administrateur est fixé dans la configuration du serveur (ADMIN_EMAILS) : il le reste.")
+    if not body.admin and c.id == admin.id:
+        raise HTTPException(409, "Vous ne pouvez pas retirer vos propres droits d'administrateur.")
+    c.is_admin = body.admin
+    if body.admin and c.signup_status == "a_valider":
+        c.signup_status = "validee"  # nommé administrateur = compte confirmé
+    db.commit()
+    return {"ok": True, "admin": signups.is_admin(c)}
 
 
 # --- Joueurs, coachs et clubs de toute l'application -----------------------------------------
@@ -117,7 +172,8 @@ def all_coaches(admin: Coach = Depends(current_admin), db: Session = Depends(get
     players = dict(db.execute(select(Player.coach_id, func.count()).group_by(Player.coach_id)).all())
     sessions = dict(db.execute(select(TrainingSession.coach_id, func.count()).group_by(TrainingSession.coach_id)).all())
     return [{"id": c.id, "name": c.name, "email": c.email, "players": players.get(c.id, 0), "sessions": sessions.get(c.id, 0),
-             "admin": signups.is_admin(c), "clubs": sorted(x.name for x in db.scalars(select(Club).where(Club.coach_id == c.id, Club.active.is_(True), Club.removed.is_(False))))}
+             "admin": signups.is_admin(c), "admin_fixed": c.email.lower() in signups.admin_emails(), "phone": c.phone,
+             "signup_status": c.signup_status, "clubs": sorted(x.name for x in db.scalars(select(Club).where(Club.coach_id == c.id, Club.active.is_(True), Club.removed.is_(False))))}
             for c in db.scalars(select(Coach).order_by(Coach.name))]
 
 

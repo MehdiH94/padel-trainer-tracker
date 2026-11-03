@@ -31,8 +31,9 @@ def _when(cb: CourtBooking) -> str:
 
 def default_message(db: Session, coach: Coach, cb: CourtBooking, pct: int) -> str:
     club = db.get(Club, cb.club_id).name
-    return letter(None, f"Promo padel -{pct} % avec {coach.name} sur ce créneau :", [("Quand", quand(cb.start, cb.duration_min)), ("Où", club)],
-                  "Seul, à deux ou en groupe : réservez vite dans l'application.", [("Application", APP_URL)], sign=coach.name)
+    return letter(None, f"Ce créneau est en happy hour : -{pct} % !", [("Quand", quand(cb.start, cb.duration_min)), ("Où", club)],
+                  "Venez choisir votre entraînement : seul, à deux ou en groupe, dites-moi comment vous voulez vous entraîner en réservant dans l'application.",
+                  [("Application", APP_URL)], sign=coach.name)
 
 
 def promo_out(db: Session, p: Promotion) -> dict:
@@ -141,25 +142,26 @@ def _free_court(db: Session, coach: Coach, cb_id: int) -> CourtBooking:
 
 def free_court_message(db: Session, coach: Coach, cb: CourtBooking) -> str:
     club = db.get(Club, cb.club_id).name
-    return letter(None, "J'ai un terrain libre :", [("Quand", quand(cb.start, cb.duration_min)), ("Où", club)],
-                  "Seul, à deux ou en groupe : réservez votre créneau dans l'application.", [("Application", APP_URL)], sign=coach.name)
+    return letter(None, "Ce créneau est disponible, venez vous entraîner !", [("Quand", quand(cb.start, cb.duration_min)), ("Où", club)],
+                  "Seul, à deux ou en groupe : choisissez votre entraînement en réservant dans l'application.", [("Application", APP_URL)], sign=coach.name)
 
 
 @router.get("/court-bookings/{cb_id}/announce")
-def announce_preview(cb_id: int, coach: Coach = Depends(current_coach), db: Session = Depends(get_db)):
+def announce_preview(cb_id: int, discount_pct: int = 0, coach: Coach = Depends(current_coach), db: Session = Depends(get_db)):
     """Joueurs du coach à qui annoncer ce terrain libre (ceux sans compte n'ont pas d'e-mail: rien ne leur est envoyé)."""
     cb = _free_court(db, coach, cb_id)
     players = sorted(recipients(db, coach), key=lambda p: (not has_account(p), p.name))
     return {
         "players": [{"id": p.id, "name": p.name, "category": p.category, "gender": p.gender, "has_account": has_account(p),
                      "contact_channel": p.contact_channel or "sms"} for p in players],
-        "message": free_court_message(db, coach, cb),
+        "message": default_message(db, coach, cb, discount_pct) if discount_pct else free_court_message(db, coach, cb),
     }
 
 
 class AnnounceIn(BaseModel):
     player_ids: list[int]
     message: str = ""
+    discount_pct: int = 0  # facultatif: happy hour sur ce créneau (promotion appliquée aux réservations)
 
 
 @router.post("/court-bookings/{cb_id}/announce")
@@ -167,7 +169,15 @@ def announce(cb_id: int, body: AnnounceIn, coach: Coach = Depends(current_coach)
     cb = _free_court(db, coach, cb_id)
     mine = {p.id: p for p in recipients(db, coach)}
     chosen = [mine[i] for i in body.player_ids if i in mine]
-    message = body.message.strip() or free_court_message(db, coach, cb)
-    sent = booking_svc.notify(db, chosen, f"Créneau de padel libre avec {coach.name}", lambda _p: message)
+    pct = body.discount_pct
+    if pct and not 5 <= pct <= 90:
+        raise HTTPException(422, "La remise doit être entre 5 et 90 %")
+    message = body.message.strip() or (default_message(db, coach, cb, pct) if pct else free_court_message(db, coach, cb))
+    subject = f"Happy hour -{pct} % avec {coach.name}" if pct else f"Créneau de padel libre avec {coach.name}"
+    sent = booking_svc.notify(db, chosen, subject, lambda _p: message)
+    if pct:  # la remise s'applique aux réservations sur ce terrain (une seule promotion à la fois)
+        for old in db.scalars(select(Promotion).where(Promotion.court_booking_id == cb.id, Promotion.active.is_(True))):
+            old.active = False
+        db.add(Promotion(coach_id=coach.id, court_booking_id=cb.id, discount_pct=pct, message=message, notified_count=sent))
     db.commit()
     return {"sent": sent}

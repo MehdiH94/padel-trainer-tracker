@@ -16,13 +16,13 @@ import SessionPlan from "./SessionPlan.jsx";
 import Settings from "./Settings.jsx";
 import VerifyEmail from "./VerifyEmail.jsx";
 import { actingAs, api, getRole, getToken, setSession, setToken, stopActing } from "./api.js";
-import { FeedbackHost, Modal } from "./feedback.jsx";
+import { FeedbackHost, Modal, toast, toastError } from "./feedback.jsx";
 import { guideHidden, loadGuide, newlyDone } from "./guide.js";
 import { useRoute } from "./router.js";
 import { Avatar, CategoryBadge, OfflineBar } from "./ui.jsx";
 
 function Login() {
-  const [f, setF] = useState({ email: "", password: "", name: "" });
+  const [f, setF] = useState({ email: "", password: "", name: "", phone: "" });
   const [remember, setRemember] = useState(localStorage.getItem("remember") !== "0"); // coché par défaut
   const [mode, setMode] = useState("login");
   const [err, setErr] = useState("");
@@ -32,7 +32,7 @@ function Login() {
     e.preventDefault();
     setBusy(true);
     try {
-      setSession(await api("/auth/" + mode, { method: "POST", body: f }), remember);
+      setSession(await api("/auth/" + mode, { method: "POST", body: { ...f, base: location.origin } }), remember);
       location.reload();
     } catch (x) {
       setErr(x.message);
@@ -45,13 +45,15 @@ function Login() {
         <div className="logo"><Icon name="ball" size={30} strokeWidth={1.8} /></div>
         <h1>Padel Coach</h1>
         <p className="mut">{mode === "login" ? "Connectez-vous à votre espace" : "Créez votre espace coach"}</p>
-        {mode === "register" && <label className="field"><span className="mut">Votre nom de coach</span><input value={f.name} onChange={set("name")} autoComplete="name" /></label>}
+        {mode === "register" && <label className="field"><span className="mut">Votre nom de coach</span><input value={f.name} onChange={set("name")} autoComplete="name" required /></label>}
+        {mode === "register" && <label className="field"><span className="mut">Téléphone</span><input type="tel" value={f.phone} onChange={set("phone")} autoComplete="tel" placeholder="ex. 22 123 456" required /></label>}
         <label className="field"><span className="mut">E-mail</span><input type="email" value={f.email} onChange={set("email")} autoComplete="email" required /></label>
         <label className="field"><span className="mut">Mot de passe</span><input type="password" value={f.password} onChange={set("password")} autoComplete={mode === "login" ? "current-password" : "new-password"} required /></label>
         <label className="check" style={{ margin: "4px 0 10px" }}>
           <input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} /> Rester connecté sur cet appareil
         </label>
         {err && <div className="err" role="alert">{err}</div>}
+        {mode === "register" && <p className="mut small-p">Vous confirmerez votre adresse e-mail, puis un administrateur validera votre compte avant que vous puissiez commencer.</p>}
         <button style={{ width: "100%" }} disabled={busy}>{busy ? "Connexion…" : mode === "login" ? "Se connecter" : "Créer mon compte coach"}</button>
         <button type="button" className="link center" style={{ marginTop: 10 }} onClick={() => { setMode(mode === "login" ? "register" : "login"); setErr(""); }}>
           {mode === "login" ? "Vous êtes coach ? Créer un compte" : "J'ai déjà un compte"}
@@ -200,6 +202,70 @@ function AdminBar() {
   );
 }
 
+// Compte en attente (nouveau coach, joueur inscrit par le lien public): e-mail à vérifier, puis confirmation
+// d'un administrateur. Rien d'autre n'est possible avant; l'écran se met à jour seul.
+function Waiting({ acc, reload }) {
+  const [sent, setSent] = useState(false);
+  useEffect(() => { const t = setInterval(reload, 15000); return () => clearInterval(t); }, []);
+  const emailOk = acc.email_verified || !acc.email_required;
+  const resend = () => api("/auth/account/resend", { method: "POST", body: { base: location.origin } })
+    .then(() => { setSent(true); toast(`Nouveau lien envoyé à ${acc.email}`); }).catch(toastError);
+  const logout = () => { setToken(null); location.reload(); };
+  if (acc.signup_status === "refusee") return (
+    <div className="login-wrap"><div className="login card center">
+      <div className="bigcheck wait" style={{ margin: "0 auto 8px" }}><Icon name="alert" size={40} strokeWidth={1.6} /></div>
+      <h1>Compte refusé</h1>
+      <p className="mut">Un administrateur n'a pas confirmé ce compte. Contactez-le si vous pensez qu'il s'agit d'une erreur.</p>
+      <button className="sec" style={{ width: "100%" }} onClick={logout}>Se déconnecter</button>
+    </div></div>
+  );
+  return (
+    <div className="login-wrap">
+      <div className="login card">
+        <div className="logo"><Icon name="ball" size={30} strokeWidth={1.8} /></div>
+        <h1>Bienvenue {acc.name.split(" ")[0]} !</h1>
+        <p className="mut">Votre compte {acc.role === "coach" ? "coach " : ""}est créé. Encore {emailOk ? "une étape" : "deux étapes"} avant de pouvoir l'utiliser :</p>
+        <ol className="wait-steps">
+          <li className={emailOk ? "ok" : "now"}>
+            <Icon name={emailOk ? "checkCircle" : "mail"} size={20} />
+            <div>
+              <b>Confirmer votre adresse e-mail</b>
+              {emailOk ? <div className="mut small-p">C'est fait.</div> : (
+                <>
+                  <div className="small-p">Ouvrez le lien envoyé à <b>{acc.email}</b> (pensez à regarder dans les spams).</div>
+                  <button className="small sec" style={{ marginTop: 6 }} disabled={sent} onClick={resend}>{sent ? "Lien renvoyé" : "Renvoyer le lien"}</button>
+                </>
+              )}
+            </div>
+          </li>
+          <li className={emailOk ? "now" : ""}>
+            <Icon name="shield" size={20} />
+            <div>
+              <b>Confirmation par un administrateur</b>
+              <div className="small-p">Un administrateur va vérifier et confirmer votre compte. Vous recevrez un e-mail, et vous pourrez alors utiliser l'application{acc.role === "coach" ? " : un guide vous montrera les premières étapes" : ""}.</div>
+            </div>
+          </li>
+        </ol>
+        <button style={{ width: "100%" }} onClick={reload}><Icon name="repeat" size={15} /> Vérifier maintenant</button>
+        <button className="link center" style={{ marginTop: 10, display: "block", width: "100%" }} onClick={logout}>Se déconnecter</button>
+      </div>
+    </div>
+  );
+}
+
+// Connecté: on vérifie d'abord que le compte n'est pas en attente
+function Account() {
+  const [acc, setAcc] = useState(null);
+  const load = () => api("/auth/account").then((a) => setAcc((old) => {
+    if (old?.pending && !a.pending) location.reload(); // confirmé pendant l'attente: l'appli s'ouvre
+    return a;
+  })).catch(() => setAcc({ pending: false }));
+  useEffect(() => { load(); }, []);
+  if (!acc) return <div className="login-wrap"><div className="login card"><div className="skel" style={{ height: 160 }} /></div></div>;
+  if (acc.pending) return <Waiting acc={acc} reload={load} />;
+  return getRole() === "player" ? <PlayerApp /> : <CoachApp />;
+}
+
 export default function App() {
   let page;
   if (location.pathname.startsWith("/invite/")) page = <Invite token={location.pathname.split("/")[2]} />;
@@ -207,6 +273,6 @@ export default function App() {
   else if (location.pathname.startsWith("/remplacer/")) page = <Replace token={location.pathname.split("/")[2]} />;
   else if (location.pathname.startsWith("/verify/")) page = <VerifyEmail token={location.pathname.split("/")[2]} />;
   else if (!getToken()) page = <Login />;
-  else page = getRole() === "player" ? <PlayerApp /> : <CoachApp />;
+  else page = <Account />;
   return <>{actingAs() && getToken() && <AdminBar />}{page}<FeedbackHost /></>;
 }

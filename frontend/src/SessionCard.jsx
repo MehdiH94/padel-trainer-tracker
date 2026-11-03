@@ -1,11 +1,13 @@
 import { useState } from "react";
 import { hhmm, tnd } from "./api.js";
 import InvitePlayers from "./InvitePlayers.jsx";
+import MessagePlayers from "./MessagePlayers.jsx";
 import Icon from "./Icon.jsx";
 import { AvatarStack, COURT_STATUS, KIND, PlayerTags, STATUS, Where } from "./ui.jsx";
 
 export default function SessionCard({ s, name, byId, onStatus, onDuplicate, onPrepare, onChanged }) {
   const [inviting, setInviting] = useState(false);
+  const [writing, setWriting] = useState(false); // message aux inscrits (séance incomplète)
   const short = s.status === "prevue" && s.player_ids.length < s.min_players; // pas encore assez de joueurs
   // Séance à deux ou en groupe pas encore pleine: le coach peut la compléter en un clic (joueurs compatibles)
   const upcoming = new Date(s.start.endsWith("Z") || /[+-]\d\d:\d\d$/.test(s.start) ? s.start : s.start + "Z") > new Date();
@@ -53,6 +55,12 @@ export default function SessionCard({ s, name, byId, onStatus, onDuplicate, onPr
           <Icon name="users" size={15} /> Compléter la séance · {s.max_players - s.player_ids.length} place{s.max_players - s.player_ids.length > 1 ? "s" : ""} libre{s.max_players - s.player_ids.length > 1 ? "s" : ""}
         </button>
       )}
+      {canInvite && s.player_ids.length > 0 && (
+        <button className="small sec" style={{ marginTop: 6, width: "100%" }} onClick={() => setWriting(true)}>
+          <Icon name="message" size={15} /> Écrire aux inscrits{short ? " (pas assez de joueurs)" : ""}
+        </button>
+      )}
+      {writing && <MessagePlayers sessionId={s.id} onClose={() => setWriting(false)} onDone={() => { setWriting(false); onChanged?.(); }} />}
       {inviting && <InvitePlayers sessionId={s.id} onClose={() => setInviting(false)} onDone={() => { setInviting(false); onChanged?.(); }} />}
       {s.status === "prevue" && onStatus && (
         <div className="actions">

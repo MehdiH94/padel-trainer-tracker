@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -31,6 +31,16 @@ class Coach(Base):
     # Page publique vue par les joueurs
     bio: Mapped[str] = mapped_column(Text, default="")
     specialties: Mapped[str] = mapped_column(String(255), default="")  # thèmes séparés par des virgules
+    phone: Mapped[str] = mapped_column(String(20), default="")
+    # Administrateurs: e-mails de ADMIN_EMAILS (toujours) + coachs nommés par un administrateur
+    is_admin: Mapped[bool] = mapped_column(default=False)
+    # Coach inscrit lui-même: « a_valider » tant qu'un administrateur n'a pas confirmé (rien n'est possible avant),
+    # « validee » ensuite, « refusee » si refusé; None = compte créé avant cette règle ou par un administrateur
+    signup_status: Mapped[str | None] = mapped_column(String(12), nullable=True)
+    signup_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    email_verified_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    email_token: Mapped[str | None] = mapped_column(String(48), nullable=True)
+    email_token_sent_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
 
 
 class Player(Base):
@@ -167,6 +177,17 @@ class CreditTx(Base):
     booking_id: Mapped[int | None] = mapped_column(ForeignKey("bookings.id"), nullable=True)
     session_id: Mapped[int | None] = mapped_column(ForeignKey("sessions.id"), nullable=True)  # séance payée en crédits (« seance »)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+
+
+class TimeOff(Base):
+    """Absence du coach (vacances, indisponibilité): aucun créneau n'est proposé aux joueurs ces jours-là."""
+
+    __tablename__ = "time_off"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    coach_id: Mapped[int] = mapped_column(ForeignKey("coaches.id"), index=True)
+    start_date: Mapped[date] = mapped_column()  # jours de Tunis, inclus
+    end_date: Mapped[date] = mapped_column()
+    reason: Mapped[str] = mapped_column(String(120), default="")
 
 
 class Availability(Base):

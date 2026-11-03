@@ -28,6 +28,12 @@ def login_as(c, token):
     return c
 
 
+def confirm_coach(boss, email):
+    """L'administrateur confirme un coach inscrit lui-même (en attente dès qu'il y a un administrateur)."""
+    cid = next(c["id"] for c in boss.get("/admin/coach-signups").json() if c["email"] == email)
+    assert boss.post(f"/admin/coach-signups/{cid}/validate").json()["status"] == "validee"
+
+
 def register(email="a@b.tn"):
     c = TestClient(app)
     r = c.post("/auth/register", json={"email": email, "password": "secret1", "name": "Coach Test"}).json()
@@ -1135,7 +1141,8 @@ def test_coach_invites_players_who_trained_with_him(client, monkeypatch):
         client.patch(f"/sessions/{s['id']}", json={"status": "effectuee"})
     g = open_duo(client, host, hours=72, kind="groupe")
     inv = client.get(f"/sessions/{g['id']}/invitable").json()
-    assert [p["name"] for p in inv["players"]] == ["Ancien"] and inv["spots_left"] == 3
+    # tous les joueurs de niveau compatible, ceux déjà entraînés chez lui d'abord (TropFort: trop d'écart)
+    assert [(p["name"], p["trained"]) for p in inv["players"]] == [("Ancien", True), ("Nouveau", False)] and inv["spots_left"] == 3
     Notifier.sent.clear()
     assert client.post(f"/sessions/{g['id']}/invite", json={"player_ids": [ok["id"], far["id"]]}).json()["sent"] == 1  # TropFort ignoré
     assert Notifier.sent[0][0] == "whatsapp" and "en groupe" in Notifier.sent[0][2]
@@ -1256,6 +1263,7 @@ def test_court_calendar_states(client):
 
 def test_signup_link_prefilled_and_admin_validation(client, monkeypatch):
     from app.notify import OUTBOX
+    other = register("other@b.tn")  # coach inscrit avant l'arrivée d'un administrateur: pas de confirmation
     monkeypatch.setenv("ADMIN_EMAILS", "boss@padel.tn")
     OUTBOX.clear()
     # à l'ajout d'un élève, le lien d'inscription pré-rempli est déjà prêt
@@ -1269,7 +1277,6 @@ def test_signup_link_prefilled_and_admin_validation(client, monkeypatch):
     anon.post(f"/auth/invite/{token}", json={"email": "sami@x.tn", "password": "secret1", "category": "P500-"})
     assert any(to == "boss@padel.tn" and "Sami Ben Ali" in body and "P250-" in body for to, _, body in OUTBOX)
     # doublon chez un autre coach (même téléphone)
-    other = register("other@b.tn")
     mkplayer(other, name="Sami B.", phone="+216 22123456")
     # un coach ordinaire n'a pas accès à l'administration
     assert client.get("/admin/signups").status_code == 403
@@ -1446,7 +1453,7 @@ def test_coach_announces_free_court_to_chosen_players(client):
     start = (datetime.now(timezone.utc) + timedelta(days=3)).replace(minute=0, second=0, microsecond=0)
     cb = free_court(client, start.isoformat(), minutes=240)
     data = client.get(f"/court-bookings/{cb['id']}/announce").json()
-    assert {x["name"] for x in data["players"]} == {"Sami", "Rim"} and "terrain libre" in data["message"] and " à " in data["message"]
+    assert {x["name"] for x in data["players"]} == {"Sami", "Rim"} and "créneau est disponible" in data["message"] and " à " in data["message"]
     OUTBOX.clear()
     assert client.post(f"/court-bookings/{cb['id']}/announce", json={"player_ids": [q["id"]], "message": ""}).json()["sent"] == 1
     assert [to for to, _, _ in OUTBOX] == [f"p{q['id']}@x.tn"]  # seulement le joueur choisi
@@ -1484,6 +1491,8 @@ def test_admin_manages_players_coaches_and_clubs(client, monkeypatch):
     # joueur avec compte chez deux coachs: supprimer la fiche compte garde l'accès chez l'autre coach
     p, pc = player_client(client, name="Sami", phone="22 123 456")
     other = register("other@b.tn")
+    assert other.get("/booking/settings").status_code == 403  # en attente de l'administrateur
+    confirm_coach(boss, "other@b.tn")
     other.put("/booking/settings", json={"auto_confirm": False, "slot_minutes": 60, "price_individuel": 60000, "price_duo": 40000,
                                          "price_groupe": 30000, "cancel_hours": 24, "booking_mode": "disponibilites",
                                          "availability": [{"weekday": d, "start_time": "09:00", "end_time": "21:00"} for d in range(7)]})
@@ -1564,6 +1573,7 @@ def test_admin_full_rights_act_as_and_edit_everything(client, monkeypatch):
     assert TestClient(app).post("/auth/login", json={"email": "nouveau@x.tn", "password": "neuf123"}).json()["role"] == "player"
     # fiche partagée: chez un deuxième coach, la même identité
     other = register("other@b.tn")
+    confirm_coach(boss, "other@b.tn")
     from app.db import get_db
     from app.services.accounts import row_for_coach
     db = next(app.dependency_overrides[get_db]())
@@ -1638,13 +1648,17 @@ def test_public_signup_without_coach_then_books_a_coach(client, monkeypatch):
     r = anon.post("/auth/signup", json={"name": "Nadia Ben Salem", "phone": "20 444 555", "email": "Nadia@x.tn", "password": "secret1", "category": "P250-"})
     assert r.json()["role"] == "player"
     pc = login_as(TestClient(app), r.json()["token"])
+    # rien n'est possible avant la confirmation de l'administrateur
+    assert pc.get("/me").status_code == 403 and pc.get("/auth/account").json()["pending"] is True
+    boss = register("boss@padel.tn")
+    [s] = boss.get("/admin/signups").json()
+    assert s["coach_name"].startswith("Sans coach")
+    boss.post(f"/admin/signups/{s['id']}/validate", json={})
+    assert pc.get("/auth/account").json()["pending"] is False
     me = pc.get("/me").json()
     assert (me["coach_name"], me["wallets"], pc.get("/me/slots").json(), pc.get("/me/suggestions").json()) == ("", [], [], [])
     assert pc.get("/me/progress").status_code == 200 and pc.get("/me/sessions").status_code == 200
     assert client.get("/players").json() == []  # aucun coach ne la voit tant qu'elle n'a pas réservé
-    boss = register("boss@padel.tn")
-    [s] = boss.get("/admin/signups").json()
-    assert s["coach_name"].startswith("Sans coach")
     # elle choisit le coach en réservant: une fiche est créée chez lui
     coach_id = client.get("/booking/settings").json().get("coach_id") or next(c["id"] for c in pc.get("/me/coaches").json())
     when = (datetime.now(timezone.utc) + timedelta(days=3)).replace(hour=9, minute=0, second=0, microsecond=0)
@@ -1698,3 +1712,73 @@ def test_new_session_tells_if_a_court_is_already_booked(client):
     assert r["here"] is None and [c["club_name"] for c in r["elsewhere"]] == ["Padel Club La Marsa"]  # « choisir ce club »
     late = (start + timedelta(hours=3, minutes=30)).isoformat()  # dépasse midi: le terrain ne couvre pas
     assert client.get("/court-bookings/cover", params={"start": late, "duration_min": 60, "club_id": marsa["id"]}).json() == {"here": None, "elsewhere": []}
+
+
+def test_new_coach_waits_for_email_and_admin_then_more_admins(client, monkeypatch):
+    """Nouveau coach: e-mail vérifié puis confirmation d'un administrateur avant tout; un administrateur en nomme d'autres."""
+    from app.notify import OUTBOX
+    monkeypatch.setenv("ADMIN_EMAILS", "boss@padel.tn")
+    monkeypatch.setenv("REQUIRE_EMAIL_VERIFICATION", "1")
+    boss = register("boss@padel.tn")
+    assert boss.get("/auth/account").json()["pending"] is False  # administrateur du serveur: jamais en attente
+    OUTBOX.clear()
+    anon = TestClient(app)
+    r = anon.post("/auth/register", json={"email": "neuf@b.tn", "password": "secret1", "name": "Coach Neuf", "phone": "22 333 444"}).json()
+    new = login_as(TestClient(app), r["token"])
+    acc = new.get("/auth/account").json()
+    assert (acc["pending"], acc["email_verified"], acc["signup_status"]) == (True, False, "a_valider")
+    assert new.get("/booking/settings").status_code == 403
+    assert any(to == "boss@padel.tn" and "Coach Neuf" in body for to, _, body in OUTBOX)  # l'administrateur est prévenu
+    token = next(body for to, _, body in OUTBOX if to == "neuf@b.tn").split("/verify/")[1].split()[0]
+    v = anon.post(f"/auth/verify/{token}").json()
+    assert v["coach"] and v["waiting_admin"]  # e-mail vérifié, reste la confirmation
+    assert boss.get("/booking/summary").json()["signups"] == 1
+    [c] = boss.get("/admin/coach-signups").json()
+    assert (c["phone"], c["email_verified"]) == ("+21622333444", True)
+    boss.post(f"/admin/coach-signups/{c['id']}/validate")
+    assert new.get("/auth/account").json()["pending"] is False and new.get("/booking/settings").status_code == 200
+    # plusieurs administrateurs
+    assert new.get("/admin/coaches").status_code == 403
+    assert boss.put(f"/admin/coaches/{c['id']}/admin", json={"admin": True}).json()["admin"] is True
+    assert new.get("/admin/coaches").status_code == 200 and new.get("/booking/summary").json()["admin"]
+    boss_id = next(x["id"] for x in new.get("/admin/coaches").json() if x["email"] == "boss@padel.tn")
+    assert new.put(f"/admin/coaches/{boss_id}/admin", json={"admin": False}).status_code == 409  # fixé par ADMIN_EMAILS
+    assert boss.put(f"/admin/coaches/{c['id']}/admin", json={"admin": False}).json()["admin"] is False
+    # un coach refusé ne peut rien faire
+    r = anon.post("/auth/register", json={"email": "faux@b.tn", "password": "secret1", "name": "Faux"}).json()
+    fake = next(x for x in boss.get("/admin/coach-signups").json() if x["email"] == "faux@b.tn")
+    boss.post(f"/admin/coach-signups/{fake['id']}/refuse")
+    assert login_as(TestClient(app), r["token"]).get("/auth/account").json()["signup_status"] == "refusee"
+
+
+def test_time_off_hides_slots_and_free_court_happy_hour_and_low_session_message(client):
+    """Absence du coach: aucun créneau ces jours-là. Terrain libre annoncé avec une remise = promotion.
+    Séance incomplète: message aux inscrits avec remise, le prix baisse."""
+    from app.notify import OUTBOX
+    open_week(client)
+    p, pc = player_client(client)
+    day = (datetime.now(timezone.utc) + timedelta(days=3)).date()
+    before = [x for x in pc.get("/me/slots").json() if x.startswith(day.isoformat())]
+    assert before
+    off = client.post("/time-off", json={"start_date": day.isoformat(), "reason": "Vacances"}).json()
+    assert (off["end_date"], off["reason"]) == (day.isoformat(), "Vacances")
+    assert not [x for x in pc.get("/me/slots").json() if x.startswith(day.isoformat())]
+    assert client.post("/time-off", json={"start_date": day.isoformat(), "end_date": "2000-01-01"}).status_code == 422
+    assert client.delete(f"/time-off/{off['id']}").json()["ok"] and client.get("/time-off").json() == []
+    # terrain libre annoncé en happy hour
+    start = (datetime.now(timezone.utc) + timedelta(days=4)).replace(minute=0, second=0, microsecond=0)
+    cb = free_court(client, start.isoformat(), minutes=120)
+    msg = client.get(f"/court-bookings/{cb['id']}/announce?discount_pct=20").json()["message"]
+    assert "happy hour : -20 %" in msg
+    OUTBOX.clear()
+    assert client.post(f"/court-bookings/{cb['id']}/announce", json={"player_ids": [p["id"]], "discount_pct": 20}).json()["sent"] == 1
+    [promo] = [x for x in client.get("/promotions").json()["items"] if x["active"]]
+    assert (promo["court_booking_id"], promo["discount_pct"]) == (cb["id"], 20)
+    # séance en groupe à deux: le coach demande s'ils sont partants à deux, avec -10 %
+    q = mkplayer(client, name="Rim", phone="20 111 222")
+    s = client.post("/sessions", json={"start": (start + timedelta(days=1)).isoformat(), "kind": "groupe", "player_ids": [p["id"], q["id"]], "discount_pct": 0}).json()[0]
+    pre = client.get(f"/sessions/{s['id']}/message?discount_pct=10").json()
+    assert {x["name"] for x in pre["players"]} == {"Sami", "Rim"} and "à deux" in pre["message"] and "-10 %" in pre["message"]
+    OUTBOX.clear()
+    assert client.post(f"/sessions/{s['id']}/message", json={"player_ids": [p["id"], q["id"]], "discount_pct": 10}).json()["sent"] == 2
+    assert next(x for x in client.get("/sessions").json() if x["id"] == s["id"])["price_millimes"] == 27000  # 30 TND - 10 %

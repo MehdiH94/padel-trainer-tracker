@@ -183,16 +183,17 @@ def add_player(session_id: int, body: AddPlayerIn, coach: Coach = Depends(curren
 
 @router.get("/{session_id}/invitable")
 def invitable(session_id: int, coach: Coach = Depends(current_coach), db: Session = Depends(get_db)):
-    """Joueurs déjà entraînés au moins une fois par ce coach, de niveau compatible avec tous les inscrits."""
+    """Joueurs du coach de niveau compatible avec tous les inscrits (ceux déjà entraînés chez lui en premier)."""
     s = get_owned_session(db, coach, session_id)
     trained = set(db.scalars(select(Attendance.player_id).join(TrainingSession, TrainingSession.id == Attendance.session_id)
                              .where(TrainingSession.coach_id == coach.id, TrainingSession.status == "effectuee")))
     inside = {a.player_id for a in s.attendances}
     out = []
     for p in db.scalars(select(Player).where(Player.coach_id == coach.id).order_by(Player.name)):
-        if p.id in trained and p.id not in inside and booking_svc.fits_session(db, p, s)[0]:
+        if p.id not in inside and booking_svc.fits_session(db, p, s)[0]:
             out.append({"id": p.id, "name": p.name, "category": p.category, "gender": p.gender, "has_account": has_account(p),
-                        "contact_channel": p.contact_channel or "sms"})
+                        "contact_channel": p.contact_channel or "sms", "trained": p.id in trained})
+    out.sort(key=lambda x: (not x["trained"], not x["has_account"]))  # déjà entraînés chez lui d'abord
     return {"players": out, "spots_left": booking_svc.spots_left(db, s), "message": default_invite(coach, s)}
 
 
@@ -220,5 +221,53 @@ def invite_players(session_id: int, body: InviteIn, coach: Coach = Depends(curre
         s.open = True  # les joueurs invités pourront accepter la proposition
     message = body.message.strip() or default_invite(coach, s)
     sent = booking_svc.notify(db, chosen, "Une place pour vous dans une séance de padel", lambda _p: message)
+    db.commit()
+    return {"sent": sent}
+
+
+# --- Séance incomplète: le coach écrit aux inscrits (« partants à deux ? »), avec une remise facultative ----------
+
+def default_low_message(coach: Coach, s: TrainingSession, pct: int = 0) -> str:
+    n = len(s.attendances)
+    what = "à deux" if n == 2 else "seul avec moi" if n == 1 else f"à {n}"
+    promo = f"Pour vous remercier, je vous fais -{pct} % sur cette séance." if pct else ""
+    return letter(None, "Malheureusement, nous n'arrivons pas à compléter cette séance :", booking_svc._details(s),
+                  f"Est-ce que ça vous intéresse quand même de vous entraîner {what} ? {promo}".strip(),
+                  "Répondez-moi, ou changez de formule dans l'application (sur votre séance).", sign=coach.name)
+
+
+@router.get("/{session_id}/message")
+def message_preview(session_id: int, discount_pct: int = 0, coach: Coach = Depends(current_coach), db: Session = Depends(get_db)):
+    """Inscrits de la séance et message proposé."""
+    s = get_owned_session(db, coach, session_id)
+    players = [db.get(Player, a.player_id) for a in s.attendances]
+    return {"players": [{"id": p.id, "name": p.name, "category": p.category, "gender": p.gender, "has_account": has_account(p)} for p in players],
+            "message": default_low_message(coach, s, discount_pct), "min_players": groups.min_needed(s)}
+
+
+class LowIn(BaseModel):
+    player_ids: list[int]
+    message: str = ""
+    discount_pct: int = 0  # remise sur la séance pour les inscrits (0 = aucune)
+
+
+@router.post("/{session_id}/message")
+def message_players(session_id: int, body: LowIn, coach: Coach = Depends(current_coach), db: Session = Depends(get_db)):
+    """Écrit aux inscrits choisis. Avec une remise: le prix de chacun baisse (crédits déjà débités: la différence est rendue)."""
+    from ..models import Booking
+    s = get_owned_session(db, coach, session_id)
+    if not 0 <= body.discount_pct <= 90:
+        raise HTTPException(422, "La remise doit être entre 0 et 90 %")
+    inside = {a.player_id for a in s.attendances}
+    chosen = [db.get(Player, pid) for pid in body.player_ids if pid in inside]
+    if body.discount_pct:
+        for b in db.scalars(select(Booking).where(Booking.session_id == s.id, Booking.status.in_(booking_svc.ACTIVE))):
+            if body.discount_pct > (b.discount_pct or 0):
+                b.discount_pct = body.discount_pct
+                booking_svc._reprice(db, coach, s, b)
+        if s.price_mode == "par_joueur":  # séance montée par le coach: prix par joueur
+            s.price_millimes = min(s.price_millimes, round(base_price(coach, s.kind) * (100 - body.discount_pct) / 100))
+    message = body.message.strip() or default_low_message(coach, s, body.discount_pct)
+    sent = booking_svc.notify(db, chosen, "Votre séance de padel", lambda _p: message)
     db.commit()
     return {"sent": sent}

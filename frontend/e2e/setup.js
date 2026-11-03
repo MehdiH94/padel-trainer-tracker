@@ -9,7 +9,7 @@ export default async function setup() {
   try {
     await promisify(execFile)(process.env.PYTHON || "python", ["seed_demo.py"], {
       cwd: path.resolve(import.meta.dirname, "../../backend"),
-      env: { ...process.env, API_URL: `http://127.0.0.1:${port}/api` },
+      env: { ...process.env, API_URL: `http://127.0.0.1:${port}/api`, DATABASE_URL: "sqlite:///./e2e.db" }, // même base que e2e/serve.sh
     });
   } catch (e) {
     throw new Error(`Données de démo non chargées: ${e.stderr || e.message}`);

@@ -27,9 +27,22 @@ test("le coach parcourt tous ses écrans", async ({ page }) => {
 
   await nav(page, "Planning").click();
   await expect(page.getByRole("heading", { name: "Planning" })).toBeVisible();
-  await page.getByRole("tab", { name: "Semaine" }).click();
+  // le calendrier est la vue par défaut; toucher un jour l'affiche en grand
+  await expect(page.getByRole("tab", { name: "Calendrier" })).toHaveAttribute("aria-selected", "true");
   await expect(page.getByRole("grid", { name: "Calendrier de la semaine : séances et terrains" })).toBeVisible();
   await expect(page.locator(".cal-block").first()).toBeVisible();
+  await page.locator(".cal-head .cal-day").first().click();
+  await expect(page.getByRole("grid", { name: "Calendrier du jour" })).toBeVisible();
+  await page.getByRole("button", { name: "Jour suivant" }).click();
+  await page.getByRole("button", { name: "Semaine", exact: true }).click();
+  await expect(page.getByRole("grid", { name: "Calendrier de la semaine : séances et terrains" })).toBeVisible();
+  // on peut avancer jusqu'à 3 mois, pas plus
+  const next = page.getByRole("button", { name: "Semaine suivante" });
+  for (let i = 0; i < 13; i++) await next.click();
+  await expect(next).toBeDisabled();
+  await page.getByRole("button", { name: "Aujourd'hui" }).click();
+  await page.getByRole("tab", { name: "Jour par jour" }).click();
+  await expect(page.locator(".weekstrip")).toBeVisible();
 
   await page.getByRole("button", { name: /Mes terrains/ }).click();
   await expect(page.getByRole("heading", { name: "Mes terrains" })).toBeVisible();
@@ -148,27 +161,50 @@ test("inscription par le lien public: compte sans coach, qui choisit ensuite son
   await page.getByLabel("Votre e-mail").fill("yasmine.public@demo.tn");
   await page.getByLabel(/Mot de passe/).fill("secret1");
   await page.getByRole("button", { name: "Créer mon compte" }).click();
-  await expect(page.getByText("Choisissez votre coach")).toBeVisible();
-  await page.getByRole("button", { name: "Réserver", exact: true }).click();
-  const coachs = page.locator("select", { has: page.locator("option", { hasText: "Tous les coachs" }) });
-  await expect(coachs).toContainText("Coach Démo"); // tous les coachs sont proposés
+  // rien n'est possible avant la confirmation de l'administrateur
+  await expect(page.getByText("Confirmation par un administrateur")).toBeVisible();
+  await expect(page.getByText("Choisissez votre coach")).toHaveCount(0);
 
-  // l'administrateur voit l'inscription (sans coach) et le lien public à partager
+  // l'administrateur voit l'inscription (sans coach) et le lien public à partager, puis la confirme
   const admin = await (await browser.newContext()).newPage();
   await login(admin, "demo@padel.tn");
   await admin.getByRole("button", { name: /Administration/ }).click();
   await expect(admin.getByLabel("Lien d'inscription public")).toHaveValue(/\/inscription$/);
-  await expect(admin.locator(".card", { hasText: "Yasmine Public" }).getByText(/Sans coach/)).toBeVisible();
+  const card = admin.locator(".card", { hasText: "Yasmine Public" });
+  await expect(card.getByText(/Sans coach/)).toBeVisible();
+  await card.getByRole("button", { name: /Confirmer/ }).click();
+  await expect(admin.getByText(/Inscription de Yasmine Public confirmée/)).toBeVisible();
   await admin.close();
+
+  await page.getByRole("button", { name: "Vérifier maintenant" }).click();
+  await expect(page.getByText("Choisissez votre coach")).toBeVisible();
+  await page.getByRole("button", { name: "Réserver", exact: true }).click();
+  const coachs = page.locator("select", { has: page.locator("option", { hasText: "Tous les coachs" }) });
+  await expect(coachs).toContainText("Coach Démo"); // tous les coachs sont proposés
 });
 
-test("nouveau coach: le guide « Bien démarrer » mène à chaque réglage et se coche tout seul", async ({ page }) => {
+test("nouveau coach: confirmé par l'administrateur, puis le guide « Bien démarrer » mène à chaque réglage", async ({ page, browser }) => {
   await page.goto("/");
   await page.getByRole("button", { name: "Vous êtes coach ? Créer un compte" }).click();
   await page.getByLabel("Votre nom de coach").fill("Coach Nouveau");
+  await page.getByLabel("Téléphone").fill("55 444 333");
   await page.locator("input[type=email]").fill("nouveau.coach@demo.tn");
   await page.locator("input[type=password]").fill("secret1");
   await page.getByRole("button", { name: "Créer mon compte coach" }).click();
+  // en attente: un administrateur doit confirmer le compte
+  await expect(page.getByText("Un administrateur va vérifier et confirmer votre compte", { exact: false })).toBeVisible();
+  const admin = await (await browser.newContext()).newPage();
+  await login(admin, "demo@padel.tn");
+  await admin.getByRole("button", { name: /Administration/ }).click();
+  const card = admin.locator(".card", { hasText: "Coach Nouveau" });
+  await expect(card).toContainText("+21655444333");
+  await card.getByRole("button", { name: "Confirmer le coach" }).click();
+  await expect(admin.getByText(/Compte de Coach Nouveau confirmé/)).toBeVisible();
+  // l'administrateur peut nommer d'autres administrateurs
+  await admin.getByRole("button", { name: "Coachs", exact: true }).click();
+  await expect(admin.locator(".admin-toggle").first()).toBeVisible();
+  await admin.close();
+  await page.getByRole("button", { name: "Vérifier maintenant" }).click();
   const guide = page.locator(".onboard");
   await expect(guide).toContainText("Bienvenue Coach ! Configurons votre espace");
   await expect(guide).toContainText("0/6");
@@ -249,13 +285,13 @@ test("un seul calendrier: créer une séance sur un terrain libre, le formulaire
   expect(r.ok()).toBeTruthy();
 
   await login(page, "demo@padel.tn");
-  await page.goto("/#planning/semaine");
-  const legend = page.locator(".cal-legend");
-  await expect(legend).toContainText("Terrain + joueurs au complet");
-  await expect(legend).toContainText("Joueurs sans terrain réservé");
+  await page.goto("/#planning");
   if ([1, 2].includes(new Date(`${day}T12:00:00Z`).getUTCDay())) await page.getByRole("button", { name: "Semaine suivante" }).click(); // dans 2 jours = semaine suivante
+  // légende: seulement les couleurs présentes dans la semaine affichée
+  const legend = page.locator(".cal-legend");
+  await expect(legend).toContainText("Terrain réservé, encore aucun joueur");
   await page.locator(".cal-block.libre", { hasText: "6–8" }).first().click();
-  await page.getByRole("dialog").getByRole("button", { name: "Créer une séance sur ce terrain" }).click();
+  await page.getByRole("dialog").getByRole("button", { name: /Créer un entraînement précis/ }).click();
   await expect(page.getByText("C'est bon : un terrain est déjà réservé pour ce créneau")).toBeVisible();
 });
 
@@ -278,4 +314,39 @@ test("nouvelle séance: joueurs choisis dans une liste avec leur niveau, avertis
   await expect(dialog).toContainText("Êtes-vous sûr de vouloir créer la séance ?");
   await dialog.getByRole("button", { name: "Créer quand même" }).click();
   await expect(form).toHaveCount(0); // séance créée, formulaire fermé
+});
+
+test("terrain libre: prévenir ses joueurs avec une happy hour; absence du coach dans le calendrier", async ({ page, request }) => {
+  const { token } = await (await request.post("/api/auth/login", { data: { email: "demo@padel.tn", password: "demo1234" } })).json();
+  const headers = { Authorization: `Bearer ${token}` };
+  const [club] = await (await request.get("/api/clubs", { headers })).json();
+  const day = new Date(Date.now() + 3 * 86400000).toLocaleDateString("fr-CA", { timeZone: "Africa/Tunis" });
+  expect((await request.post("/api/court-bookings/manual", { headers, data: { club_id: club.id, start: `${day}T07:00:00+01:00`, duration_min: 120, court_label: "Terrain promo" } })).ok()).toBeTruthy();
+
+  await login(page, "demo@padel.tn");
+  await page.goto("/#planning");
+  if ([1, 2, 3].includes(new Date(`${day}T12:00:00Z`).getUTCDay())) await page.getByRole("button", { name: "Semaine suivante" }).click();
+  // vue du jour: le terrain avec son état en clair
+  await page.locator(".cal-head .cal-day", { hasText: String(+day.slice(8)) }).click();
+  await expect(page.getByRole("grid", { name: "Calendrier du jour" })).toBeVisible();
+  await page.locator(".cal-block.libre", { hasText: "7–9" }).click();
+  await page.getByRole("dialog").getByRole("button", { name: /Prévenir mes joueurs/ }).click();
+  const send = page.getByRole("dialog", { name: "Annoncer ce créneau" });
+  await send.getByRole("button", { name: "−20 %" }).click();
+  await expect(send.locator("textarea")).toHaveValue(/happy hour : -20 %/);
+  await send.getByRole("button", { name: /^Prévenir \d+ joueur/ }).click();
+  await expect(page.getByText(/joueurs? prévenus?/)).toBeVisible();
+
+  // absence: aujourd'hui, avec une raison, visible dans le calendrier
+  await page.getByRole("button", { name: "Semaine", exact: true }).click();
+  await page.getByRole("button", { name: "Aujourd'hui" }).click();
+  await page.getByRole("button", { name: "Absence" }).click();
+  await page.getByLabel("Raison (facultatif)").fill("Vacances");
+  await page.getByRole("button", { name: "Enregistrer l'absence" }).click();
+  await expect(page.locator(".cal-off", { hasText: "Vacances" })).toBeVisible();
+  await expect(page.locator(".cal-legend")).toContainText("Absence");
+  await page.locator(".cal-off", { hasText: "Vacances" }).click();
+  await page.getByRole("button", { name: "Supprimer cette absence" }).click();
+  await page.getByRole("dialog").getByRole("button", { name: "Supprimer" }).click();
+  await expect(page.locator(".cal-off")).toHaveCount(0);
 });

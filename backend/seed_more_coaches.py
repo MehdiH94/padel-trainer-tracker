@@ -63,6 +63,14 @@ def seed_coach(cfg: dict, rng: random.Random) -> bool:
         return False
     r.raise_for_status()
     c.headers["Authorization"] = "Bearer " + r.json()["token"]
+    if c.get("/auth/account").json().get("pending"):
+        # coach fictif: confirmé directement (sinon il attendrait l'administrateur, comme un vrai nouveau coach)
+        from app.db import SessionLocal
+        from app.models import Coach
+        with SessionLocal() as db:
+            coach = db.query(Coach).filter_by(email=cfg["email"]).one()
+            coach.signup_status, coach.email_verified_at = "validee", datetime.now(timezone.utc)
+            db.commit()
     pi, pd, pg = cfg["prices"]
     di, dd, dg = cfg["durations"]
     strokes = c.get("/strokes").json()
