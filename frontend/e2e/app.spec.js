@@ -239,19 +239,22 @@ test("disponibilités: heures au format 24 h choisies dans une grille", async ({
   await expect(page.getByRole("button", { name: /^Lundi · début : 08 h 30/ }).first()).toBeVisible();
 });
 
-test("un seul calendrier: créer une séance sur un terrain libre, le formulaire confirme que le terrain est réservé", async ({ page }) => {
+test("un seul calendrier: créer une séance sur un terrain libre, le formulaire confirme que le terrain est réservé", async ({ page, request }) => {
+  // terrain libre créé pour le test (les données de démo peuvent déjà être prises par les autres parcours)
+  const { token } = await (await request.post("/api/auth/login", { data: { email: "demo@padel.tn", password: "demo1234" } })).json();
+  const headers = { Authorization: `Bearer ${token}` };
+  const [club] = await (await request.get("/api/clubs", { headers })).json();
+  const day = new Date(Date.now() + 2 * 86400000).toLocaleDateString("fr-CA", { timeZone: "Africa/Tunis" });
+  const r = await request.post("/api/court-bookings/manual", { headers, data: { club_id: club.id, start: `${day}T06:00:00+01:00`, duration_min: 120, court_label: "Terrain test" } });
+  expect(r.ok()).toBeTruthy();
+
   await login(page, "demo@padel.tn");
-  await page.getByRole("navigation", { name: "Navigation principale" }).getByRole("button", { name: "Planning" }).click();
-  await page.getByRole("tab", { name: "Semaine" }).click();
+  await page.goto("/#planning/semaine");
   const legend = page.locator(".cal-legend");
   await expect(legend).toContainText("Terrain + joueurs au complet");
-  await expect(legend).toContainText("Terrain réservé, encore aucun joueur");
-  let free = page.locator(".cal-block.libre").first();
-  for (let i = 0; i < 3 && !(await free.count()); i++) { // au besoin, semaine suivante
-    await page.getByRole("button", { name: "Semaine suivante" }).click();
-    free = page.locator(".cal-block.libre").first();
-  }
-  await free.click();
+  await expect(legend).toContainText("Joueurs sans terrain réservé");
+  if ([1, 2].includes(new Date(`${day}T12:00:00Z`).getUTCDay())) await page.getByRole("button", { name: "Semaine suivante" }).click(); // dans 2 jours = semaine suivante
+  await page.locator(".cal-block.libre", { hasText: "6–8" }).first().click();
   await page.getByRole("dialog").getByRole("button", { name: "Créer une séance sur ce terrain" }).click();
   await expect(page.getByText("C'est bon : un terrain est déjà réservé pour ce créneau")).toBeVisible();
 });

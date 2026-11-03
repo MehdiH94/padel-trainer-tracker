@@ -39,7 +39,7 @@ def send_link(db: Session, p: Player, base: str = "") -> None:
         return
     p.email_token = secrets.token_urlsafe(24)
     p.email_token_sent_at = datetime.now(timezone.utc)
-    coach = db.get(Coach, p.coach_id)
+    coach = db.get(Coach, p.coach_id) if p.coach_id else None  # inscription publique: pas encore de coach
     link = f"{(base or APP_URL).rstrip('/')}/verify/{p.email_token}"
     send_email(p.email, "Vérifiez votre adresse e-mail — Padel Coach", letter(
         p.name, f"Bienvenue sur Padel Coach{f' avec {coach.name}' if coach else ''} !",
