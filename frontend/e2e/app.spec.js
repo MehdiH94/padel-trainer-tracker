@@ -298,7 +298,7 @@ test("un seul calendrier: créer une séance sur un terrain libre, le formulaire
   await expect(legend).toContainText("Terrain réservé, encore aucun joueur");
   await page.locator(".cal-block.libre", { hasText: "6–8" }).first().click();
   await page.getByRole("dialog").getByRole("button", { name: /Créer un entraînement précis/ }).click();
-  await expect(page.getByText("C'est bon : un terrain est déjà réservé pour ce créneau")).toBeVisible();
+  await expect(page.getByText("La séance aura lieu sur votre terrain libre")).toBeVisible();
 });
 
 test("nouvelle séance: joueurs choisis dans une liste avec leur niveau, avertissement si les niveaux ne vont pas ensemble", async ({ page }) => {

@@ -461,7 +461,8 @@ def test_custom_template_and_club_without_phone(client):
     client.post("/sessions", json={"start": start, "club_id": club["id"]})
     assert FakeSmsProvider.sent[-1][1].startswith("Réservation Padel Club La Marsa:")
     nophone = client.post("/clubs", json={"name": "Sans tel"}).json()
-    client.post("/sessions", json={"start": start, "club_id": nophone["id"]})
+    later = (datetime.now(timezone.utc) + timedelta(days=1, hours=3)).isoformat()  # un seul terrain à la fois: autre heure
+    client.post("/sessions", json={"start": later, "club_id": nophone["id"]})
     cb = next(c for c in client.get("/court-bookings").json() if c["club_name"] == "Sans tel")
     assert cb["status"] == "a_envoyer"
     assert client.post(f"/court-bookings/{cb['id']}/send").status_code == 422
@@ -1711,7 +1712,7 @@ def test_new_session_tells_if_a_court_is_already_booked(client):
     r = client.get("/court-bookings/cover", params={"start": nine, "duration_min": 90, "club_id": other["id"]}).json()
     assert r["here"] is None and [c["club_name"] for c in r["elsewhere"]] == ["Padel Club La Marsa"]  # « choisir ce club »
     late = (start + timedelta(hours=3, minutes=30)).isoformat()  # dépasse midi: le terrain ne couvre pas
-    assert client.get("/court-bookings/cover", params={"start": late, "duration_min": 60, "club_id": marsa["id"]}).json() == {"here": None, "elsewhere": []}
+    assert client.get("/court-bookings/cover", params={"start": late, "duration_min": 60, "club_id": marsa["id"]}).json()["busy"].startswith("Vous avez déjà un terrain")
 
 
 def test_new_coach_waits_for_email_and_admin_then_more_admins(client, monkeypatch):
@@ -1789,3 +1790,31 @@ def test_time_off_hides_slots_and_free_court_happy_hour_and_low_session_message(
     OUTBOX.clear()
     assert client.post(f"/sessions/{s['id']}/message", json={"player_ids": [p["id"], q["id"]], "discount_pct": 10}).json()["sent"] == 2
     assert next(x for x in client.get("/sessions").json() if x["id"] == s["id"])["price_millimes"] == 27000  # 30 TND - 10 %
+
+
+def test_one_court_at_a_time_and_sessions_go_on_the_free_court(client):
+    """Un coach n'a qu'un terrain à la fois: pas de second terrain à la même heure; une séance (du coach ou
+    d'un joueur) a lieu sur son terrain libre qui couvre l'horaire, quel que soit le club choisi."""
+    open_week(client, auto_confirm=False)
+    marsa = mkclub(client)
+    other = client.post("/clubs", json={"name": "Gammarth Padel", "phone": "71 000 111"}).json()
+    start = (datetime.now(timezone.utc) + timedelta(days=3)).replace(hour=8, minute=0, second=0, microsecond=0)
+    free_court(client, start.isoformat(), minutes=240, club=marsa)
+    # second terrain qui chevauche (même dans un autre club): refusé
+    r = client.post("/court-bookings/manual", json={"club_id": other["id"], "start": (start + timedelta(hours=2)).isoformat(), "duration_min": 120})
+    assert r.status_code == 409 and "qu'un terrain à la fois" in r.json()["detail"]
+    # juste après le premier: accepté
+    assert client.post("/court-bookings/manual", json={"club_id": other["id"], "start": (start + timedelta(hours=4)).isoformat(), "duration_min": 60}).status_code == 201
+    # séance du coach demandée à Gammarth pendant le terrain libre de La Marsa: elle a lieu à La Marsa, sur ce terrain
+    s = client.post("/sessions", json={"start": (start + timedelta(hours=1)).isoformat(), "club_id": other["id"], "player_ids": []}).json()[0]
+    assert s["club"] == "Padel Club La Marsa" and s["court_status"] == "confirmee"
+    # séance qui dépasse le terrain (pas couverte) dans un autre club: refusée, pas de second terrain
+    r = client.post("/sessions", json={"start": (start + timedelta(hours=3, minutes=30)).isoformat(), "club_id": other["id"]})
+    assert r.status_code == 409
+    # demande d'un joueur acceptée « avec demande au club »: elle va quand même sur le terrain libre
+    p, pc = player_client(client)
+    when = start + timedelta(hours=2)
+    b = pc.post("/me/book", json={"kind": "individuel", "start": when.isoformat()})
+    assert b.status_code == 201, b.text
+    r = client.post(f"/booking/requests/{b.json()['id']}/accept", json={"club_id": other["id"]}).json()
+    assert r["status"] == "confirmee"

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, dayLabel, hhmm, useLive } from "./api.js";
+import { api, peek, dayLabel, hhmm, useLive } from "./api.js";
 import Icon from "./Icon.jsx";
 import { confirmDialog, Modal, toast, toastError } from "./feedback.jsx";
 import InvitePlayers from "./InvitePlayers.jsx";
@@ -320,15 +320,15 @@ function FreeAgenda({ free }) {
 }
 
 export default function Courts({ onBack, go }) {
-  const [list, setList] = useState(null);
-  const [clubs, setClubs] = useState([]);
+  const [list, setList] = useState(() => peek("/court-bookings") ?? null); // dernier passage affiché tout de suite
+  const [clubs, setClubs] = useState(() => peek("/clubs") ?? []);
   const [editing, setEditing] = useState(null); // club, "new" ou null
   const [filter, setFilter] = useState("todo");
   const [adding, setAdding] = useState(false);
   const [freeView, setFreeView] = useState("list"); // terrains libres: par série ou agenda jour par jour
   const [removing, setRemoving] = useState(null); // terrain d'une série: celui-ci ou toute la suite
   const [msg, setMsg] = useState("");
-  const [promos, setPromos] = useState([]);
+  const [promos, setPromos] = useState(() => peek("/promotions")?.items ?? []);
   const [promoFor, setPromoFor] = useState(null);
   const load = () => {
     api("/court-bookings").then(setList);

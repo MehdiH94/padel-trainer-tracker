@@ -107,7 +107,10 @@ def seed_coach(cfg: dict, rng: random.Random) -> bool:
         price = {"individuel": pi, "duo": pd, "groupe": pg}[kind]
         s = c.post("/sessions", json={"start": at(day, rng.choice(["09:00", "10:00", "17:00", "18:00", "19:00"])), "kind": kind,
                                       "duration_min": {"individuel": di, "duo": dd, "groupe": dg}[kind], "club_id": rng.choice(clubs)["id"],
-                                      "court_booked": True, "player_ids": who, "price_millimes": price}).json()[0]
+                                      "court_booked": True, "player_ids": who, "price_millimes": price})
+        if s.status_code == 409:  # déjà une séance (un terrain) à cette heure: un coach n'a qu'un terrain à la fois
+            continue
+        s = s.json()[0]
         c.patch(f"/sessions/{s['id']}", json={"status": "effectuee"})
         for pid in who:
             c.put(f"/sessions/{s['id']}/feedback/{pid}", json={"worked_on": rng.sample(strokes, 2), "note": rng.choice(NOTES), "to_improve": rng.choice(IMPROVE)})

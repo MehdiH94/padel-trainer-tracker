@@ -309,6 +309,12 @@ def accept(db: Session, coach: Coach, b: Booking, sms: SmsProvider | None = None
         refresh(db, s)
         _announce_accepted(db, coach, b, s)
         return
+    if not court:  # un coach n'a qu'un terrain à la fois: son terrain libre à cette heure est forcément celui de la séance
+        held = courts.held_covering(db, coach, b.start, b.duration_min)
+        if held:
+            court, club = held[0], None
+        elif club and courts.overlapping(db, coach, b.start, b.duration_min):
+            raise BookingError(courts.busy_message(db, courts.overlapping(db, coach, b.start, b.duration_min)[0]))
     if not b.price_millimes:
         b.price_millimes = price_for(coach, b.kind)
     _debit(db, b)

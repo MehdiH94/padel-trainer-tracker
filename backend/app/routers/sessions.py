@@ -113,14 +113,20 @@ def create_sessions(
         db.add(s)
         created.append(s)
     db.flush()
-    if club:
-        for s in created:
-            held = [cb for cb in courts.held_covering(db, coach, s.start, s.duration_min) if cb.club_id == club.id]
-            if held:  # un terrain déjà réservé à la main couvre le créneau: la séance l'utilise
-                courts.take_part(db, held[0], s)
-                s.court = s.court or held[0].court_label
-            else:
-                courts.create_for_session(db, coach, club, s, already_booked=body.court_booked)
+    # Un coach n'a qu'un terrain à la fois: si un de ses terrains libres couvre le créneau, la séance a lieu là
+    # (même si un autre club était choisi); sinon on ne demande pas un second terrain à la même heure.
+    for s in created:
+        held = courts.held_covering(db, coach, s.start, s.duration_min)
+        if held:
+            cb = next((c for c in held if club and c.club_id == club.id), held[0])
+            courts.take_part(db, cb, s)
+            s.club, s.club_id = db.get(Club, cb.club_id).name, cb.club_id
+            s.court = s.court or cb.court_label
+        elif club:
+            busy = courts.overlapping(db, coach, s.start, s.duration_min)
+            if busy:
+                raise HTTPException(409, courts.busy_message(db, busy[0]))
+            courts.create_for_session(db, coach, club, s, already_booked=body.court_booked)
     db.commit()
     if club:
         courts.send_due(db, coach, sms)  # envoie tout de suite celles qui ont lieu dans les 7 jours

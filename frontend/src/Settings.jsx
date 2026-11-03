@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api } from "./api.js";
+import { api, peek } from "./api.js";
 import Icon from "./Icon.jsx";
 import { toast, toastError } from "./feedback.jsx";
 import { ClockPicker, KIND, Loading, MoneyInput } from "./ui.jsx";
@@ -9,11 +9,11 @@ const FULL_DAYS = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", 
 const DUR = { individuel: "slot_minutes", duo: "duration_duo", groupe: "duration_groupe" }; // champ de durée par formule
 
 export default function Settings({ onBack, sub }) {
-  const [s, setS] = useState(null);
+  const [s, setS] = useState(() => peek("/booking/settings") ?? null);
   const [saved, setSaved] = useState(false);
-  const [themes, setThemes] = useState([]);
-  const [cat, setCat] = useState(null); // clubs connus + les miens
-  const [sel, setSel] = useState([]);
+  const [themes, setThemes] = useState(() => peek("/exercise-themes")?.work ?? []);
+  const [cat, setCat] = useState(() => peek("/clubs/catalog") ?? null); // clubs connus + les miens
+  const [sel, setSel] = useState(() => peek("/clubs/catalog")?.mine ?? []);
   const [newClubs, setNewClubs] = useState([]);
   const [nc, setNc] = useState({ name: "", phone: "" });
   const loadClubs = () => api("/clubs/catalog").then((c) => { setCat(c); setSel(c.mine); setNewClubs([]); });

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, dayLabel, hhmm, tnd } from "./api.js";
+import { api, peek, dayLabel, hhmm, tnd } from "./api.js";
 import Icon from "./Icon.jsx";
 import { toastError } from "./feedback.jsx";
 import { VerifyBanner } from "./VerifyEmail.jsx";
@@ -111,8 +111,8 @@ const kept = () => { try { return JSON.parse(sessionStorage.getItem(KEEP)) || {}
 
 export function Book({ me, reload, go, coachParam }) {
   const k0 = kept();
-  const [coaches, setCoaches] = useState([]);
-  const [clubs, setClubs] = useState([]);
+  const [coaches, setCoaches] = useState(() => peek("/me/coaches") ?? []);
+  const [clubs, setClubs] = useState(() => peek("/me/clubs") ?? []);
   const [coachId, setCoachId] = useState(coachParam ? +coachParam : k0.coachId ?? "");
   const [club, setClub] = useState(k0.club ?? "");
   const [day, setDay] = useState(k0.day && k0.day >= ymd(new Date()) ? k0.day : null);
@@ -131,8 +131,8 @@ export function Book({ me, reload, go, coachParam }) {
   useEffect(() => { api("/me/coaches").then(setCoaches); api("/me/clubs").then(setClubs); }, []);
   useEffect(() => {
     if (!day) return;
-    setOffers(null);
     const q = new URLSearchParams({ day, kinds: kinds.join(","), ...(coachId && { coach_id: coachId }), ...(club && { club }), ...(period && { period }), ...(hour !== "" && { hour }) });
+    setOffers(peek("/me/offers?" + q) ?? null); // même recherche déjà faite: affichée tout de suite, puis mise à jour
     api("/me/offers?" + q).then(setOffers).catch(toastError);
   }, [day, kinds.join(","), coachId, club, period, hour]);
 

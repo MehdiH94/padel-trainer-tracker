@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, dayLabel, hhmm, shortDate, tnd, useContactCheck } from "./api.js";
+import { api, peek, dayLabel, hhmm, shortDate, tnd, useContactCheck } from "./api.js";
 import FeedbackEditor from "./FeedbackEditor.jsx";
 import Icon from "./Icon.jsx";
 import InviteLink from "./InviteLink.jsx";
@@ -99,8 +99,8 @@ function AddToSession({ player, onClose }) {
 }
 
 export default function PlayerPage({ id, onBack }) {
-  const [p, setP] = useState(null);
-  const [strokes, setStrokes] = useState([]);
+  const [p, setP] = useState(() => peek(`/players/${id}/profile`) ?? null); // fiche déjà ouverte: tout de suite
+  const [strokes, setStrokes] = useState(() => peek("/strokes") ?? []);
   const [tab, setTab] = useState("padel");
   const [edit, setEdit] = useState(null);
   const [editing, setEditing] = useState(false);

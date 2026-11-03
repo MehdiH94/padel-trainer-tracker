@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from ..models import Booking, Club, Coach, CourtBooking, Player, TrainingSession
 from ..sms.base import SmsProvider
-from .common import TUNIS, aware
+from .common import TUNIS, aware, quand
 
 SEND_AHEAD_DAYS = 7
 DEFAULT_TEMPLATE = (
@@ -65,6 +65,37 @@ def take_part(db: Session, cb: CourtBooking, s: TrainingSession) -> CourtBooking
                                 court_label=cb.court_label, source=cb.source, status="confirmee", series_id=cb.series_id))
     cb.session_id, cb.start, cb.duration_min = s.id, start, s.duration_min
     return cb
+
+
+def span(db: Session, cb: CourtBooking) -> tuple[datetime, datetime] | None:
+    """Début et fin d'un terrain (celui d'une séance prend l'heure de la séance)."""
+    s = db.get(TrainingSession, cb.session_id) if cb.session_id else None
+    start = cb.start or (s.start if s else None)
+    if not start:
+        return None
+    return aware(start), aware(start) + timedelta(minutes=(cb.duration_min or (s.duration_min if s else 60)))
+
+
+def overlapping(db: Session, coach: Coach, start: datetime, duration_min: int) -> list[CourtBooking]:
+    """Terrains du coach (réservés, demandés ou utilisés) qui chevauchent [start, start+durée].
+    Un coach n'a qu'un terrain à la fois: on ne lui en ajoute pas un second à la même heure."""
+    start, end = aware(start), aware(start) + timedelta(minutes=duration_min)
+    out = []
+    for cb in db.scalars(select(CourtBooking).where(CourtBooking.coach_id == coach.id, CourtBooking.status.not_in(("annulee", "refusee")))):
+        sp = span(db, cb)
+        s = db.get(TrainingSession, cb.session_id) if cb.session_id else None
+        if sp and sp[0] < end and start < sp[1] and not (s and s.status == "annulee"):
+            out.append(cb)
+    return sorted(out, key=lambda c: span(db, c)[0])
+
+
+def busy_message(db: Session, cb: CourtBooking) -> str:
+    """« Vous avez déjà un terrain … » expliqué en clair."""
+    a, b = span(db, cb)
+    club = db.get(Club, cb.club_id).name
+    what = "une séance sur un terrain" if cb.session_id else "un terrain"
+    return (f"Vous avez déjà {what} à ce moment-là ({club}, {quand(a, int((b - a).total_seconds() // 60))}). "
+            "Un coach n'a qu'un terrain à la fois : choisissez une autre heure.")
 
 
 def held_covering(db: Session, coach: Coach, start: datetime, duration_min: int) -> list[CourtBooking]:

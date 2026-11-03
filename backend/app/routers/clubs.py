@@ -167,7 +167,10 @@ def court_cover(start: datetime, duration_min: int = 60, club_id: int | None = N
     held = courts.held_covering(db, coach, start, duration_min)
     here = next((cb for cb in held if club_id and cb.club_id == club_id), None)
     other = [cb for cb in held if cb is not here and cb.club_id != club_id]
-    return {"here": cb_out(db, here) if here else None, "elsewhere": [cb_out(db, cb) for cb in other][:3]}
+    # aucun terrain libre ne couvre l'horaire, mais un autre terrain le chevauche: pas de second terrain possible
+    busy = [] if held else courts.overlapping(db, coach, start, duration_min)
+    return {"here": cb_out(db, here) if here else None, "elsewhere": [cb_out(db, cb) for cb in other][:3],
+            "busy": courts.busy_message(db, busy[0]) if busy else None}
 
 
 class ManualIn(BaseModel):
@@ -193,6 +196,9 @@ def add_manual(body: ManualIn, coach: Coach = Depends(current_coach), db: Sessio
         raise HTTPException(422, "Durée ou répétition invalide")
     label = body.court_label.strip()
     if body.repeat == "none":
+        busy = courts.overlapping(db, coach, body.start, body.duration_min)
+        if busy:  # un coach n'a qu'un terrain à la fois
+            raise HTTPException(409, courts.busy_message(db, busy[0]))
         cb = courts.create_free_court(db, coach, club, body.start, body.duration_min, label)
         db.commit()
         return cb_out(db, cb)
@@ -211,15 +217,15 @@ def add_manual(body: ManualIn, coach: Coach = Depends(current_coach), db: Sessio
     while d <= until:
         if d.weekday() in days:
             start = datetime.combine(d, first.timetz().replace(tzinfo=None), TUNIS).astimezone(timezone.utc)
-            if start <= now or (club.id, start) in existing:
-                skipped += 1
+            if start <= now or (club.id, start) in existing or courts.overlapping(db, coach, start, body.duration_min):
+                skipped += 1  # passé, déjà saisi, ou un autre terrain à la même heure (un seul terrain à la fois)
             else:
                 cb = courts.create_free_court(db, coach, club, start, body.duration_min, label)
                 cb.series_id = series
                 created.append(cb)
         d += timedelta(days=1)
     if not created:
-        raise HTTPException(409, "Aucun nouveau terrain: ces créneaux sont passés ou déjà saisis")
+        raise HTTPException(409, "Aucun nouveau terrain : ces créneaux sont passés, déjà saisis, ou vous avez déjà un terrain à ces heures-là.")
     db.commit()
     return cb_out(db, created[0]) | {"created": len(created), "skipped": skipped}
 

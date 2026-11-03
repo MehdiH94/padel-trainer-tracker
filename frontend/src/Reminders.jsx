@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, tnd, hhmm } from "./api.js";
+import { api, peek, tnd, hhmm } from "./api.js";
 import Icon from "./Icon.jsx";
 import { Avatar, ago, ContactLinks, Loading } from "./ui.jsx";
 
@@ -11,10 +11,11 @@ const KINDS = {
 };
 
 export default function Reminders({ openPlayer }) {
-  const [items, setItems] = useState(null);
+  const url = "/reminders?base=" + encodeURIComponent(location.origin);
+  const [items, setItems] = useState(() => peek(url) ?? null); // dernier passage affiché tout de suite
   const [kind, setKind] = useState("all");
   const [edits, setEdits] = useState({});
-  const load = () => api("/reminders?base=" + encodeURIComponent(location.origin)).then(setItems);
+  const load = () => api(url).then(setItems);
   useEffect(() => { load(); }, []);
   if (!items) return <><h1>Relances</h1><Loading rows={3} /></>;
 

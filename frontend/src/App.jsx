@@ -124,7 +124,9 @@ function CoachApp() {
   const refresh = () => api("/booking/summary").then(setSummary).catch(() => {});
   // données du planning chargées à l'avance, pendant que le coach regarde l'accueil: le planning s'ouvre tout de suite
   useEffect(() => {
-    const t = setTimeout(() => prefetch(["/sessions", "/players", "/court-bookings", "/clubs", "/promotions", "/time-off"]), 1500);
+    // puis les autres onglets (demandes, relances, réglages, exercices): chacun s'ouvre déjà rempli
+    const t = setTimeout(() => prefetch(["/sessions", "/players", "/court-bookings", "/clubs", "/promotions", "/time-off", "/booking/requests",
+      "/reminders?base=" + encodeURIComponent(location.origin), "/booking/settings", "/clubs/catalog", "/exercise-themes", "/exercises", "/strokes", "/dashboard"]), 1500);
     return () => clearTimeout(t);
   }, []);
   useEffect(() => {

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { actAs, api, dayLabel, hhmm } from "./api.js";
+import { actAs, api, peek, dayLabel, hhmm } from "./api.js";
 import Icon from "./Icon.jsx";
 import { confirmDialog, toast, toastError } from "./feedback.jsx";
 import { Avatar, CATEGORIES, CategoryBadge, catOption, Loading, PlayerTag } from "./ui.jsx";
@@ -98,8 +98,8 @@ function CoachSignup({ c, onDone }) {
 }
 
 function Signups({ refreshSummary }) {
-  const [list, setList] = useState(null);
-  const [coaches, setCoaches] = useState([]);
+  const [list, setList] = useState(() => peek("/admin/signups?status=a_valider") ?? null);
+  const [coaches, setCoaches] = useState(() => peek("/admin/coach-signups") ?? []);
   const [status, setStatus] = useState("a_valider");
   const load = () => {
     api(`/admin/signups?status=${status}`).then(setList).catch(toastError);
@@ -181,7 +181,7 @@ async function remove(url, title, message, onDone) {
 }
 
 function AdminPlayers({ coaches }) {
-  const [list, setList] = useState(null);
+  const [list, setList] = useState(() => peek("/admin/players") ?? null); // dernier passage affiché tout de suite
   const [q, setQ] = useState("");
   const [adding, setAdding] = useState(false);
   const [f, setF] = useState({ name: "", phone: "", gender: "M", category: "P100-", coach_id: "" });
@@ -401,7 +401,7 @@ function AdminClubs() {
 
 export default function Admin({ refreshSummary, summary }) {
   const [tab, setTab] = useState("signups");
-  const [coaches, setCoaches] = useState(null);
+  const [coaches, setCoaches] = useState(() => peek("/admin/coaches") ?? null);
   const loadCoaches = () => api("/admin/coaches").then(setCoaches).catch(toastError);
   useEffect(() => { loadCoaches(); }, []);
   const me = summary?.coach_id; // son propre compte ne peut pas être supprimé

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api } from "./api.js";
+import { api, peek } from "./api.js";
 import Icon from "./Icon.jsx";
 import { confirmDialog, Modal, toast, toastError } from "./feedback.jsx";
 import { Loading } from "./ui.jsx";
@@ -64,8 +64,8 @@ function ExerciseForm({ exo, themes, onDone, onClose }) {
 }
 
 export default function Exercises({ onBack }) {
-  const [list, setList] = useState(null);
-  const [themes, setThemes] = useState({ work: [], all: [] });
+  const [list, setList] = useState(() => peek("/exercises") ?? null); // dernier passage affiché tout de suite
+  const [themes, setThemes] = useState(() => peek("/exercise-themes") ?? { work: [], all: [] });
   const [theme, setTheme] = useState("all");
   const [onlyMine, setOnlyMine] = useState(false);
   const [q, setQ] = useState("");

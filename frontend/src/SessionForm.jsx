@@ -64,6 +64,10 @@ export default function SessionForm({ players, onDone, initial }) {
   });
   // Un de mes terrains réservés couvre-t-il ce créneau ? (au club choisi, ou ailleurs: proposer ce club)
   const [cover, setCover] = useState(null);
+  // Un coach n'a qu'un terrain à la fois: si un de ses terrains libres couvre l'horaire, la séance a lieu là-bas
+  useEffect(() => {
+    if (cover && !cover.here && cover.elsewhere?.length) setF((x) => ({ ...x, club_id: String(cover.elsewhere[0].club_id) }));
+  }, [cover]);
   useEffect(() => {
     const t = setTimeout(() => {
       const q = new URLSearchParams({ start: `${f.date}T${f.time}:00+01:00`, duration_min: f.duration_min, ...(f.club_id && { club_id: f.club_id }) });
@@ -167,16 +171,13 @@ export default function SessionForm({ players, onDone, initial }) {
       )}
       {cover?.here && (
         <div className="note ok" style={{ margin: "-4px 0 10px" }}>
-          <Icon name="checkCircle" size={14} /> <b>C'est bon : un terrain est déjà réservé pour ce créneau</b> ({cover.here.club_name}{cover.here.court_label && ` · ${cover.here.court_label}`}, {span(cover.here)}). La séance l'utilisera, aucun SMS au club.
+          <Icon name="checkCircle" size={14} /> <b>La séance aura lieu sur votre terrain libre</b> ({cover.here.club_name}{cover.here.court_label && ` · ${cover.here.court_label}`}, {span(cover.here)}). La séance l'utilisera, aucun SMS au club.
         </div>
       )}
-      {!cover?.here && cover?.elsewhere?.length > 0 && (
-        <div className="note warn" style={{ margin: "-4px 0 10px" }}>
-          <Icon name="pin" size={14} /> Vous avez un terrain libre à ce moment-là : <b>{cover.elsewhere[0].club_name}</b>{cover.elsewhere[0].court_label && ` · ${cover.elsewhere[0].court_label}`} ({span(cover.elsewhere[0])}).
-          <div><button type="button" className="link" onClick={() => setF({ ...f, club_id: String(cover.elsewhere[0].club_id) })}>Choisir ce club</button></div>
-        </div>
+      {cover?.busy && (
+        <div className="note ko" role="alert" style={{ margin: "-4px 0 10px" }}><Icon name="alert" size={14} /> {cover.busy}</div>
       )}
-      {f.club_id && !cover?.here && (
+      {f.club_id && !cover?.here && !cover?.busy && !cover?.elsewhere?.length && (
         <>
           <div className="note warn" style={{ margin: "-4px 0 8px" }}><Icon name="alert" size={14} /> Aucun de vos terrains réservés ne couvre ce créneau dans ce club.</div>
           <label className="check">
@@ -238,7 +239,7 @@ export default function SessionForm({ players, onDone, initial }) {
       {f.repeat && <Field label="Nombre de semaines"><input type="number" min="2" max="52" value={f.repeat_weeks} onChange={set("repeat_weeks")} /></Field>}
 
       {err && <div className="err">{err}</div>}
-      <button style={{ width: "100%" }}>Enregistrer la séance</button>
+      <button style={{ width: "100%" }} disabled={!!cover?.busy && !!f.club_id}>Enregistrer la séance</button>
     </form>
   );
 }
