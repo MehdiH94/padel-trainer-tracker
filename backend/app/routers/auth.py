@@ -114,6 +114,43 @@ def invite_accept(token: str, body: InviteAccept, db: Session = Depends(get_db))
     return session_for(p.id, "player")
 
 
+class SignupIn(BaseModel):
+    name: str
+    phone: str
+    email: str
+    password: str
+    gender: str = "M"
+    category: str = "P100-"
+    base: str = ""
+
+
+@router.post("/signup")
+def public_signup(body: SignupIn, db: Session = Depends(get_db)):
+    """Inscription par le lien public (publicité, page de l'administrateur): compte sans coach.
+    Le joueur voit tous les coachs et en choisit un en réservant; l'administrateur confirme l'inscription."""
+    from ..schemas import normalize_tn_phone
+    email = body.email.strip().lower()
+    check_fields(name=body.name, email=email, password=body.password)
+    try:
+        phone = normalize_tn_phone(body.phone)
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+    if body.gender not in ("M", "F"):
+        raise HTTPException(422, "Genre : choisissez Homme ou Dame.")
+    if body.category not in CATEGORIES:
+        raise HTTPException(422, "Niveau invalide : choisissez un niveau de P25- à P1000+.")
+    if contact_conflicts(db, None, email, None)["email"]:
+        raise HTTPException(409, "Cette adresse e-mail a déjà un compte : connectez-vous, ou utilisez une autre adresse.")
+    p = Player(coach_id=None, name=body.name.strip(), phone=phone, email=email, password_hash=hash_password(body.password),
+               gender=body.gender, category=body.category, contact_channel="email")
+    db.add(p)
+    db.flush()
+    verification.send_link(db, p, body.base)
+    signups.submitted(db, p, body.base)  # l'administrateur confirme le niveau et l'absence de doublon
+    db.commit()
+    return session_for(p.id, "player")
+
+
 @router.post("/verify/{token}")
 def verify_email(token: str, db: Session = Depends(get_db)):
     """Lien reçu par e-mail: l'adresse du compte est vérifiée."""

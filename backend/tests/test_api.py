@@ -1621,3 +1621,30 @@ def test_email_layout_html_and_french():
                     "\n\nLien : https://padel.tn\n\nÀ bientôt,\nCoach Démo")
     page = _html("Sujet", body)
     assert 'lang="fr"' in page and "<b>Quand</b>" in page and '<a href="https://padel.tn"' in page and page.count("<p ") == 5
+
+
+def test_public_signup_without_coach_then_books_a_coach(client, monkeypatch):
+    """Lien public: compte sans coach, invisible des coachs; il en choisit un en réservant et devient son élève."""
+    monkeypatch.setenv("ADMIN_EMAILS", "boss@padel.tn")
+    open_week(client)
+    anon = TestClient(app)
+    assert anon.post("/auth/signup", json={"name": "Nadia", "phone": "123", "email": "nadia@x.tn", "password": "secret1"}).status_code == 422
+    assert anon.post("/auth/signup", json={"name": "Nadia", "phone": "20 444 555", "email": "a@b.tn", "password": "secret1"}).status_code == 409
+    r = anon.post("/auth/signup", json={"name": "Nadia Ben Salem", "phone": "20 444 555", "email": "Nadia@x.tn", "password": "secret1", "category": "P250-"})
+    assert r.json()["role"] == "player"
+    pc = login_as(TestClient(app), r.json()["token"])
+    me = pc.get("/me").json()
+    assert (me["coach_name"], me["wallets"], pc.get("/me/slots").json(), pc.get("/me/suggestions").json()) == ("", [], [], [])
+    assert pc.get("/me/progress").status_code == 200 and pc.get("/me/sessions").status_code == 200
+    assert client.get("/players").json() == []  # aucun coach ne la voit tant qu'elle n'a pas réservé
+    boss = register("boss@padel.tn")
+    [s] = boss.get("/admin/signups").json()
+    assert s["coach_name"].startswith("Sans coach")
+    # elle choisit le coach en réservant: une fiche est créée chez lui
+    coach_id = client.get("/booking/settings").json().get("coach_id") or next(c["id"] for c in pc.get("/me/coaches").json())
+    when = (datetime.now(timezone.utc) + timedelta(days=3)).replace(hour=9, minute=0, second=0, microsecond=0)
+    assert pc.post("/me/book", json={"kind": "individuel", "start": when.isoformat()}).status_code == 422  # pas encore de coach
+    assert pc.post("/me/book", json={"kind": "individuel", "start": when.isoformat(), "coach_id": coach_id}).status_code == 201
+    assert [p["name"] for p in client.get("/players").json()] == ["Nadia Ben Salem"]
+    me = pc.get("/me").json()
+    assert me["coach_name"] == "Coach Test" and len(me["wallets"]) == 1

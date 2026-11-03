@@ -51,6 +51,19 @@ function Signup({ s, onDone }) {
   );
 }
 
+// Lien d'inscription public (publicité, réseaux sociaux…): compte sans coach, le joueur en choisit un en réservant
+function PublicLink() {
+  const url = location.origin + "/inscription";
+  return (
+    <div className="card" style={{ marginTop: 8 }}>
+      <b><Icon name="link" size={15} /> Lien d'inscription public</b>
+      <div className="mut small-p">À partager partout : le joueur crée son compte sans coach, puis choisit le coach de son choix en réservant.</div>
+      <div className="linkbox"><input readOnly value={url} aria-label="Lien d'inscription public" onFocus={(e) => e.target.select()} />
+        <button className="small" onClick={() => navigator.clipboard?.writeText(url).then(() => toast("Lien copié"))}><Icon name="copy" size={15} /> Copier</button></div>
+    </div>
+  );
+}
+
 function Signups({ refreshSummary }) {
   const [list, setList] = useState(null);
   const [status, setStatus] = useState("a_valider");
@@ -58,7 +71,8 @@ function Signups({ refreshSummary }) {
   useEffect(load, [status]);
   return (
     <>
-      <p className="mut small-p">Joueurs inscrits par le lien de leur coach : vérifiez le niveau et les doublons.</p>
+      <p className="mut small-p">Joueurs inscrits par le lien de leur coach ou par le lien public : vérifiez le niveau et les doublons.</p>
+      <PublicLink />
       <div className="seg mini" style={{ margin: "10px 0" }}>
         {[["a_valider", "À confirmer"], ["validee", "Confirmées"], ["refusee", "Refusées"]].map(([k, l]) => (
           <button key={k} className={status === k ? "on" : ""} onClick={() => setStatus(k)}>{l}</button>

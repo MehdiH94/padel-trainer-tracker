@@ -74,7 +74,7 @@ def all_players(admin: Coach = Depends(current_admin), db: Session = Depends(get
     coaches = {c.id: c.name for c in db.scalars(select(Coach))}
     counts = dict(db.execute(select(Attendance.player_id, func.count()).group_by(Attendance.player_id)).all())
     return [{"id": p.id, "name": p.name, "phone": p.phone, "email": account_of(db, p).email, "gender": p.gender, "category": p.category,
-             "coach_id": p.coach_id, "coach_name": coaches.get(p.coach_id, "?"), "has_account": has_account(p),
+             "coach_id": p.coach_id, "coach_name": coaches.get(p.coach_id, "?") if p.coach_id else "Sans coach", "has_account": has_account(p),
              "signup_status": p.signup_status, "sessions": counts.get(p.id, 0),
              "dominant_hand": p.dominant_hand, "side": p.side, "goals": p.goals, "notes": p.notes}
             for p in db.scalars(select(Player).order_by(Player.name))]

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import Courts from "./Courts.jsx";
 import Admin from "./Admin.jsx";
 import Replace from "./Replace.jsx";
+import Signup from "./Signup.jsx";
 import Exercises from "./Exercises.jsx";
 import Home from "./Home.jsx";
 import Icon from "./Icon.jsx";
@@ -54,7 +55,7 @@ function Login() {
         <button type="button" className="link center" style={{ marginTop: 10 }} onClick={() => { setMode(mode === "login" ? "register" : "login"); setErr(""); }}>
           {mode === "login" ? "Vous êtes coach ? Créer un compte" : "J'ai déjà un compte"}
         </button>
-        {mode === "login" && <p className="mut center small-p">Joueur : utilisez le lien d'invitation envoyé par votre coach.</p>}
+        {mode === "login" && <a className="link center" href="/inscription" style={{ display: "block", marginTop: 6 }}>Joueur ? Créer mon compte</a>}
       </form>
     </div>
   );
@@ -153,6 +154,7 @@ function AdminBar() {
 export default function App() {
   let page;
   if (location.pathname.startsWith("/invite/")) page = <Invite token={location.pathname.split("/")[2]} />;
+  else if (location.pathname.startsWith("/inscription")) page = <Signup />;
   else if (location.pathname.startsWith("/remplacer/")) page = <Replace token={location.pathname.split("/")[2]} />;
   else if (location.pathname.startsWith("/verify/")) page = <VerifyEmail token={location.pathname.split("/")[2]} />;
   else if (!getToken()) page = <Login />;

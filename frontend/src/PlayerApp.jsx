@@ -139,7 +139,7 @@ function Home({ me, sessions, progress, credits, proposals, promos, go, reload }
   return (
     <>
       <div className="hero">
-        <div className="hero-top">Votre coach · {me.coach_name}</div>
+        <div className="hero-top">{me.coach_name ? `Votre coach · ${me.coach_name}` : "Bienvenue sur Padel Coach"}</div>
         <h1>Salut {me.name.split(" ")[0]}</h1>
         <div className="wallet" style={{ display: "block" }}>
           <div className="row" style={{ marginBottom: 2 }}>
@@ -164,6 +164,12 @@ function Home({ me, sessions, progress, credits, proposals, promos, go, reload }
 
       <VerifyBanner me={me} />
       <InstallCard />
+      {!me.coach_name && (
+        <div className="card" style={{ marginBottom: 10 }}>
+          <b><Icon name="users" size={16} /> Choisissez votre coach</b>
+          <div className="mut small-p">Vous n'avez pas encore de coach : découvrez-les dans « Réserver », avec leur page, leurs clubs et leurs prix. Votre première réservation vous rattache au coach choisi.</div>
+        </div>
+      )}
       <button className="cta" onClick={() => go("book")}><Icon name="calendar" size={20} /> Réserver une séance <Icon name="chevR" size={18} /></button>
 
       {proposals.length > 0 && (

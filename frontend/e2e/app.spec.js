@@ -136,3 +136,28 @@ test("rester connecté: coché, on retrouve son espace en rouvrant l'appli; déc
   await expect(other.getByRole("button", { name: "Se connecter" })).toBeVisible();
   await other.close();
 });
+
+test("inscription par le lien public: compte sans coach, qui choisit ensuite son coach", async ({ page, browser }) => {
+  await page.goto("/");
+  await page.getByRole("link", { name: "Joueur ? Créer mon compte" }).click();
+  await expect(page.getByRole("heading", { name: "Créer mon compte" })).toBeVisible();
+  await page.getByLabel("Nom complet").fill("Yasmine Public");
+  await page.getByLabel("Téléphone").fill("55 900 100");
+  await page.getByLabel("Votre e-mail").fill("yasmine.public");
+  await expect(page.getByText(/forme nom@exemple.com/)).toBeVisible(); // e-mail mal formé, signalé pendant la saisie
+  await page.getByLabel("Votre e-mail").fill("yasmine.public@demo.tn");
+  await page.getByLabel(/Mot de passe/).fill("secret1");
+  await page.getByRole("button", { name: "Créer mon compte" }).click();
+  await expect(page.getByText("Choisissez votre coach")).toBeVisible();
+  await page.getByRole("button", { name: "Réserver", exact: true }).click();
+  const coachs = page.locator("select", { has: page.locator("option", { hasText: "Tous les coachs" }) });
+  await expect(coachs).toContainText("Coach Démo"); // tous les coachs sont proposés
+
+  // l'administrateur voit l'inscription (sans coach) et le lien public à partager
+  const admin = await (await browser.newContext()).newPage();
+  await login(admin, "demo@padel.tn");
+  await admin.getByRole("button", { name: /Administration/ }).click();
+  await expect(admin.getByLabel("Lien d'inscription public")).toHaveValue(/\/inscription$/);
+  await expect(admin.locator(".card", { hasText: "Yasmine Public" }).getByText(/Sans coach/)).toBeVisible();
+  await admin.close();
+});

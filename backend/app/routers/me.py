@@ -32,17 +32,25 @@ def _prices(coach: Coach) -> dict:
 
 @router.get("")
 def me(player: Player = Depends(current_player), db: Session = Depends(get_db)):
-    coach = db.get(Coach, player.coach_id)
+    coach = _main_coach(db, player)  # None: compte créé sans coach (lien public), il en choisit un en réservant
     return {
         "name": player.name, "phone": player.phone, "email": player.email, "category": player.category, "gender": player.gender,
-        "pref_kinds": player.pref_kinds.split(","), "coach_name": coach.name, "credits_millimes": credit_balance(db, player.id),
+        "pref_kinds": player.pref_kinds.split(","), "coach_name": coach.name if coach else "", "coach_id": coach.id if coach else None,
+        "credits_millimes": credit_balance(db, player.id),
         "contact_channel": player.contact_channel,
         "email_verified": verification.is_verified(player), "can_book": verification.can_book(player),
-        "slot_minutes": coach.slot_minutes, "prices": _prices(coach), "auto_confirm": coach.auto_confirm, "cancel_hours": coach.cancel_hours,
+        "slot_minutes": coach.slot_minutes if coach else 60, "prices": _prices(coach) if coach else {"individuel": 0, "duo": 0, "groupe": 0},
+        "auto_confirm": coach.auto_confirm if coach else False, "cancel_hours": coach.cancel_hours if coach else 24,
         "signup_status": player.signup_status,
         # Un solde par coach (pas de solde global): soit des crédits, soit un impayé, jamais les deux
-        "wallets": [_wallet(db, p) for p in linked(db, player)],
+        "wallets": [_wallet(db, p) for p in linked(db, player) if p.coach_id],
     }
+
+
+def _main_coach(db: Session, player: Player) -> Coach | None:
+    """Coach du compte, sinon celui de sa première fiche chez un coach (compte créé par le lien public)."""
+    row = next((p for p in linked(db, player) if p.coach_id), None)
+    return db.get(Coach, row.coach_id) if row else None
 
 
 def _wallet(db: Session, p: Player) -> dict:
@@ -88,7 +96,8 @@ def _require_verified(player: Player) -> None:
 
 @router.get("/slots")
 def slots(player: Player = Depends(current_player), db: Session = Depends(get_db)):
-    return [s.isoformat() for s in svc.free_slots(db, db.get(Coach, player.coach_id))]
+    coach = _main_coach(db, player)
+    return [s.isoformat() for s in svc.free_slots(db, coach)] if coach else []
 
 
 @router.get("/suggestions")
@@ -97,7 +106,8 @@ def suggestions(kinds: str = "individuel,duo,groupe", player: Player = Depends(c
     wanted = [k for k in kinds.split(",") if k in CAPACITY] or list(CAPACITY)
     player.pref_kinds = ",".join(wanted)  # on retient les préférences du joueur (utilisées pour lui proposer des groupes)
     db.commit()
-    return svc.suggestions(db, db.get(Coach, player.coach_id), player, wanted)
+    coach = _main_coach(db, player)
+    return svc.suggestions(db, coach, row_for_coach(db, player, coach, create=False) or player, wanted) if coach else []
 
 
 class BookIn(BaseModel):
@@ -112,9 +122,13 @@ class BookIn(BaseModel):
 def book(body: BookIn, player: Player = Depends(current_player), db: Session = Depends(get_db), sms: SmsProvider = Depends(get_sms_provider)):
     _require_verified(player)
     s = db.get(TrainingSession, body.session_id) if body.session_id else None
-    coach = db.get(Coach, s.coach_id if s else body.coach_id or player.coach_id)
-    if not coach or (body.session_id and not s):
+    main = _main_coach(db, player)
+    coach_id = s.coach_id if s else body.coach_id or (main.id if main else None)
+    if body.session_id and not s:
         raise HTTPException(404, "Séance introuvable")
+    coach = db.get(Coach, coach_id) if coach_id else None
+    if not coach:
+        raise HTTPException(422, "Choisissez d'abord un coach.")
     row = row_for_coach(db, player, coach)  # fiche du joueur chez ce coach (créée au besoin)
     try:
         if s:
@@ -291,7 +305,8 @@ def credits(player: Player = Depends(current_player), db: Session = Depends(get_
 
 @router.get("/progress")
 def progress(player: Player = Depends(current_player), db: Session = Depends(get_db)):
-    full = build_profile(db, player.coach_id, player)
+    row = next((p for p in linked(db, player) if p.coach_id), player)  # sans coach: pas encore d'historique
+    full = build_profile(db, row.coach_id, row)
     return {k: full[k] for k in ("stats", "skills", "strengths", "weaknesses", "last_session")} | {"goals": player.goals}
 
 

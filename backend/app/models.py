@@ -36,7 +36,9 @@ class Coach(Base):
 class Player(Base):
     __tablename__ = "players"
     id: Mapped[int] = mapped_column(primary_key=True)
-    coach_id: Mapped[int] = mapped_column(ForeignKey("coaches.id"), index=True)
+    # Coach de cette fiche. None = compte créé par le lien d'inscription public (pas encore de coach):
+    # une fiche chez un coach est ajoutée à sa première réservation (accounts.row_for_coach).
+    coach_id: Mapped[int | None] = mapped_column(ForeignKey("coaches.id"), nullable=True, index=True)
     name: Mapped[str] = mapped_column(String(120))
     phone: Mapped[str] = mapped_column(String(20))  # +216XXXXXXXX
     email: Mapped[str | None] = mapped_column(String(255), nullable=True, unique=True)

@@ -40,6 +40,31 @@ with engine.begin() as conn:
     for t in TIERS:
         conn.execute(text("UPDATE players SET category = :new WHERE category = :old"), {"new": t + "-", "old": t})
         conn.execute(text("UPDATE sessions SET level = :new WHERE level = :old"), {"new": t + "-", "old": t})
+def _player_coach_optional() -> None:
+    """Comptes joueurs sans coach: players.coach_id devient facultatif. SQLite ne sait pas modifier une colonne:
+    la table est reconstruite (une seule fois), les données recopiées telles quelles."""
+    if not str(engine.url).startswith("sqlite"):
+        return
+    cols = inspect(engine).get_columns("players")
+    if next(c for c in cols if c["name"] == "coach_id")["nullable"]:
+        return
+    names = ", ".join(c["name"] for c in cols)
+    with engine.connect() as conn:
+        conn.exec_driver_sql("PRAGMA foreign_keys=OFF")
+        conn.exec_driver_sql("PRAGMA legacy_alter_table=ON")  # les autres tables gardent leur lien vers « players »
+        conn.commit()
+        conn.exec_driver_sql("ALTER TABLE players RENAME TO players_old")
+        for (idx,) in conn.exec_driver_sql("SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='players_old' AND name NOT LIKE 'sqlite_autoindex%'").all():
+            conn.exec_driver_sql(f"DROP INDEX {idx}")
+        Player.__table__.create(conn)
+        conn.exec_driver_sql(f"INSERT INTO players ({names}) SELECT {names} FROM players_old")
+        conn.exec_driver_sql("DROP TABLE players_old")
+        conn.commit()
+        conn.exec_driver_sql("PRAGMA legacy_alter_table=OFF")
+        conn.commit()
+
+
+_player_coach_optional()
 with SessionLocal() as _db:
     planner.ensure_builtin(_db)  # exercices proposés par l'application
     # Crédits restants et séances encore dues en même temps (données d'avant la règle): les crédits les règlent

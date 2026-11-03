@@ -36,6 +36,10 @@ def _norm(name: str) -> str:
     return " ".join(sorted(s.split()))  # « Ben Ali Sami » = « Sami Ben Ali »
 
 
+def _coach_name(db: Session, coach_id: int | None) -> str:
+    return db.get(Coach, coach_id).name if coach_id else "Sans coach (inscription publique)"
+
+
 def duplicates(db: Session, p: Player) -> list[dict]:
     """Autres joueurs (hors fiches du même compte) qui ressemblent à celui-ci."""
     me = account_of(db, p).id
@@ -52,17 +56,17 @@ def duplicates(db: Session, p: Player) -> list[dict]:
             why.append("même nom")
         if why:
             out.append({"id": o.id, "name": o.name, "phone": o.phone, "category": o.category, "gender": o.gender,
-                        "coach_name": db.get(Coach, o.coach_id).name, "has_account": o.password_hash is not None, "why": why})
+                        "coach_name": _coach_name(db, o.coach_id), "has_account": o.password_hash is not None, "why": why})
     return out
 
 
 def submitted(db: Session, p: Player, base: str = "") -> None:
     """Le joueur a fini de remplir sa fiche: inscription à confirmer, l'administrateur est prévenu."""
     p.signup_status, p.signup_at = "a_valider", datetime.now(timezone.utc)
-    coach = db.get(Coach, p.coach_id)
+    coach_name = _coach_name(db, p.coach_id)
     level = p.category + (f" (le coach avait indiqué {p.invited_category})" if p.invited_category and p.invited_category != p.category else "")
     body = letter(None, "Une nouvelle inscription est à confirmer :",
-                  [("Joueur", p.name), ("Téléphone", p.phone), ("E-mail", p.email), ("Niveau", level), ("Coach", coach.name)],
+                  [("Joueur", p.name), ("Téléphone", p.phone), ("E-mail", p.email), ("Niveau", level), ("Coach", coach_name)],
                   "Vérifiez le niveau et les doublons dans l'administration :",
                   [("Lien", f"{(base or os.getenv('APP_URL', '')).rstrip('/')}/#admin")])
     for to in admin_emails():
@@ -73,5 +77,5 @@ def out(db: Session, p: Player) -> dict:
     return {
         "id": p.id, "name": p.name, "phone": p.phone, "email": p.email, "gender": p.gender, "category": p.category,
         "invited_category": p.invited_category, "status": p.signup_status, "signup_at": p.signup_at,
-        "coach_name": db.get(Coach, p.coach_id).name, "duplicates": duplicates(db, p),
+        "coach_name": _coach_name(db, p.coach_id), "duplicates": duplicates(db, p),
     }
