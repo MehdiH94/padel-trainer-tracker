@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { api, dayKey, hhmm, useLive } from "./api.js";
 import Icon from "./Icon.jsx";
-import SessionCalendar from "./SessionCalendar.jsx";
+import CourtCalendar from "./CourtCalendar.jsx";
+import { ManualForm, PromoForm } from "./Courts.jsx";
+import { confirmDialog, toast, toastError } from "./feedback.jsx";
 import SessionCard from "./SessionCard.jsx";
 import SessionForm from "./SessionForm.jsx";
 import SessionPayments, { PaySummary } from "./SessionPayments.jsx";
@@ -20,10 +22,31 @@ export default function Planning({ go, summary }) {
   const [monday, setMonday] = useState(mondayOf(new Date()));
   const [sel, setSel] = useState(ymd(new Date()));
   const [openDone, setOpenDone] = useState(null);
-  const [view, setView] = useState("liste"); // la liste du jour reste la vue par défaut
+  const [view, setView] = useState(location.hash.includes("semaine") ? "calendrier" : "liste"); // la liste du jour reste la vue par défaut
+  // Calendrier de la semaine: séances et terrains ensemble
+  const [courts, setCourts] = useState([]);
+  const [clubs, setClubs] = useState([]);
+  const [promos, setPromos] = useState([]);
+  const [promoFor, setPromoFor] = useState(null);
+  const [addingCourt, setAddingCourt] = useState(false);
+  const [prefill, setPrefill] = useState(null); // « Créer une séance sur ce terrain »
   const load = () => {
     api("/sessions").then(setSessions);
     api("/players").then(setPlayers);
+    api("/court-bookings").then(setCourts).catch(() => {});
+    api("/clubs").then(setClubs).catch(() => {});
+    api("/promotions").then((r) => setPromos(r.items)).catch(() => {});
+  };
+  const stopPromo = (p) => api(`/promotions/${p.id}`, { method: "DELETE" }).then(() => { toast("Promotion arrêtée"); load(); }).catch(toastError);
+  const removeCourt = async (cb) => {
+    if (!(await confirmDialog({ title: "Supprimer ce terrain ?", message: "Il ne sera plus proposé pour les réservations.", confirm: "Supprimer", danger: true }))) return;
+    api(`/court-bookings/${cb.id}`, { method: "DELETE" }).then(() => { toast("Terrain supprimé"); load(); }).catch(toastError);
+  };
+  const createAt = (cb) => {
+    const t = new Date(cb.start.endsWith("Z") || /[+-]\d\d:\d\d$/.test(cb.start) ? cb.start : cb.start + "Z");
+    setPrefill({ date: ymd(t), time: hhmm(cb.start), club_id: String(cb.club_id), court_booked: true, court: cb.court_label || "" });
+    setAdding(true);
+    window.scrollTo({ top: 0, behavior: "smooth" });
   };
   useEffect(load, []);
   useLive(load);
@@ -56,7 +79,7 @@ export default function Planning({ go, summary }) {
         <div className="row" style={{ gap: 4 }}>
           <button className="small sec" onClick={() => go("exercises")}><Icon name="ball" size={15} /> Exercices</button>
           <button className="small sec" onClick={() => go("courts")}>
-            <Icon name="pin" size={15} /> Terrains{summary?.waiting_court > 0 && <b className="pillcount" aria-label={`${summary.waiting_court} en attente`}>{summary.waiting_court}</b>}
+            <Icon name="pin" size={15} /> Mes terrains{summary?.waiting_court > 0 && <b className="pillcount" aria-label={`${summary.waiting_court} en attente`}>{summary.waiting_court}</b>}
           </button>
           <button className="small sec iconbtn" aria-label="Semaine précédente" onClick={() => shift(-1)}><Icon name="chevL" size={16} /></button>
           <button className="small sec" onClick={() => { setMonday(mondayOf(new Date())); setSel(today); }}>Aujourd'hui</button>
@@ -72,12 +95,18 @@ export default function Planning({ go, summary }) {
 
       {view === "calendrier" && (
         <>
-          <div className="legend">{Object.values(KIND).map((k) => <span key={k.label}><i style={{ background: k.color }} />{k.label}</span>)}</div>
+          <div className="row" style={{ gap: 6, justifyContent: "flex-start", marginBottom: 8 }}>
+            <button className="small sec" onClick={() => setAddingCourt(!addingCourt)}><Icon name="plus" size={15} /> Terrain</button>
+            <span className="mut small-p">Une séance : bouton « + Séance » en bas, ou touchez un terrain libre.</span>
+          </div>
+          {addingCourt && <ManualForm clubs={clubs} onCancel={() => setAddingCourt(false)} onDone={() => { setAddingCourt(false); load(); }} />}
+          {adding && <SessionForm key={JSON.stringify(prefill)} initial={prefill} players={players} onDone={() => { setAdding(false); setPrefill(null); load(); }} />}
+          {promoFor && <PromoForm cb={promoFor} onClose={() => setPromoFor(null)} onDone={() => { setPromoFor(null); load(); }} />}
           {sessions === null ? <Loading rows={2} /> : (
-            <SessionCalendar week={week} sessions={(sessions ?? []).filter((s) => week.some((d) => ymd(d) === dayKey(s.start)))} byId={byId} name={name} today={today}
-              cardProps={{ onStatus: setStatus, onDuplicate: duplicate, onPrepare: (x) => go(`session/${x.id}`), onChanged: load }} />
+            <CourtCalendar list={courts} promos={promos} sessions={sessions} monday={monday} onWeek={setMonday}
+              cardProps={{ byId, name, onStatus: setStatus, onDuplicate: duplicate, onPrepare: (x) => go(`session/${x.id}`), onChanged: load }}
+              onRemove={removeCourt} onPromo={setPromoFor} onStopPromo={stopPromo} onChanged={load} onCreateAt={createAt} />
           )}
-          {adding && <SessionForm players={players} onDone={() => { setAdding(false); load(); }} />}
         </>
       )}
 

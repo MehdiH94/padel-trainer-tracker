@@ -28,11 +28,11 @@ test("le coach parcourt tous ses écrans", async ({ page }) => {
   await nav(page, "Planning").click();
   await expect(page.getByRole("heading", { name: "Planning" })).toBeVisible();
   await page.getByRole("tab", { name: "Semaine" }).click();
-  await expect(page.getByRole("grid", { name: "Séances de la semaine" })).toBeVisible();
-
-  await page.getByRole("button", { name: /Terrains/ }).click();
-  await expect(page.getByRole("grid", { name: "Calendrier des terrains de la semaine" })).toBeVisible();
+  await expect(page.getByRole("grid", { name: "Calendrier de la semaine : séances et terrains" })).toBeVisible();
   await expect(page.locator(".cal-block").first()).toBeVisible();
+
+  await page.getByRole("button", { name: /Mes terrains/ }).click();
+  await expect(page.getByRole("heading", { name: "Mes terrains" })).toBeVisible();
 
   await nav(page, "Joueurs").click();
   await expect(page.getByText("Sami Ben Ali")).toBeVisible();
@@ -237,4 +237,21 @@ test("disponibilités: heures au format 24 h choisies dans une grille", async ({
   await clock.getByRole("button", { name: "08", exact: true }).click();
   await clock.getByRole("button", { name: "08 h 30" }).click();
   await expect(page.getByRole("button", { name: /^Lundi · début : 08 h 30/ }).first()).toBeVisible();
+});
+
+test("un seul calendrier: créer une séance sur un terrain libre, le formulaire confirme que le terrain est réservé", async ({ page }) => {
+  await login(page, "demo@padel.tn");
+  await page.getByRole("navigation", { name: "Navigation principale" }).getByRole("button", { name: "Planning" }).click();
+  await page.getByRole("tab", { name: "Semaine" }).click();
+  const legend = page.locator(".cal-legend");
+  await expect(legend).toContainText("Terrain + joueurs au complet");
+  await expect(legend).toContainText("Terrain réservé, encore aucun joueur");
+  let free = page.locator(".cal-block.libre").first();
+  for (let i = 0; i < 3 && !(await free.count()); i++) { // au besoin, semaine suivante
+    await page.getByRole("button", { name: "Semaine suivante" }).click();
+    free = page.locator(".cal-block.libre").first();
+  }
+  await free.click();
+  await page.getByRole("dialog").getByRole("button", { name: "Créer une séance sur ce terrain" }).click();
+  await expect(page.getByText("C'est bon : un terrain est déjà réservé pour ce créneau")).toBeVisible();
 });

@@ -2,7 +2,6 @@ import { useEffect, useState } from "react";
 import { api, dayLabel, hhmm, useLive } from "./api.js";
 import Icon from "./Icon.jsx";
 import { confirmDialog, Modal, toast, toastError } from "./feedback.jsx";
-import CourtCalendar from "./CourtCalendar.jsx";
 import InvitePlayers from "./InvitePlayers.jsx";
 import { COURT_STATUS, DateSelect, Loading, TimeSelect } from "./ui.jsx";
 
@@ -50,7 +49,7 @@ function countOccurrences(f) {
   return n;
 }
 
-function ManualForm({ clubs, onDone, onCancel }) {
+export function ManualForm({ clubs, onDone, onCancel }) {
   const today = new Date().toLocaleDateString("fr-CA", { timeZone: "Africa/Tunis" });
   const [f, setF] = useState({ club_id: clubs[0]?.id ?? "", date: today, time: "18:00", duration_min: 60, court_label: "", repeat: "none", weekdays: [weekdayOf(today)], until: plusDays(today, 55) }); // 8 semaines par défaut
   const [err, setErr] = useState("");
@@ -163,7 +162,7 @@ function CourtCard({ cb, reload }) {
 }
 
 // Promotion sur un terrain libre: remise, message, envoi à tous les joueurs du coach
-function PromoForm({ cb, onClose, onDone }) {
+export function PromoForm({ cb, onClose, onDone }) {
   const [pct, setPct] = useState(20);
   const [preview, setPreview] = useState(null);
   const [message, setMessage] = useState("");
@@ -320,14 +319,13 @@ function FreeAgenda({ free }) {
   );
 }
 
-export default function Courts({ onBack }) {
+export default function Courts({ onBack, go }) {
   const [list, setList] = useState(null);
   const [clubs, setClubs] = useState([]);
   const [editing, setEditing] = useState(null); // club, "new" ou null
   const [filter, setFilter] = useState("todo");
   const [adding, setAdding] = useState(false);
   const [freeView, setFreeView] = useState("list"); // terrains libres: par série ou agenda jour par jour
-  const [view, setView] = useState("cal"); // calendrier (par défaut) ou listes
   const [removing, setRemoving] = useState(null); // terrain d'une série: celui-ci ou toute la suite
   const [msg, setMsg] = useState("");
   const [promos, setPromos] = useState([]);
@@ -340,7 +338,7 @@ export default function Courts({ onBack }) {
   const stopPromo = (p) => api(`/promotions/${p.id}`, { method: "DELETE" }).then(() => { toast("Promotion arrêtée"); load(); }).catch(toastError);
   useEffect(load, []);
   useLive(load);
-  if (!list) return <><h1>Terrains</h1><Loading rows={3} /></>;
+  if (!list) return <><h1>Mes terrains</h1><Loading rows={3} /></>;
 
   const now = Date.now();
   const upcoming = list.filter((cb) => toDate(cb.start).getTime() + cb.duration_min * 60000 >= now);
@@ -365,13 +363,10 @@ export default function Courts({ onBack }) {
     <>
       <button className="small sec" onClick={onBack}><Icon name="chevL" size={15} /> Planning</button>
       <div className="row" style={{ marginTop: 10 }}>
-        <h1 style={{ margin: 0 }}>Terrains</h1>
+        <h1 style={{ margin: 0 }}>Mes terrains</h1>
         <button className="small" onClick={() => setAdding(true)}><Icon name="plus" size={15} /> Ajouter un terrain</button>
       </div>
-      <div className="seg" style={{ margin: "10px 0" }}>
-        <button className={view === "cal" ? "on" : ""} onClick={() => setView("cal")}><Icon name="calendar" size={14} /> Calendrier</button>
-        <button className={view === "list" ? "on" : ""} onClick={() => setView("list")}><Icon name="inbox" size={14} /> Listes</button>
-      </div>
+      <p className="mut small-p">Vos terrains réservés et les demandes aux clubs. Le calendrier de la semaine (terrains et séances ensemble) est dans <button className="link" onClick={() => go("planning/semaine")}>Planning › Semaine</button>.</p>
       {adding && <ManualForm clubs={clubs} onCancel={() => setAdding(false)} onDone={() => { setAdding(false); load(); }} />}
       {promoFor && <PromoForm cb={promoFor} onClose={() => setPromoFor(null)} onDone={() => { setPromoFor(null); load(); }} />}
       {removing && (
@@ -385,7 +380,7 @@ export default function Courts({ onBack }) {
           </div>
         </Modal>
       )}
-      {view === "cal" ? <CourtCalendar list={list} promos={promos} onRemove={remove} onPromo={setPromoFor} onStopPromo={stopPromo} onChanged={load} /> : (<>
+      {(<>
       <div className="grid kpis">
         <div className="kpi"><span className="ico ok"><Icon name="checkCircle" size={18} /></span><div className="big">{count(["confirmee"])}</div><div className="mut">Confirmés</div></div>
         <div className="kpi"><span className="ico warn"><Icon name="clock" size={18} /></span><div className="big">{count(["a_envoyer", "en_attente"])}</div><div className="mut">En attente</div></div>

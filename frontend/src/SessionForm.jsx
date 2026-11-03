@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, tnd } from "./api.js";
+import { api, hhmm, tnd } from "./api.js";
 import Icon from "./Icon.jsx";
 import { CATEGORIES, catOption, KIND, DateSelect, TimeSelect } from "./ui.jsx";
 
@@ -14,12 +14,24 @@ function Field({ label, children }) {
   );
 }
 
-export default function SessionForm({ players, onDone }) {
+export default function SessionForm({ players, onDone, initial }) {
   const today = new Date().toLocaleDateString("fr-CA", { timeZone: "Africa/Tunis" });
   const [f, setF] = useState({
     date: today, time: "18:00", duration_min: 60, kind: "individuel", club_id: "", court_booked: false, court: "",
     discount_pct: 0, repeat: false, repeat_weeks: 4, player_ids: [], open: false, level: "",
+    ...(initial ?? {}), // « Créer une séance sur ce terrain » (calendrier): date, heure, club et terrain déjà choisis
   });
+  // Un de mes terrains réservés couvre-t-il ce créneau ? (au club choisi, ou ailleurs: proposer ce club)
+  const [cover, setCover] = useState(null);
+  useEffect(() => {
+    const t = setTimeout(() => {
+      const q = new URLSearchParams({ start: `${f.date}T${f.time}:00+01:00`, duration_min: f.duration_min, ...(f.club_id && { club_id: f.club_id }) });
+      api(`/court-bookings/cover?${q}`).then(setCover).catch(() => setCover(null));
+    }, 250);
+    return () => clearTimeout(t);
+  }, [f.date, f.time, f.duration_min, f.club_id]);
+  const h = (iso) => hhmm(iso).replace(":", " h ");
+  const span = (cb) => `${h(cb.start)} – ${h(new Date(new Date(cb.start.endsWith("Z") || /[+-]\d\d:\d\d$/.test(cb.start) ? cb.start : cb.start + "Z").getTime() + cb.duration_min * 60000).toISOString())}`;
   const [err, setErr] = useState("");
   const [clubs, setClubs] = useState([]);
   const [prefs, setPrefs] = useState(null); // réglages du coach: prix et durée de chaque formule
@@ -97,8 +109,20 @@ export default function SessionForm({ players, onDone }) {
           {clubs.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
         </select>
       </Field>
-      {f.club_id && (
+      {cover?.here && (
+        <div className="note ok" style={{ margin: "-4px 0 10px" }}>
+          <Icon name="checkCircle" size={14} /> <b>C'est bon : un terrain est déjà réservé pour ce créneau</b> ({cover.here.club_name}{cover.here.court_label && ` · ${cover.here.court_label}`}, {span(cover.here)}). La séance l'utilisera, aucun SMS au club.
+        </div>
+      )}
+      {!cover?.here && cover?.elsewhere?.length > 0 && (
+        <div className="note warn" style={{ margin: "-4px 0 10px" }}>
+          <Icon name="pin" size={14} /> Vous avez un terrain libre à ce moment-là : <b>{cover.elsewhere[0].club_name}</b>{cover.elsewhere[0].court_label && ` · ${cover.elsewhere[0].court_label}`} ({span(cover.elsewhere[0])}).
+          <div><button type="button" className="link" onClick={() => setF({ ...f, club_id: String(cover.elsewhere[0].club_id) })}>Choisir ce club</button></div>
+        </div>
+      )}
+      {f.club_id && !cover?.here && (
         <>
+          <div className="note warn" style={{ margin: "-4px 0 8px" }}><Icon name="alert" size={14} /> Aucun de vos terrains réservés ne couvre ce créneau dans ce club.</div>
           <label className="check">
             <input type="checkbox" checked={f.court_booked} onChange={(e) => setF({ ...f, court_booked: e.target.checked })} />
             J'ai déjà réservé le terrain (aucun SMS au club)

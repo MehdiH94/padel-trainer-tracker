@@ -158,6 +158,18 @@ def list_court_bookings(status: str | None = None, coach: Coach = Depends(curren
     return sorted((i for i in items if i["session_status"] != "annulee"), key=lambda i: i["start"])
 
 
+@router.get("/court-bookings/cover")
+def court_cover(start: datetime, duration_min: int = 60, club_id: int | None = None, coach: Coach = Depends(current_coach), db: Session = Depends(get_db)):
+    """Nouvelle séance: un de mes terrains réservés et libres couvre-t-il ce créneau ? Au club choisi (« here »),
+    ou dans un autre de mes clubs (« elsewhere »: pour proposer de choisir ce club)."""
+    if start.tzinfo is None:
+        start = start.replace(tzinfo=timezone.utc)
+    held = courts.held_covering(db, coach, start, duration_min)
+    here = next((cb for cb in held if club_id and cb.club_id == club_id), None)
+    other = [cb for cb in held if cb is not here and cb.club_id != club_id]
+    return {"here": cb_out(db, here) if here else None, "elsewhere": [cb_out(db, cb) for cb in other][:3]}
+
+
 class ManualIn(BaseModel):
     club_id: int
     start: datetime

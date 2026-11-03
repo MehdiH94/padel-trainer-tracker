@@ -1684,3 +1684,17 @@ def test_coach_session_price_comes_from_settings_with_optional_promo(client):
     s = client.post("/sessions", json={"start": start, "kind": "individuel", "player_ids": [a["id"]], "discount_pct": 25}).json()[0]
     assert s["price_millimes"] == 45000  # 60 TND - 25 %
     assert client.post("/sessions", json={"start": start, "kind": "individuel", "discount_pct": 95}).status_code == 422
+
+
+def test_new_session_tells_if_a_court_is_already_booked(client):
+    marsa = mkclub(client)
+    other = client.post("/clubs", json={"name": "Gammarth Padel", "phone": ""}).json()
+    start = (datetime.now(timezone.utc) + timedelta(days=3)).replace(hour=8, minute=0, second=0, microsecond=0)
+    free_court(client, start.isoformat(), minutes=240, club=marsa)
+    nine = (start + timedelta(hours=1)).isoformat()
+    r = client.get("/court-bookings/cover", params={"start": nine, "duration_min": 90, "club_id": marsa["id"]}).json()
+    assert r["here"]["club_name"] == "Padel Club La Marsa" and r["elsewhere"] == []
+    r = client.get("/court-bookings/cover", params={"start": nine, "duration_min": 90, "club_id": other["id"]}).json()
+    assert r["here"] is None and [c["club_name"] for c in r["elsewhere"]] == ["Padel Club La Marsa"]  # « choisir ce club »
+    late = (start + timedelta(hours=3, minutes=30)).isoformat()  # dépasse midi: le terrain ne couvre pas
+    assert client.get("/court-bookings/cover", params={"start": late, "duration_min": 60, "club_id": marsa["id"]}).json() == {"here": None, "elsewhere": []}
