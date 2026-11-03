@@ -13,7 +13,8 @@ from ..models import Club, Coach, CourtBooking, Player, Promotion
 from ..notify import Notifier, channel_for
 from ..services import booking as booking_svc
 from ..services.accounts import account_of, contact_email, has_account, linked
-from ..services.common import TUNIS, aware
+from ..notify import letter
+from ..services.common import TUNIS, aware, quand
 from ..services.courts import JOURS
 from ..services.pricing import base_price, duration_for
 from ..sms import get_sms_provider
@@ -30,8 +31,8 @@ def _when(cb: CourtBooking) -> str:
 
 def default_message(db: Session, coach: Coach, cb: CourtBooking, pct: int) -> str:
     club = db.get(Club, cb.club_id).name
-    return (f"Promo padel -{pct} % avec {coach.name} : terrain réservé {_when(cb)} au {club}. "
-            f"Seul, à deux ou en groupe, réservez vite dans l'appli : {APP_URL}")
+    return letter(None, f"Promo padel -{pct} % avec {coach.name} sur ce créneau :", [("Quand", quand(cb.start, cb.duration_min)), ("Où", club)],
+                  "Seul, à deux ou en groupe : réservez vite dans l'application.", [("Application", APP_URL)], sign=coach.name)
 
 
 def promo_out(db: Session, p: Promotion) -> dict:
@@ -140,11 +141,8 @@ def _free_court(db: Session, coach: Coach, cb_id: int) -> CourtBooking:
 
 def free_court_message(db: Session, coach: Coach, cb: CourtBooking) -> str:
     club = db.get(Club, cb.club_id).name
-    t = aware(cb.start).astimezone(TUNIS)
-    end = t + timedelta(minutes=cb.duration_min)
-    h = lambda x: f"{x:%H}h{x:%M}".replace("h00", "h")  # noqa: E731
-    return (f"Bonjour, j'ai un terrain libre le {JOURS[t.weekday()]} {t:%d/%m} de {h(t)} à {h(end)} au {club}. Seul, à deux ou en groupe, "
-            f"réservez votre créneau dans l'appli : {APP_URL}. — {coach.name}")
+    return letter(None, "J'ai un terrain libre :", [("Quand", quand(cb.start, cb.duration_min)), ("Où", club)],
+                  "Seul, à deux ou en groupe : réservez votre créneau dans l'application.", [("Application", APP_URL)], sign=coach.name)
 
 
 @router.get("/court-bookings/{cb_id}/announce")

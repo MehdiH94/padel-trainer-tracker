@@ -630,9 +630,12 @@ def test_automatic_reminders_24h_and_2h(client, monkeypatch):
     assert send_due(db, notifier, now=start - timedelta(hours=23)) == 3  # rappel de la veille
     assert send_due(db, notifier, now=start - timedelta(hours=20)) == 0  # pas deux fois
     assert sorted(ch for ch, _, _ in Notifier.sent) == ["email", "sms", "whatsapp"]  # sans choix: SMS
-    assert any(to == "lina@x.tn" and "demain (mardi 10/03) à 18h00 (Club X)" in body for _, to, body in Notifier.sent)
+    body = next(body for _, to, body in Notifier.sent if to == "lina@x.tn")
+    # mise en page: salutation, phrase, détails ligne par ligne, signature
+    assert body.startswith("Bonjour Lina,\n\nPetit rappel : vous avez une séance de padel demain.")
+    assert "Quand : mardi 10 mars, de 18h à 19h\nOù : Club X" in body and body.endswith("À bientôt,\nCoach Test")
     assert send_due(db, notifier, now=start - timedelta(minutes=110)) == 3  # 2 h avant
-    assert "aujourd'hui à 18h00" in Notifier.sent[-1][2]
+    assert "commence bientôt" in Notifier.sent[-1][2] and "de 18h à 19h" in Notifier.sent[-1][2]
     assert send_due(db, notifier, now=start - timedelta(minutes=30)) == 0
     assert send_due(db, notifier, now=start + timedelta(minutes=5)) == 0  # séance commencée
     assert sorted(r.kind for r in db.query(SessionReminder)) == ["24h"] * 3 + ["2h"] * 3
@@ -1607,3 +1610,14 @@ def test_stay_logged_in_refresh(client, monkeypatch):
     assert pc.post("/auth/refresh").json()["role"] == "player"
     boss.post(f"/admin/signups/{p['id']}/refuse")
     assert pc.post("/auth/refresh").status_code == 401
+
+
+def test_email_layout_html_and_french():
+    """Les e-mails partent en texte et en HTML (paragraphes, détails en gras), déclarés en français."""
+    from app.notify import _html, letter
+    body = letter("Sami Ben Ali", "Bonne nouvelle : votre séance est confirmée.", [("Quand", "mercredi 4 novembre, de 12h à 13h"), ("Où", "")],
+                  "Lien : https://padel.tn", sign="Coach Démo")
+    assert body == ("Bonjour Sami,\n\nBonne nouvelle : votre séance est confirmée.\n\nQuand : mercredi 4 novembre, de 12h à 13h"
+                    "\n\nLien : https://padel.tn\n\nÀ bientôt,\nCoach Démo")
+    page = _html("Sujet", body)
+    assert 'lang="fr"' in page and "<b>Quand</b>" in page and '<a href="https://padel.tn"' in page and page.count("<p ") == 5

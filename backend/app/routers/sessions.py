@@ -11,6 +11,7 @@ from ..db import get_db
 from ..constants import CAPACITY
 from ..models import Attendance, Club, Coach, CourtBooking, Payment, Player, Proposal, TrainingSession
 from ..schemas import PlayerPaymentOut, SessionIn, SessionOut, SessionPatch
+from ..notify import letter
 from ..services import booking as booking_svc
 from ..services import courts
 from ..services.accounts import has_account
@@ -191,8 +192,8 @@ def invitable(session_id: int, coach: Coach = Depends(current_coach), db: Sessio
 
 def default_invite(coach: Coach, s: TrainingSession) -> str:
     what = {"duo": " à deux", "groupe": " en groupe"}.get(s.kind, "")
-    return (f"Bonjour, il reste de la place dans une séance de padel{what} le {booking_svc._when(s)}. "
-            f"Rejoignez-la depuis l'application (Accueil › « vous propose »). — {coach.name}")
+    return letter(None, f"Il reste de la place dans une séance de padel{what} :", booking_svc._details(s),
+                  "Pour la rejoindre, ouvrez l'application : la proposition est sur votre page d'accueil.", sign=coach.name)
 
 
 class InviteIn(BaseModel):

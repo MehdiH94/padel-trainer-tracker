@@ -10,7 +10,8 @@ from ..models import Attendance, Availability, Booking, Club, Coach, CourtBookin
 from ..sms.base import SmsProvider
 from . import courts
 from . import groups
-from .common import TUNIS, aware
+from ..notify import letter
+from .common import TUNIS, aware, quand
 from .finance import credit_balance
 from .pricing import duration_for, quote
 
@@ -238,12 +239,13 @@ def request_new(db: Session, coach: Coach, player: Player, kind: str, start: dat
 
 
 def _tell_coach_new(db: Session, coach: Coach, player: Player, b: Booking) -> None:
-    t = aware(b.start).astimezone(TUNIS)
-    when = f"{courts.JOURS[t.weekday()]} {t:%d/%m} à {t:%H}h{t:%M}"
+    details = [("Quand", quand(b.start, b.duration_min)), ("Formule", KIND_FR.get(b.kind, "")),
+               ("Formules acceptées", ", ".join(KIND_FR[k].lower() for k in groups.split(b.accepted_kinds)))]
     if b.status == "en_attente":
-        notify_coach(db, coach.id, f"Nouvelle demande de {player.name}", f"{player.name} ({player.category}) demande une séance le {when}. Acceptez ou refusez-la dans l'onglet Demandes.")
+        notify_coach(db, coach.id, f"Nouvelle demande de {player.name}", f"{player.name} ({player.category}) demande une séance :", details,
+                     "Acceptez-la ou refusez-la dans l'onglet Demandes de l'application.")
     else:
-        notify_coach(db, coach.id, f"Nouvelle réservation de {player.name}", f"{player.name} ({player.category}) a réservé la séance du {when} (validée automatiquement).")
+        notify_coach(db, coach.id, f"Nouvelle réservation de {player.name}", f"{player.name} ({player.category}) a réservé une séance, validée automatiquement :", details)
 
 
 def accept(db: Session, coach: Coach, b: Booking, sms: SmsProvider | None = None, *, court: CourtBooking | None = None, club: Club | None = None) -> None:
@@ -299,13 +301,22 @@ def accept(db: Session, coach: Coach, b: Booking, sms: SmsProvider | None = None
 def _announce_accepted(db: Session, coach: Coach, b: Booking, s: TrainingSession) -> None:
     """Demande acceptée mais pas encore confirmée (terrain à réserver, ou groupe à compléter): le joueur est prévenu."""
     if b.status == "acceptee":
-        why = "le terrain est en cours de réservation, vous recevrez la confirmation"
+        why = "Le terrain est en cours de réservation : vous recevrez un e-mail dès que la séance sera confirmée."
     elif b.status == "attente_joueurs":
-        why = f"elle sera confirmée dès que le groupe sera complet ({len(s.attendances)}/{groups.min_needed(s)} joueurs pour l'instant)"
+        why = f"Elle sera confirmée dès que le groupe sera complet ({len(s.attendances)}/{groups.min_needed(s)} joueurs pour l'instant)."
     else:
         return
-    notify(db, [db.get(Player, b.player_id)], "Votre demande de séance est acceptée", lambda p: (
-        f"Bonjour {p.name.split()[0]}, {coach.name} a accepté votre demande pour la séance du {_when(s)} : {why}."))
+    notify(db, [db.get(Player, b.player_id)], "Votre demande de séance est acceptée", lambda p: letter(
+        p.name, f"{coach.name} a accepté votre demande de séance de padel.", _details(s), why, sign=coach.name))
+
+
+KIND_FR = {"individuel": "Seul", "duo": "À deux", "groupe": "En groupe"}
+
+
+def _details(s: TrainingSession, coach: Coach | None = None) -> list[tuple[str, str]]:
+    """Détails d'une séance dans les messages: quand, où, formule, coach."""
+    return [("Quand", quand(s.start, s.duration_min)), ("Où", " · ".join(x for x in (s.club, s.court) if x)),
+            ("Formule", KIND_FR.get(s.kind, "")), ("Coach", coach.name if coach else "")]
 
 
 def _when(s: TrainingSession) -> str:
@@ -334,12 +345,12 @@ def _court_txt(s: TrainingSession) -> str:
     return f" · {s.court}" if s.court else ""
 
 
-def notify_coach(db: Session, coach_id: int, subject: str, body: str) -> None:
-    """Message au coach (e-mail de son compte)."""
+def notify_coach(db: Session, coach_id: int, subject: str, *blocks) -> None:
+    """Message au coach (e-mail de son compte), même mise en page que pour les joueurs."""
     from ..notify import send_email
     coach = db.get(Coach, coach_id)
     try:
-        send_email(coach.email, subject, body + "\n\n— Padel Coach")
+        send_email(coach.email, subject, letter(coach.name, *blocks))
     except Exception:  # un envoi raté ne bloque jamais l'action
         pass
 
@@ -351,8 +362,9 @@ def announce_confirmed(db: Session, s: TrainingSession) -> None:
     if not todo:
         return
     coach = db.get(Coach, s.coach_id)
-    notify(db, [db.get(Player, b.player_id) for b in todo], "Votre séance de padel est confirmée", lambda p: (
-        f"Bonjour {p.name.split()[0]}, votre séance de padel du {_when(s)}{_court_txt(s)} avec {coach.name} est confirmée. À bientôt !"))
+    notify(db, [db.get(Player, b.player_id) for b in todo], "Votre séance de padel est confirmée", lambda p: letter(
+        p.name, "Bonne nouvelle : votre séance de padel est confirmée.", _details(s, coach),
+        "Pensez à arriver quelques minutes en avance. En cas d'empêchement, gérez votre réservation dans l'application.", sign=coach.name))
     for b in todo:
         b.notified_at = datetime.now(timezone.utc)
 
@@ -380,9 +392,10 @@ def refresh(db: Session, s: TrainingSession) -> None:
     announce_confirmed(db, s)
     if newly:
         others = len(s.attendances) - 1
-        notify(db, [db.get(Player, b.player_id) for b in newly], "Votre séance de padel est confirmée", lambda p: (
-            f"Bonne nouvelle {p.name.split()[0]} ! {others} joueur{'s ont' if others > 1 else ' a'} rejoint votre séance de padel du {_when(s)} : "
-            f"elle est confirmée{'' if state in (None, 'confirmee') else ' (terrain en cours de réservation)'}. — {coach.name}"))
+        notify(db, [db.get(Player, b.player_id) for b in newly], "Votre séance de padel est confirmée", lambda p: letter(
+            p.name, f"Bonne nouvelle : {others} joueur{'s ont' if others > 1 else ' a'} rejoint votre séance de padel, "
+            f"elle est confirmée{'' if state in (None, 'confirmee') else ' (le terrain est en cours de réservation)'}.", _details(s, coach),
+            sign=coach.name))
 
 
 def _reprice(db: Session, coach: Coach, s: TrainingSession, b: Booking) -> None:
@@ -436,9 +449,10 @@ def remind_incomplete(db: Session, now: datetime | None = None) -> int:
         if not (now < aware(b.start) <= now + groups.REMIND_BEFORE) or (b.session_id, b.player_id) in done:
             continue
         s, p, coach = db.get(TrainingSession, b.session_id), db.get(Player, b.player_id), db.get(Coach, b.coach_id)
-        body = (f"Bonjour {p.name.split()[0]}, votre séance de padel du {_when(s)} n'a pas encore assez de joueurs "
-                f"({len(s.attendances)}/{groups.min_needed(s)}). Ouvrez l'appli pour changer de formule (par exemple passer en solo) "
-                f"ou annuler votre demande (remboursée). — {coach.name}")
+        body = letter(p.name, f"Votre séance de padel n'a pas encore assez de joueurs ({len(s.attendances)}/{groups.min_needed(s)}) :",
+                      _details(s, coach),
+                      "Ouvrez l'application pour changer de formule (par exemple passer en solo), ou annuler votre demande : elle vous sera remboursée.",
+                      sign=coach.name)
         notify(db, [p], "Votre séance de padel n'est pas encore complète", lambda _p: body)
         db.add(SessionReminder(coach_id=b.coach_id, session_id=s.id, player_id=p.id, kind="min", channel=p.contact_channel or "sms", message=body))
         count += 1
@@ -457,10 +471,10 @@ def refuse(db: Session, b: Booking) -> None:
     b.status = "refusee"
     _refund(db, b)
     coach = db.get(Coach, b.coach_id)
-    t = aware(b.start).astimezone(TUNIS)
-    notify(db, [db.get(Player, b.player_id)], "Votre demande de séance n'a pas pu être acceptée", lambda p: (
-        f"Bonjour {p.name.split()[0]}, {coach.name} ne peut pas assurer la séance du {courts.JOURS[t.weekday()]} {t:%d/%m} à {t:%H}h{t:%M}. "
-        f"{'Vos crédits vous ont été rendus. ' if b.charged_millimes else ''}Vous pouvez choisir un autre créneau dans l'application."))
+    notify(db, [db.get(Player, b.player_id)], "Votre demande de séance n'a pas pu être acceptée", lambda p: letter(
+        p.name, f"{coach.name} ne peut malheureusement pas assurer la séance demandée :", [("Quand", quand(b.start, b.duration_min))],
+        f"{'Vos crédits vous ont été rendus. ' if b.charged_millimes else ''}Vous pouvez choisir un autre créneau dans l'application.",
+        sign=coach.name))
 
 
 def _release(db: Session, b: Booking) -> None:
@@ -530,7 +544,8 @@ def cancel_booking(db: Session, coach: Coach, b: Booking) -> bool:
     _refund(db, b)
     t = aware(b.start).astimezone(TUNIS)
     who = db.get(Player, b.player_id).name
-    notify_coach(db, b.coach_id, f"{who} a annulé", f"{who} a annulé {'sa demande pour ' if was_pending else ''}la séance du {courts.JOURS[t.weekday()]} {t:%d/%m} à {t:%H}h{t:%M}.")
+    notify_coach(db, b.coach_id, f"{who} a annulé", f"{who} a annulé {'sa demande pour ' if was_pending else ''}cette séance :",
+                 [("Quand", quand(b.start, b.duration_min)), ("Formule", KIND_FR.get(b.kind, ""))])
     return True
 
 
@@ -565,9 +580,11 @@ def replace(db: Session, b: Booking, newcomer: Player) -> Booking:
     _refund(db, b)
     b.status, b.replace_token = "remplacee", None
     leaving = db.get(Player, b.player_id)
-    notify_coach(db, b.coach_id, f"{newcomer.name} remplace {leaving.name}", f"{newcomer.name} ({newcomer.category}) a pris la place de {leaving.name} à la séance du {_when(s)}.")
-    notify(db, [leaving], "Vous avez été remplacé", lambda p: f"Bonjour {p.name.split()[0]}, {newcomer.name} a pris votre place à la séance du {_when(s)}. "
-           f"{'Vos crédits vous ont été rendus.' if b.charged_millimes else ''}".strip())
+    notify_coach(db, b.coach_id, f"{newcomer.name} remplace {leaving.name}",
+                 f"{newcomer.name} ({newcomer.category}) a pris la place de {leaving.name} à cette séance :", _details(s))
+    notify(db, [leaving], "Vous avez été remplacé", lambda p: letter(
+        p.name, f"{newcomer.name} a pris votre place à cette séance :", _details(s),
+        "Vos crédits vous ont été rendus." if b.charged_millimes else "", "Merci d'avoir trouvé un remplaçant !"))
     return nb
 
 
@@ -575,8 +592,10 @@ def coach_cancel_session(db: Session, s: TrainingSession) -> None:
     """Le coach annule une séance: toutes les réservations payées avec des crédits sont remboursées,
     les joueurs sont prévenus."""
     coach = db.get(Coach, s.coach_id)
-    notify(db, [db.get(Player, a.player_id) for a in s.attendances], "Séance de padel annulée", lambda p: (
-        f"Bonjour {p.name.split()[0]}, {coach.name} a annulé la séance du {_when(s)}. Si vous l'aviez payée avec vos crédits, ils vous ont été rendus."))
+    notify(db, [db.get(Player, a.player_id) for a in s.attendances], "Séance de padel annulée", lambda p: letter(
+        p.name, f"{coach.name} a dû annuler cette séance :", _details(s),
+        "Si vous l'aviez payée avec vos crédits, ils vous ont été rendus. Vous pouvez réserver un autre créneau dans l'application.",
+        sign=coach.name))
     for b in db.scalars(select(Booking).where(Booking.session_id == s.id, Booking.status.in_(ACTIVE))):
         b.status = "annulee"
         _refund(db, b)

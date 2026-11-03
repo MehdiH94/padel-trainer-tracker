@@ -13,7 +13,7 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy.orm import Session
 
 from ..models import Coach, Player
-from ..notify import send_email
+from ..notify import letter, send_email
 from .common import aware
 
 APP_URL = os.getenv("APP_URL", "http://localhost:5173")
@@ -41,14 +41,10 @@ def send_link(db: Session, p: Player, base: str = "") -> None:
     p.email_token_sent_at = datetime.now(timezone.utc)
     coach = db.get(Coach, p.coach_id)
     link = f"{(base or APP_URL).rstrip('/')}/verify/{p.email_token}"
-    send_email(p.email, "Vérifiez votre adresse e-mail — Padel Coach", (
-        f"Bonjour {p.name.split()[0]},\n\n"
-        f"Bienvenue sur Padel Coach{f' avec {coach.name}' if coach else ''} !\n"
-        f"Pour recevoir les rappels de vos séances et pouvoir réserver, confirmez votre adresse e-mail en ouvrant ce lien :\n\n"
-        f"{link}\n\n"
-        "Si vous n'avez pas créé de compte, ignorez ce message.\n\n"
-        "— Padel Coach"
-    ))
+    send_email(p.email, "Vérifiez votre adresse e-mail — Padel Coach", letter(
+        p.name, f"Bienvenue sur Padel Coach{f' avec {coach.name}' if coach else ''} !",
+        "Pour recevoir les rappels de vos séances et pouvoir réserver, confirmez votre adresse e-mail en ouvrant ce lien :",
+        link, "Si vous n'avez pas créé de compte, ignorez ce message."))
 
 
 def can_resend(p: Player) -> bool:

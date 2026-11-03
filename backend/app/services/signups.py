@@ -15,7 +15,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..models import Coach, Player
-from ..notify import send_email
+from ..notify import letter, send_email
 from .accounts import account_of
 
 
@@ -61,8 +61,10 @@ def submitted(db: Session, p: Player, base: str = "") -> None:
     p.signup_status, p.signup_at = "a_valider", datetime.now(timezone.utc)
     coach = db.get(Coach, p.coach_id)
     level = p.category + (f" (le coach avait indiqué {p.invited_category})" if p.invited_category and p.invited_category != p.category else "")
-    body = (f"Nouvelle inscription à confirmer: {p.name}, {p.phone}, {p.email}, niveau {level}, élève de {coach.name}.\n"
-            f"Vérifier le niveau et les doublons: {(base or os.getenv('APP_URL', '')).rstrip('/')}/#admin")
+    body = letter(None, "Une nouvelle inscription est à confirmer :",
+                  [("Joueur", p.name), ("Téléphone", p.phone), ("E-mail", p.email), ("Niveau", level), ("Coach", coach.name)],
+                  "Vérifiez le niveau et les doublons dans l'administration :",
+                  [("Lien", f"{(base or os.getenv('APP_URL', '')).rstrip('/')}/#admin")])
     for to in admin_emails():
         send_email(to, f"Inscription à confirmer : {p.name}", body)
 

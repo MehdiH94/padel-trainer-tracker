@@ -6,7 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..models import Coach, Player, SessionReminder, TrainingSession
-from ..notify import Notifier, channel_for
+from ..notify import Notifier, channel_for, letter
 from .common import TUNIS, aware
 from .accounts import contact_email
 from .courts import JOURS
@@ -18,14 +18,14 @@ STEPS = [("2h", timedelta(hours=2)), ("24h", timedelta(hours=24))]
 
 
 def reminder_text(coach: Coach, player: Player, s: TrainingSession, kind: str, now: datetime) -> str:
+    from .booking import _details  # import local: booking importe beaucoup de services
     t = aware(s.start).astimezone(TUNIS)
-    where = f" ({s.club})" if s.club else ""
-    first = player.name.split()[0]
+    details = _details(s)
     if kind == "2h":
-        return f"Bonjour {first}, votre séance de padel commence bientôt : aujourd'hui à {t:%H}h{t:%M}{where}. À tout à l'heure ! — {coach.name}"
+        return letter(player.name, "Votre séance de padel commence bientôt :", details, closing="À tout à l'heure,", sign=coach.name)
     day = "demain" if t.date() == (now.astimezone(TUNIS) + timedelta(days=1)).date() else "aujourd'hui" if t.date() == now.astimezone(TUNIS).date() else ""
-    when = f"{day} ({JOURS[t.weekday()]} {t:%d/%m})" if day else f"le {JOURS[t.weekday()]} {t:%d/%m}"
-    return f"Bonjour {first}, rappel : séance de padel {when} à {t:%H}h{t:%M}{where}. Prévenez-moi en cas d'empêchement. — {coach.name}"
+    return letter(player.name, f"Petit rappel : vous avez une séance de padel {day or 'bientôt'}.", details,
+                  "En cas d'empêchement, prévenez-moi au plus vite depuis l'application.", sign=coach.name)
 
 
 def send_due(db: Session, notifier: Notifier, now: datetime | None = None) -> int:

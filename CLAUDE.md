@@ -17,7 +17,7 @@ Application de gestion pour un coach de padel indépendant (Tunisie) + espace jo
 # Backend (depuis backend/)
 python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
-python -m pytest -q                                  # 112 tests, doivent rester verts
+python -m pytest -q                                  # 113 tests, doivent rester verts
 uvicorn app.main:app --port 8000
 python seed_demo.py                                  # données de démo (base vide): coach demo@padel.tn / demo1234, joueur sami@demo.tn / demo1234
 python seed_more_coaches.py                          # + 2 coachs fictifs (coach.youssef@demo.tn, coach.meriem@demo.tn / demo1234), sans effet s'ils existent
@@ -52,6 +52,7 @@ Le schéma est créé par `create_all`: après un changement de modèle, supprim
 - Recharge de crédits = `Payment(kind="credit")` + `CreditTx`; elle compte dans l'encaissé mais pas dans les paiements de séances.
 - Les relances manuelles du coach sont des liens `sms:` / `wa.me` / `mailto:` pré-remplis.
 - Version bêta: tous les messages aux joueurs partent par e-mail (`notify.EMAIL_ONLY`, variable `NOTIFY_EMAIL_ONLY`, 1 par défaut; `notify.channel_for`), sans choix à l'inscription (`contact_channel = "email"`). Messages automatiques: demande acceptée (`booking._announce_accepted`), séance confirmée (`booking.announce_confirmed`, appelé par `refresh`, `courts.mark_confirmed` et « terrain obtenu »: plus de confirmation à envoyer à la main), demande refusée, séance annulée par le coach, remplacement, recharge de crédits, rappels 24 h / 2 h, promotions, invitations; au coach (`booking.notify_coach`, e-mail de son compte): nouvelle demande ou réservation, annulation, remplacement. Joueur sans compte (pas d'e-mail): rien n'est envoyé. Les e-mails ne partent vraiment que si `SMTP_HOST` est réglé (sinon journalisés). Les SMS aux clubs (terrains) restent des SMS.
+- Rédaction des messages: toujours via `notify.letter(nom, blocs…, sign=coach)` (salutation sur sa ligne, paragraphes séparés, détails « Quand : … / Où : … / Formule : … » ligne par ligne via `booking._details`, signature), dates en toutes lettres (`common.quand`: « mercredi 4 novembre, de 12h à 13h »). Les e-mails partent en texte + HTML (`notify._html`: intitulés des détails en gras, liens cliquables, pied de page) avec `Content-Language: fr`.
 - Seule exception: les rappels automatiques de séance (24 h et 2 h avant, `services/session_reminders.py`, une fois chacun) partent par le moyen choisi par le joueur (`Player.contact_channel`) via `app/notify.py`: SMS par `SmsProvider` (fake = journal), e-mail par SMTP si `SMTP_HOST` est réglé, WhatsApp journalisé tant qu'aucune passerelle n'est branchée.
 - E-mail des joueurs (DP-002, `services/email_verification.py`): lien de vérification envoyé à la création du compte (`/verify/<jeton>`, renvoi limité à 1/min). Non vérifié = l'appli est visible mais `/me/book` et l'acceptation d'une proposition renvoient 403. Exigé si `SMTP_HOST` est réglé (ou `REQUIRE_EMAIL_VERIFICATION=1`; `=0` le coupe). Les comptes créés avant ont été marqués vérifiés.
 - Paiement de séance: `Payment.session_id` le rattache à une séance; sans séance, il couvre les plus anciennes séances effectuées encore dues.
