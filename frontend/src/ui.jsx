@@ -329,3 +329,15 @@ function ClockModal({ label, h, setH, pick, current, onClose }) {
     </Modal>
   );
 }
+
+// Même règle que le serveur (constants.compatible), en crans de demi-tranche (P250- → P250+ = 1 cran):
+// même sexe = un cran d'écart au plus; une joueuse et un homme = l'homme a 1 à 3 crans de moins qu'elle.
+const stepOf = (c) => { const i = CATEGORIES.indexOf(TIERS.includes(c) ? c + "-" : c); return i < 0 ? CATEGORIES.indexOf("P100-") : i; };
+export function compatible(a, b) {
+  const x = stepOf(a.category), y = stepOf(b.category);
+  if ((a.gender || "M") === (b.gender || "M")) return Math.abs(x - y) <= 1;
+  const [woman, man] = a.gender === "F" ? [x, y] : [y, x];
+  return woman - 3 <= man && man <= woman - 1;
+}
+// Paires de joueurs dont les niveaux ne sont pas censés se mélanger
+export const levelClashes = (ps) => ps.flatMap((a, i) => ps.slice(i + 1).filter((b) => !compatible(a, b)).map((b) => [a, b]));

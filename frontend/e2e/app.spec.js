@@ -258,3 +258,24 @@ test("un seul calendrier: créer une séance sur un terrain libre, le formulaire
   await page.getByRole("dialog").getByRole("button", { name: "Créer une séance sur ce terrain" }).click();
   await expect(page.getByText("C'est bon : un terrain est déjà réservé pour ce créneau")).toBeVisible();
 });
+
+test("nouvelle séance: joueurs choisis dans une liste avec leur niveau, avertissement si les niveaux ne vont pas ensemble", async ({ page }) => {
+  await login(page, "demo@padel.tn");
+  await page.goto("/#planning");
+  await page.locator(".fab").click(); // bouton flottant « + Séance »
+  const form = page.locator("form.card");
+  await form.getByRole("button", { name: "Groupe", exact: true }).click();
+  for (const who of ["Hichem", "Mehdi"]) { // P1000- et P100+: trop d'écart
+    await form.getByRole("button", { name: /Ajouter un joueur/ }).click();
+    await form.getByPlaceholder("Rechercher…").fill(who);
+    await form.locator(".picker-row", { hasText: who }).click();
+  }
+  await expect(form.locator(".picked")).toHaveCount(2);
+  await expect(form.locator(".picked .cat").first()).toBeVisible(); // niveau affiché
+  await expect(form.getByText(/ne sont pas censés se mélanger/)).toBeVisible();
+  await form.getByRole("button", { name: "Enregistrer la séance" }).click();
+  const dialog = page.getByRole("dialog", { name: "Niveaux à mélanger ?" });
+  await expect(dialog).toContainText("Êtes-vous sûr de vouloir créer la séance ?");
+  await dialog.getByRole("button", { name: "Créer quand même" }).click();
+  await expect(form).toHaveCount(0); // séance créée, formulaire fermé
+});

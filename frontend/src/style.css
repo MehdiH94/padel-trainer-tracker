@@ -614,3 +614,15 @@ nav .hint-pulse { color: var(--brand); }
 .bravo .bar { margin: 12px 0 6px; }
 .clockcell:not(.on):focus { background: var(--soft); color: var(--txt); outline: 2px solid var(--brand-ring); outline-offset: 1px; }
 .cal-block.sans_terrain, .cal-dot.sans_terrain, .cal-pill.sans_terrain { background: #7c3aed; }
+
+/* Choix des joueurs d'une séance */
+.picker { display: flex; flex-direction: column; gap: 6px; }
+.picked, .picker-row { display: flex; align-items: center; gap: 8px; width: 100%; }
+.picked { background: var(--soft); border-radius: 12px; padding: 6px 8px; }
+.picked-name { flex: 1; min-width: 0; text-align: left; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.picker-open { justify-content: flex-start; gap: 8px; width: 100%; }
+.picker-open > svg:last-child { margin-left: auto; }
+.picker-list { border: 1px solid var(--line); border-radius: 12px; padding: 8px; max-height: 300px; overflow-y: auto; }
+.picker-row { background: none; color: var(--txt); padding: 8px 6px; border-radius: 10px; justify-content: flex-start; }
+.picker-row.on { background: var(--brand-xl); }
+.picker-row:disabled { opacity: .4; }

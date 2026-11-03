@@ -1,7 +1,48 @@
 import { useEffect, useState } from "react";
 import { api, hhmm, tnd } from "./api.js";
 import Icon from "./Icon.jsx";
-import { CATEGORIES, catOption, KIND, DateSelect, TimeSelect } from "./ui.jsx";
+import { confirmDialog } from "./feedback.jsx";
+import { Avatar, CATEGORIES, CategoryBadge, catLabel, catOption, KIND, DateSelect, levelClashes, TimeSelect } from "./ui.jsx";
+
+// Choix des joueurs: liste déroulante avec recherche, niveau de chacun; les joueurs choisis restent affichés au-dessus
+function PlayerPicker({ players, chosen, max, onToggle }) {
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState("");
+  const picked = chosen.map((id) => players.find((p) => p.id === id)).filter(Boolean);
+  const list = players.filter((p) => p.name.toLowerCase().includes(q.toLowerCase()));
+  const full = chosen.length >= max;
+  return (
+    <div className="picker">
+      {picked.map((p) => (
+        <div className="picked" key={p.id}>
+          <Avatar name={p.name} size={28} /><span className="picked-name">{p.name}</span><CategoryBadge category={p.category} gender={p.gender} />
+          <button type="button" className="small sec iconbtn" aria-label={`Retirer ${p.name}`} onClick={() => onToggle(p.id)}><Icon name="x" size={14} /></button>
+        </div>
+      ))}
+      {!players.length ? <span className="mut">Ajoutez d'abord des joueurs.</span> : (!full || max === 1) && (
+        <button type="button" className="sec picker-open" aria-expanded={open} onClick={() => setOpen(!open)}>
+          <Icon name="userPlus" size={16} /> {max === 1 && picked.length ? "Changer de joueur" : "Ajouter un joueur"} <Icon name={open ? "chevD" : "chevR"} size={15} />
+        </button>
+      )}
+      {open && (
+        <div className="picker-list">
+          <div className="searchbox" style={{ margin: "0 0 6px" }}><Icon name="search" size={16} /><input autoFocus placeholder="Rechercher…" value={q} onChange={(e) => setQ(e.target.value)} /></div>
+          {list.map((p) => {
+            const on = chosen.includes(p.id);
+            return (
+              <button type="button" key={p.id} className={"picker-row" + (on ? " on" : "")} disabled={!on && full && max > 1}
+                onClick={() => { onToggle(p.id); setOpen(false); setQ(""); }}>
+                <Avatar name={p.name} size={26} /><span className="picked-name">{p.name}</span>
+                <CategoryBadge category={p.category} gender={p.gender} />{on && <Icon name="check" size={15} />}
+              </button>
+            );
+          })}
+          {!list.length && <div className="mut small-p">Aucun joueur trouvé.</div>}
+        </div>
+      )}
+    </div>
+  );
+}
 
 const DURATIONS = [45, 60, 90, 120];
 
@@ -57,8 +98,18 @@ export default function SessionForm({ players, onDone, initial }) {
     setF({ ...f, player_ids: [...f.player_ids, id] });
   }
 
+  // Le coach mélange les niveaux comme il veut, mais il est prévenu si la règle des niveaux n'est pas respectée
+  const chosenPlayers = f.player_ids.map((id) => players.find((p) => p.id === id)).filter(Boolean);
+  const clashes = levelClashes(chosenPlayers);
+  const clashText = clashes.map(([a, b]) => `${a.name.split(" ")[0]} (${catLabel(a.category)}${a.gender === "F" ? ", dame" : ""}) et ${b.name.split(" ")[0]} (${catLabel(b.category)}${b.gender === "F" ? ", dame" : ""})`).join(" ; ");
+
   async function submit(e) {
     e.preventDefault();
+    if (clashes.length && !(await confirmDialog({
+      title: "Niveaux à mélanger ?",
+      message: `Attention, ces joueurs ont des niveaux qui ne sont pas censés se mélanger : ${clashText}. Êtes-vous sûr de vouloir créer la séance ?`,
+      confirm: "Créer quand même", cancel: "Revoir les joueurs",
+    }))) return;
     try {
       await api("/sessions", {
         method: "POST",
@@ -132,16 +183,16 @@ export default function SessionForm({ players, onDone, initial }) {
         </>
       )}
 
-      <Field label={`Joueurs (${f.player_ids.length}/${max})`}>
-        <div className="chips">
-          {players.map((p) => {
-            const on = f.player_ids.includes(p.id);
-            const full = !on && max > 1 && f.player_ids.length >= max;
-            return <button type="button" key={p.id} className={"chip" + (on ? " on" : "")} disabled={full} onClick={() => togglePlayer(p.id)}>{p.name}</button>;
-          })}
-          {!players.length && <span className="mut">Ajoutez d'abord des joueurs.</span>}
+      {/* pas de <label> ici: il contient plusieurs boutons */}
+      <div className="field">
+        <span className="mut">Joueurs ({f.player_ids.length}/{max})</span>
+        <PlayerPicker players={players} chosen={f.player_ids} max={max} onToggle={togglePlayer} />
+      </div>
+      {clashes.length > 0 && (
+        <div className="note warn" style={{ margin: "-4px 0 10px" }}>
+          <Icon name="alert" size={14} /> Niveaux qui ne sont pas censés se mélanger : {clashText}. Vous pouvez quand même créer la séance.
         </div>
-      </Field>
+      )}
 
       {f.kind !== "individuel" && (
         <>
