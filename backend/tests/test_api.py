@@ -847,7 +847,12 @@ def test_durations_happy_hours_and_multiple_kinds(client):
     assert req["accepted_kinds"] == ["individuel", "groupe"] and req["kind"] == "individuel" and req["duration_min"] == 60 and req["price_millimes"] == 45000
     # en groupe uniquement: 90 min, prix du groupe avec la happy hour
     p2, pc2 = player_client(client, name="Gaby", phone="20444555")
-    later = [x for x in slots if datetime.fromisoformat(x["start"].replace("Z", "+00:00")) >= datetime.fromisoformat(morning["start"].replace("Z", "+00:00")) + timedelta(hours=1)]
+    # le 1er créneau (9 h, seul ou en groupe) peut devenir un groupe de 90 min: il retient 9 h-10 h 30, 10 h n'est plus proposé
+    t0 = datetime.fromisoformat(morning["start"].replace("Z", "+00:00"))
+    at10 = (t0 + timedelta(hours=1)).isoformat()
+    assert pc2.post("/me/book", json={"kind": "groupe", "start": at10, "kinds": ["groupe"]}).status_code == 409
+    later = [x for x in pc2.get(f"/me/offers?day={day}&kinds=groupe").json()["slots_other"] if datetime.fromisoformat(x["start"].replace("Z", "+00:00")) > t0]
+    assert datetime.fromisoformat(later[0]["start"].replace("Z", "+00:00")) == t0 + timedelta(minutes=90)  # juste après, sans trou
     r2 = pc2.post("/me/book", json={"kind": "groupe", "start": next(x for x in later if any(o["kind"] == "groupe" and o["reason"] == "happy_hour" for o in x["options"]))["start"], "kinds": ["groupe"]}).json()
     req2 = next(x for x in client.get("/booking/requests").json() if x["id"] == r2["id"])
     assert (req2["kind"], req2["duration_min"], req2["price_millimes"]) == ("groupe", 90, 22500)
@@ -1648,3 +1653,23 @@ def test_public_signup_without_coach_then_books_a_coach(client, monkeypatch):
     assert [p["name"] for p in client.get("/players").json()] == ["Nadia Ben Salem"]
     me = pc.get("/me").json()
     assert me["coach_name"] == "Coach Test" and len(me["wallets"]) == 1
+
+
+def test_slots_never_overlap_and_leave_no_unusable_gap(client):
+    """Terrain 8 h-12 h, séances de 60 et 90 min: une séance ouverte à 8 h (pouvant durer 90 min) bloque jusqu'à 9 h 30;
+    les débuts proposés ne laissent jamais de trou de moins d'une séance (ex. pas de début à 8 h 30)."""
+    st = client.get("/booking/settings").json()
+    client.put("/booking/settings", json={**st, "auto_confirm": False, "slot_minutes": 60, "duration_duo": 60, "duration_groupe": 90,
+                                          "price_individuel": 60000, "price_duo": 40000, "price_groupe": 30000, "booking_mode": "terrains"})
+    day = (datetime.now(timezone.utc) + timedelta(days=4)).date()
+    eight = datetime(day.year, day.month, day.day, 7, 0, tzinfo=timezone.utc)  # 8 h à Tunis
+    free_court(client, eight.isoformat(), minutes=240)
+    p, pc = player_client(client)
+    hhmm = lambda xs: sorted({(datetime.fromisoformat(x["start"].replace("Z", "+00:00")) + timedelta(hours=1)).strftime("%H:%M") for x in xs})  # noqa: E731
+    first = pc.get(f"/me/offers?day={day}&kinds=individuel").json()["slots_with_court"]
+    # 8 h 30 laisserait 30 min inutilisables avant, 10 h 30 après: jamais proposés; 9 h 30 laisse 90 min (un groupe) avant
+    assert hhmm(first) == ["08:00", "09:00", "09:30", "10:00", "11:00"]
+    r = pc.post("/me/book", json={"kind": "groupe", "start": eight.isoformat(), "kinds": ["individuel", "groupe"]})
+    assert r.status_code == 201
+    after = pc.get(f"/me/offers?day={day}&kinds=individuel,duo,groupe").json()["slots_with_court"]
+    assert hhmm(after)[0] == "09:30" and "09:00" not in hhmm(after)

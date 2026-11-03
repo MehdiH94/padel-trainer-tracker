@@ -161,3 +161,33 @@ test("inscription par le lien public: compte sans coach, qui choisit ensuite son
   await expect(admin.locator(".card", { hasText: "Yasmine Public" }).getByText(/Sans coach/)).toBeVisible();
   await admin.close();
 });
+
+test("nouveau coach: le guide « Bien démarrer » mène à chaque réglage et se coche tout seul", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "Vous êtes coach ? Créer un compte" }).click();
+  await page.getByLabel("Votre nom de coach").fill("Coach Nouveau");
+  await page.locator("input[type=email]").fill("nouveau.coach@demo.tn");
+  await page.locator("input[type=password]").fill("secret1");
+  await page.getByRole("button", { name: "Créer mon compte coach" }).click();
+  const guide = page.locator(".onboard");
+  await expect(guide).toContainText("Bienvenue Coach ! Configurons votre espace");
+  await expect(guide).toContainText("0/6");
+  await guide.getByRole("button", { name: /Mon profil/ }).click();
+  await expect(page.locator("#profil")).toBeInViewport();
+  await page.getByLabel("Présentation").fill("Coach diplômé, tous niveaux.");
+  await page.getByLabel("Prix Individuel").fill("60");
+  await page.getByRole("button", { name: /Enregistrer/ }).click();
+  await page.getByRole("button", { name: "Accueil" }).click();
+  await expect(page.locator(".onboard")).toContainText("2/6"); // profil et formules cochés
+  await expect(page.locator(".onboard .step.next")).toContainText("Mes clubs");
+});
+
+test("réserver: choisir une heure précise remplace la période (matin, soir…)", async ({ page }) => {
+  await login(page, "sami@demo.tn");
+  await page.getByRole("button", { name: "Réserver", exact: true }).click();
+  await page.getByRole("button", { name: "Soir" }).click();
+  await page.getByLabel("Heure idéale (facultatif)").selectOption("10");
+  await expect(page.getByRole("button", { name: "Soir" })).toHaveCount(0); // la période n'est plus proposée
+  await page.getByLabel("Heure idéale (facultatif)").selectOption("");
+  await expect(page.getByRole("button", { name: "Toute la journée" })).toBeVisible();
+});

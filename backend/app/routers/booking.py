@@ -50,6 +50,7 @@ class Settings(BaseModel):
     duration_duo: int | None = None  # durée par formule (None = comme la séance individuelle)
     duration_groupe: int | None = None
     happy_hours: list[HappyIn] | None = None  # None = inchangé
+    name: str | None = None  # nom affiché aux joueurs (None = inchangé)
     bio: str | None = None  # page publique du coach (None = inchangé)
     specialties: list[str] | None = None
 
@@ -64,6 +65,11 @@ def settings_out(db: Session, coach: Coach) -> dict:
         "duration_duo": duration_for(coach, "duo"), "duration_groupe": duration_for(coach, "groupe"), "booking_mode": coach.booking_mode,
         "happy_hours": [{"weekday": h.weekday, "start_time": h.start_time, "end_time": h.end_time, "discount_pct": h.discount_pct}
                         for h in db.scalars(select(HappyHour).where(HappyHour.coach_id == coach.id).order_by(HappyHour.weekday, HappyHour.start_time))],
+        # pour le guide « Bien démarrer » de l'accueil
+        "clubs_count": db.scalar(select(func.count(Club.id)).where(Club.coach_id == coach.id, Club.active.is_(True), Club.removed.is_(False))),
+        "free_courts": db.scalar(select(func.count(CourtBooking.id)).where(
+            CourtBooking.coach_id == coach.id, CourtBooking.session_id.is_(None), CourtBooking.status == "confirmee",
+            CourtBooking.start >= datetime.now(timezone.utc))),
     }
 
 
@@ -95,6 +101,10 @@ def put_settings(body: Settings, coach: Coach = Depends(current_coach), db: Sess
         db.add_all(HappyHour(coach_id=coach.id, **h.model_dump()) for h in body.happy_hours)
     coach.auto_confirm, coach.slot_minutes, coach.cancel_hours = body.auto_confirm, body.slot_minutes, body.cancel_hours
     coach.price_individuel, coach.price_duo, coach.price_groupe = prices
+    if body.name is not None:
+        if not body.name.strip():
+            raise HTTPException(422, "Nom : ce champ est obligatoire.")
+        coach.name = body.name.strip()[:120]
     if body.bio is not None:
         coach.bio = body.bio.strip()[:2000]
     if body.specialties is not None:

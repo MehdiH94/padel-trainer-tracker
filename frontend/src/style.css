@@ -571,3 +571,11 @@ small.err { display: block; margin: 4px 0 0; font-size: .8rem; }
 .admin-bar span { flex: 1; min-width: 0; }
 .admin-bar button { background: var(--card); color: var(--warn-txt); min-height: 0; padding: 4px 10px; }
 .admin-bar ~ .topbtns { top: 64px; } /* sous le bandeau administrateur */
+
+/* Guide « Bien démarrer » du coach */
+.onboard .steptxt { display: flex; flex-direction: column; text-align: left; flex: 1; min-width: 0; }
+.onboard .steptxt small { font-weight: 500; color: var(--mut); font-size: .8rem; margin-top: 2px; }
+.onboard .step.next { background: var(--brand-xl); border-radius: 10px; padding-left: 8px; padding-right: 8px; }
+.onboard .step.next .stepnum { background: var(--brand); color: var(--on-brand); }
+.focus-step { scroll-margin-top: 70px; animation: focusstep 2.4s ease; border-radius: 8px; }
+@keyframes focusstep { 0%, 60% { background: var(--brand-l); box-shadow: 0 0 0 6px var(--brand-l); } 100% { background: transparent; box-shadow: none; } }

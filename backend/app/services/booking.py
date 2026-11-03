@@ -64,27 +64,57 @@ def join_price(coach: Coach, s: TrainingSession, target: int) -> int:
 
 # --- Créneaux libres ----------------------------------------------------
 
+def _longest(coach: Coach, kinds: list[str], default: int) -> int:
+    """Durée la plus longue parmi les formules encore possibles: c'est elle qui est retenue sur le planning
+    (une séance ouverte « seul ou en groupe » peut devenir un groupe de 90 min: personne ne doit commencer à 9 h)."""
+    return max([duration_for(coach, k) for k in kinds] + [default])
+
+
 def _busy(db: Session, coach: Coach) -> list[tuple[datetime, datetime]]:
-    busy = [(aware(s.start), aware(s.start) + timedelta(minutes=s.duration_min))
-            for s in db.scalars(select(TrainingSession).where(TrainingSession.coach_id == coach.id, TrainingSession.status != "annulee"))]
-    # demandes de nouvelle séance pas encore traitées: le créneau est retenu
-    busy += [(aware(b.start), aware(b.start) + timedelta(minutes=b.duration_min))
-             for b in db.scalars(select(Booking).where(Booking.coach_id == coach.id, Booking.status == "en_attente", Booking.session_id.is_(None)))]
+    """Périodes déjà prises chez ce coach: séances (toute la durée qu'elles peuvent encore atteindre) et demandes
+    de nouvelles séances pas encore traitées."""
+    busy = []
+    for s in db.scalars(select(TrainingSession).where(TrainingSession.coach_id == coach.id, TrainingSession.status != "annulee")):
+        minutes = s.duration_min
+        if s.status == "prevue" and groups.is_dynamic(s):
+            minutes = _longest(coach, [groups.kind_for_size(n) for n in groups.allowed(s)], s.duration_min)
+        busy.append((aware(s.start), aware(s.start) + timedelta(minutes=minutes)))
+    for b in db.scalars(select(Booking).where(Booking.coach_id == coach.id, Booking.status == "en_attente", Booking.session_id.is_(None))):
+        minutes = _longest(coach, groups.split(b.accepted_kinds), b.duration_min)
+        busy.append((aware(b.start), aware(b.start) + timedelta(minutes=minutes)))
     return busy
+
+
+def _fits(cur: datetime, length: timedelta, lo: datetime, hi: datetime, busy, shortest: timedelta) -> bool:
+    """Le créneau [cur, cur+length] tient dans [lo, hi] sans chevaucher une séance, et ne laisse pas de « trou » inutilisable:
+    avant comme après, soit il touche la séance voisine (ou le bord du terrain / de la disponibilité), soit il reste
+    au moins la durée de la plus courte séance."""
+    end = cur + length
+    if cur < lo or end > hi or any(cur < b_end and end > b_start for b_start, b_end in busy):
+        return False
+    before = max([lo] + [b_end for _, b_end in busy if lo <= b_end <= cur])
+    after = min([hi] + [b_start for b_start, _ in busy if end <= b_start <= hi])
+    return all(gap == timedelta(0) or gap >= shortest for gap in (cur - before, after - end))
+
+
+def _grid(coach: Coach) -> tuple[timedelta, timedelta]:
+    durations = [duration_for(coach, k) for k in CAPACITY]
+    return timedelta(minutes=gcd(*durations)), timedelta(minutes=min(durations))
 
 
 def _free_on_courts(db: Session, coach: Coach, now: datetime, earliest: datetime, minutes: int | None) -> list[datetime]:
     """Mode « terrains »: créneaux qui tiennent entièrement dans un terrain réservé encore libre (et le coach libre)."""
     busy = _busy(db, coach)
-    step = timedelta(minutes=gcd(*[duration_for(coach, k) for k in CAPACITY]))
+    step, shortest = _grid(coach)
     length = timedelta(minutes=minutes or coach.slot_minutes)
     horizon = now + timedelta(days=HORIZON_DAYS + 1)
     out = set()
     for cb in db.scalars(select(CourtBooking).where(CourtBooking.coach_id == coach.id, CourtBooking.session_id.is_(None),
                                                    CourtBooking.status == "confirmee", CourtBooking.start.is_not(None))):
-        cur, end = aware(cb.start), aware(cb.start) + timedelta(minutes=cb.duration_min)
-        while cur + length <= end and cur < horizon:
-            if cur >= earliest and not any(cur < b_end and cur + length > b_start for b_start, b_end in busy):
+        lo, hi = aware(cb.start), aware(cb.start) + timedelta(minutes=cb.duration_min)
+        cur = lo
+        while cur + length <= hi and cur < horizon:
+            if cur >= earliest and _fits(cur, length, lo, hi, busy, shortest):
                 out.add(cur)
             cur += step
     return sorted(out)
@@ -92,32 +122,26 @@ def _free_on_courts(db: Session, coach: Coach, now: datetime, earliest: datetime
 
 def free_slots(db: Session, coach: Coach, now: datetime | None = None, minutes: int | None = None) -> list[datetime]:
     """Créneaux libres (UTC), triés, sur les HORIZON_DAYS prochains jours, pour une séance de `minutes` (défaut: individuelle).
-    Les débuts possibles suivent une grille commune à toutes les formules (ex. 60 et 90 min -> toutes les 30 min)."""
+    Les débuts possibles suivent une grille commune à toutes les formules (ex. 60 et 90 min -> toutes les 30 min),
+    sans chevaucher une séance déjà ouverte et sans laisser de trou trop court entre deux séances."""
     now = now or datetime.now(timezone.utc)
     earliest = now + timedelta(hours=MIN_NOTICE_H)
-    windows = db.scalars(select(Availability).where(Availability.coach_id == coach.id)).all()
     if coach.booking_mode != "disponibilites":
         return _free_on_courts(db, coach, now, earliest, minutes)
-
-    busy: list[tuple[datetime, datetime]] = []
-    for s in db.scalars(select(TrainingSession).where(TrainingSession.coach_id == coach.id, TrainingSession.status != "annulee")):
-        busy.append((aware(s.start), aware(s.start) + timedelta(minutes=s.duration_min)))
-    # demandes de nouvelle séance pas encore traitées: le créneau est retenu
-    for b in db.scalars(select(Booking).where(Booking.coach_id == coach.id, Booking.status == "en_attente", Booking.session_id.is_(None))):
-        busy.append((aware(b.start), aware(b.start) + timedelta(minutes=b.duration_min)))
-
-    durations = [duration_for(coach, k) for k in CAPACITY]
-    step = timedelta(minutes=gcd(*durations))
+    windows = db.scalars(select(Availability).where(Availability.coach_id == coach.id)).all()
+    busy = _busy(db, coach)
+    step, shortest = _grid(coach)
     length = timedelta(minutes=minutes or coach.slot_minutes)
     out = []
     today = now.astimezone(TUNIS).date()
     for off in range(HORIZON_DAYS + 1):
         day = today + timedelta(days=off)
         for w in (w for w in windows if w.weekday == day.weekday()):
-            cur = datetime.combine(day, time.fromisoformat(w.start_time), TUNIS).astimezone(timezone.utc)
-            end = datetime.combine(day, time.fromisoformat(w.end_time), TUNIS).astimezone(timezone.utc)
-            while cur + length <= end:
-                if cur >= earliest and not any(cur < b_end and cur + length > b_start for b_start, b_end in busy):
+            lo = datetime.combine(day, time.fromisoformat(w.start_time), TUNIS).astimezone(timezone.utc)
+            hi = datetime.combine(day, time.fromisoformat(w.end_time), TUNIS).astimezone(timezone.utc)
+            cur = lo
+            while cur + length <= hi:
+                if cur >= earliest and _fits(cur, length, lo, hi, busy, shortest):
                     out.append(cur)
                 cur += step
     return sorted(set(out))

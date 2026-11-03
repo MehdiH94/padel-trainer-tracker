@@ -116,7 +116,7 @@ export function Book({ me, reload, go, coachParam }) {
   const [coachId, setCoachId] = useState(coachParam ? +coachParam : k0.coachId ?? "");
   const [club, setClub] = useState(k0.club ?? "");
   const [day, setDay] = useState(k0.day && k0.day >= ymd(new Date()) ? k0.day : null);
-  const [period, setPeriod] = useState(k0.period ?? "");
+  const [period, setPeriod] = useState(k0.hour ? "" : k0.period ?? ""); // heure précise choisie: pas de période en plus
   const [hour, setHour] = useState(k0.hour ?? "");
   const [kinds, setKinds] = useState(k0.kinds ?? me.pref_kinds);
   const toggleKind = (k) => setKinds(kinds.includes(k) ? (kinds.length > 1 ? kinds.filter((x) => x !== k) : kinds) : ["individuel", "duo", "groupe"].filter((x) => x === k || kinds.includes(x)));
@@ -195,8 +195,9 @@ export function Book({ me, reload, go, coachParam }) {
         })}
       </div>
       <div className="chips" style={{ marginBottom: 8 }}>
-        {PERIODS.map(([k, l]) => <button key={k} className={"chip small" + (period === k ? " on" : "")} onClick={() => setPeriod(k)}>{l}</button>)}
-        <select className="hoursel" aria-label="Heure idéale (facultatif)" value={hour} onChange={(e) => setHour(e.target.value)}>
+        {/* Une heure précise remplace la période (matin, soir…): les deux ne se combinent pas */}
+        {hour === "" && PERIODS.map(([k, l]) => <button key={k} className={"chip small" + (period === k ? " on" : "")} onClick={() => setPeriod(k)}>{l}</button>)}
+        <select className="hoursel" aria-label="Heure idéale (facultatif)" value={hour} onChange={(e) => { setHour(e.target.value); if (e.target.value !== "") setPeriod(""); }}>
           <option value="">Heure : peu importe</option>
           {Array.from({ length: 15 }, (_, i) => i + 8).map((h) => <option key={h} value={h}>Vers {h} h</option>)}
         </select>
