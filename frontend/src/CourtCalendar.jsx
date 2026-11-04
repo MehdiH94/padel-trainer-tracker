@@ -46,7 +46,7 @@ function Details({ cb, session, promo, cardProps, onClose, onRemove, onStopPromo
   return (
     <Modal onClose={onClose} label={session ? "Séance" : "Terrain"}>
       <div className="row"><span className={"cal-pill " + cb.state}>{st?.short}</span><button className="small sec iconbtn" aria-label="Fermer" onClick={onClose}><Icon name="x" size={15} /></button></div>
-      <b className="sheet-title" style={{ marginTop: 8 }}><span style={{ textTransform: "capitalize" }}>{dayLabel(cb.start)}</span> · {h24(cb.start)} – {h24(end)}</b>
+      <b className="sheet-title" style={{ marginTop: 8 }}><span className="cap1">{dayLabel(cb.start)}</span> · {h24(cb.start)} – {h24(end)}</b>
       {cb.club_name && <div className="mut">{cb.club_name}{cb.court_label && ` · ${cb.court_label}`}{cb.series_id && <> · <Icon name="repeat" size={12} /> régulier</>}</div>}
       <p className="small-p">{st?.label}.</p>
       {cb.state === "sans_terrain" && <p className="small-p warn-txt">Pensez à réserver un terrain pour cette séance : ajoutez-le avec « + Terrain » (il sera utilisé automatiquement s'il couvre l'horaire) ou demandez-le au club.</p>}
@@ -132,7 +132,7 @@ export default function CourtCalendar({ list, promos = [], sessions = [], offs =
     <>
       {!weekStart && !day && (
         <div className="row" style={{ margin: "6px 0" }}>
-          <b style={{ textTransform: "capitalize" }}>{month}</b>
+          <b className="cap1">{month}</b>
           <div className="row" style={{ gap: 4 }}>
             <button className="small sec iconbtn" aria-label="Semaine précédente" onClick={() => setMonday(addDays(monday, -7))}><Icon name="chevL" size={16} /></button>
             <button className="small sec" onClick={() => setMonday(mondayOf(new Date()))}>Cette semaine</button>
@@ -145,7 +145,7 @@ export default function CourtCalendar({ list, promos = [], sessions = [], offs =
           <button className="small sec" onClick={() => setDay(null)}><Icon name="chevL" size={15} /> Semaine</button>
           <div className="row" style={{ gap: 4 }}>
             <button className="small sec iconbtn" aria-label="Jour précédent" onClick={() => moveDay(-1)}><Icon name="chevL" size={16} /></button>
-            <b style={{ textTransform: "capitalize" }}>{dayDate.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", timeZone: "UTC" })}</b>
+            <b className="cap1">{dayDate.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", timeZone: "UTC" })}</b>
             <button className="small sec iconbtn" aria-label="Jour suivant" disabled={!!lastDay && day >= lastDay} onClick={() => moveDay(1)}><Icon name="chevR" size={16} /></button>
           </div>
         </div>

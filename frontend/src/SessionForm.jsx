@@ -46,12 +46,15 @@ function PlayerPicker({ players, chosen, max, onToggle }) {
 
 const DURATIONS = [45, 60, 90, 120];
 
-function Field({ label, children }) {
+// Champ: un <label> pour un seul contrôle (menu, saisie); « group » pour une rangée de boutons
+// (un <label> activerait son premier bouton quand on touche l'intitulé)
+function Field({ label, children, group }) {
+  const Tag = group ? "div" : "label";
   return (
-    <label className="field">
+    <Tag className="field" {...(group && { role: "group", "aria-label": label })}>
       <span className="mut">{label}</span>
       {children}
-    </label>
+    </Tag>
   );
 }
 
@@ -136,7 +139,7 @@ export default function SessionForm({ players, onDone, initial }) {
     <form className="card" onSubmit={submit}>
       <h3 style={{ margin: "0 0 10px" }}>Nouvelle séance</h3>
 
-      <Field label="Type de séance">
+      <Field label="Type de séance" group>
         <div className="seg">
           {Object.entries(KIND).map(([k, v]) => (
             <button type="button" key={k} className={f.kind === k ? "on" : ""} onClick={() => setKind(k)}>{v.label}</button>
@@ -149,7 +152,7 @@ export default function SessionForm({ players, onDone, initial }) {
         <Field label="Heure de début"><TimeSelect label="Heure de début" value={f.time} onChange={(v) => setF({ ...f, time: v })} /></Field>
       </div>
 
-      <Field label="Durée">
+      <Field label="Durée" group>
         <div className="seg">
           {DURATIONS.map((d) => (
             <button type="button" key={d} className={f.duration_min === d ? "on" : ""} onClick={() => setF({ ...f, duration_min: d })}>

@@ -134,6 +134,17 @@ for n, credit in accounts.items():
     inv = c.post(f"/players/{ids[n]}/invite").json()["token"]
     tok = httpx.post(f"{API}/auth/invite/{inv}", json={"email": f"{n.split()[0].lower()}@demo.tn", "password": "demo1234"}).json()["token"]
     pcs[n] = httpx.Client(base_url=API, headers={"Authorization": "Bearer " + tok})
+    if not pcs[n].get("/me").json().get("can_book", True):
+        # vérification d'e-mail exigée (SMTP_HOST ou REQUIRE_EMAIL_VERIFICATION=1): les comptes de démo sont
+        # marqués vérifiés directement en base (même DATABASE_URL que le serveur), sinon ils ne pourraient pas réserver
+        from app.db import SessionLocal
+        from app.models import Player
+        with SessionLocal() as db:
+            acc = db.query(Player).filter_by(email=f"{n.split()[0].lower()}@demo.tn").one()
+            acc.email_verified_at, acc.email_token = datetime.now(timezone.utc), None
+            db.commit()
+        if not pcs[n].get("/me").json().get("can_book", True):
+            raise SystemExit("Les joueurs de démo ne peuvent pas réserver : lancez le seed avec le même DATABASE_URL que le serveur.")
     if credit:
         c.post(f"/players/{ids[n]}/credits", json={"amount_millimes": credit, "method": random.choice(["especes", "virement"])})
 
@@ -175,12 +186,16 @@ sug = pcs["Mehdi Bouazizi"].get("/me/suggestions", params={"kinds": "duo,groupe"
 if sug:
     pcs["Mehdi Bouazizi"].post("/me/book", json={"session_id": sug[0]["session_id"]})
 # 4) Rania demande un créneau; le coach accepte en attendant le terrain (SMS au club)
-r4 = pcs["Rania Hammami"].post("/me/book", json={"kind": "individuel", "start": pick(1, "10")}).json()
-c.post(f"/booking/requests/{r4['id']}/accept", json={"club_id": clubs[2]["id"]})
+r4 = pcs["Rania Hammami"].post("/me/book", json={"kind": "individuel", "start": pick(1, "10")})
+if r4.status_code == 201:  # sinon (créneau pris…): la démo continue sans cette demande
+    c.post(f"/booking/requests/{r4.json()['id']}/accept", json={"club_id": clubs[2]["id"]})
+else:
+    print("Demande de Rania non créée :", r4.json().get("detail"))
 # 5) Une réservation confirmée avec un terrain libre, pas encore communiquée au joueur
 if len(usable) > 1:
-    r5 = pcs["Mehdi Bouazizi"].post("/me/book", json={"kind": "individuel", "start": usable[1]["start"]}).json()
-    c.post(f"/booking/requests/{r5['id']}/accept", json={"court_booking_id": usable[1]["id"]})
+    r5 = pcs["Mehdi Bouazizi"].post("/me/book", json={"kind": "individuel", "start": usable[1]["start"]})
+    if r5.status_code == 201 and r5.json().get("status") == "en_attente":
+        c.post(f"/booking/requests/{r5.json()['id']}/accept", json={"court_booking_id": usable[1]["id"]})
 
 # Le coach propose une séance à Karim (il peut accepter ou refuser depuis son application)
 groups = c.get("/groups").json()

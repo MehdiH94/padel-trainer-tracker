@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -16,6 +17,11 @@ from .services import booking as booking_svc
 from .services import courts, finance, planner, session_reminders
 from .models import Coach, Player
 from .sms import get_sms_provider
+
+# Journal de l'application (e-mails non envoyés sans SMTP, envois ratés…) visible dans la sortie du serveur.
+# Niveau réglable par LOG_LEVEL (INFO par défaut); sans handler, Python ne montrait que les avertissements.
+if not logging.getLogger().handlers:
+    logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO").upper(), format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
 Base.metadata.create_all(engine)
 

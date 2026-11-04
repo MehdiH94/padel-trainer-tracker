@@ -307,6 +307,12 @@ test("nouvelle séance: joueurs choisis dans une liste avec leur niveau, avertis
   await page.locator(".fab").click(); // bouton flottant « + Séance »
   const form = page.locator("form.card");
   await form.getByRole("button", { name: "Groupe", exact: true }).click();
+  // toucher l'intitulé « Type de séance » ne remet plus Individuel (ticket n°13)
+  await form.getByText("Type de séance", { exact: true }).click();
+  await expect(form.getByRole("group", { name: "Type de séance" }).getByRole("button", { name: "Groupe" })).toHaveClass(/on/);
+  // date libre (dans 40 jours, 7 h): le coach ne peut pas avoir deux séances en même temps
+  await form.getByLabel("Date", { exact: true }).selectOption({ index: 100 });
+  await form.getByLabel("Heure de début").selectOption("07:00");
   for (const who of ["Hichem", "Mehdi"]) { // P1000- et P100+: trop d'écart
     await form.getByRole("button", { name: /Ajouter un joueur/ }).click();
     await form.getByPlaceholder("Rechercher…").fill(who);
@@ -355,4 +361,20 @@ test("terrain libre: prévenir ses joueurs avec une happy hour; absence du coach
   await page.getByRole("button", { name: "Supprimer cette absence" }).click();
   await page.getByRole("dialog").getByRole("button", { name: "Supprimer" }).click();
   await expect(page.locator(".cal-off")).toHaveCount(0);
+});
+
+test("installation sur l'écran d'accueil: manifeste avec icônes 192 et 512 (dont maskable) et icône iPhone", async ({ page, request }) => {
+  const m = await (await request.get("/manifest.webmanifest")).json();
+  const sizes = m.icons.map((i) => i.sizes);
+  expect(sizes).toContain("192x192");
+  expect(sizes).toContain("512x512");
+  expect(m.icons.some((i) => i.purpose === "maskable")).toBeTruthy();
+  for (const i of m.icons) {
+    const r = await request.get(i.src);
+    expect(r.ok()).toBeTruthy();
+    expect(r.headers()["content-type"]).toContain("image/png");
+  }
+  await page.goto("/");
+  const apple = await page.locator('link[rel="apple-touch-icon"]').getAttribute("href");
+  expect((await request.get(apple)).ok()).toBeTruthy();
 });

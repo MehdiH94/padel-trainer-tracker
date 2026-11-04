@@ -64,7 +64,7 @@ export default function SessionPlan({ sub, go, onBack }) {
       <button className="small sec" onClick={onBack}><Icon name="chevL" size={15} /> Retour</button>
       <h1 style={{ marginTop: 10 }}>Préparer la séance</h1>
       <p className="mut" style={{ marginTop: -6 }}>
-        <span style={{ textTransform: "capitalize" }}>{dayLabel(s.start)}</span> · {hhmm(s.start)} · {s.duration_min} min · {KIND[s.kind].label}{s.club && ` · ${s.club}`}
+        <span className="cap1">{dayLabel(s.start)}</span> · {hhmm(s.start)} · {s.duration_min} min · {KIND[s.kind].label}{s.club && ` · ${s.club}`}
       </p>
 
       <h2>Points faibles des joueurs</h2>

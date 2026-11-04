@@ -19,6 +19,7 @@ from ..services import groups, isolation
 from ..services import finance
 from ..services.finance import session_payments, share
 from ..services.pricing import base_price
+from ..services.common import aware, quand
 from ..sms import get_sms_provider
 from ..sms.base import SmsProvider
 from .players import get_owned_player
@@ -104,6 +105,16 @@ def create_sessions(
         data["price_mode"] = "par_joueur"
     if club:
         data["club"] = club.name
+    # Le coach ne peut pas être à deux séances en même temps (ni un joueur)
+    taken = [x for x in db.scalars(select(TrainingSession).where(TrainingSession.coach_id == coach.id, TrainingSession.status != "annulee"))]
+    for i in range(body.repeat_weeks):
+        start = aware(body.start) + timedelta(weeks=i)
+        end = start + timedelta(minutes=body.duration_min)
+        clash = next((x for x in taken if aware(x.start) < end and start < aware(x.start) + timedelta(minutes=x.duration_min)), None)
+        if clash:
+            who = [db.get(Player, a.player_id).name for a in clash.attendances]
+            raise HTTPException(409, f"Vous avez déjà une séance à ce moment-là ({quand(clash.start, clash.duration_min)}"
+                                     f"{', avec ' + ', '.join(who) if who else ''}). Choisissez une autre heure.")
     created = []
     for i in range(body.repeat_weeks):
         s = TrainingSession(

@@ -147,7 +147,7 @@ export function Book({ me, reload, go, coachParam }) {
       <div className="card empty success">
         <div className={"bigcheck " + (confirmed ? "ok" : "wait")}><Icon name={confirmed ? "checkCircle" : "clock"} size={44} strokeWidth={1.6} /></div>
         <h1>{confirmed ? "Séance réservée !" : "Demande envoyée"}</h1>
-        <b style={{ textTransform: "capitalize" }}>{dayLabel(done.start)} à {hhmm(done.start)}</b>
+        <b className="cap1">{dayLabel(done.start)} à {hhmm(done.start)}</b>
         <p className="mut">
           {confirmed ? `${done.coach_name} vous attend.` : `${done.coach_name} doit valider votre demande et confirmer le terrain.`}{" "}
           {done.charged_millimes ? `${tnd(done.charged_millimes)} débités de vos crédits.` : `${tnd(done.price_millimes)} seront débités de vos crédits à la validation.`}

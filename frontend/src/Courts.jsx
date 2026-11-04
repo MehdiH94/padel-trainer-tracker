@@ -130,7 +130,7 @@ function CourtCard({ cb, reload }) {
     <div className="card">
       <div className="row">
         <div>
-          <b style={{ textTransform: "capitalize" }}>{dayLabel(cb.start)} · {hhmm(cb.start)}–{endTime(cb)}</b>
+          <b className="cap1">{dayLabel(cb.start)} · {hhmm(cb.start)}–{endTime(cb)}</b>
           <div className="mut">{cb.club_name}{cb.court_label && ` · ${cb.court_label}`} · {cb.players.join(", ") || "sans joueur"}</div>
         </div>
         <span className={"court-badge " + st.cls}>{manual ? "Réservé à la main" : st.label}</span>
@@ -184,7 +184,7 @@ export function PromoForm({ cb, onClose, onDone }) {
   return (
     <Modal onClose={onClose} label="Proposer une promotion">
       <b className="sheet-title">Proposer une promotion</b>
-      <p className="mut" style={{ textTransform: "capitalize" }}>{dayLabel(cb.start)} · {hhmm(cb.start)}–{endTime(cb)} · {cb.club_name}</p>
+      <p className="mut cap1">{dayLabel(cb.start)} · {hhmm(cb.start)}–{endTime(cb)} · {cb.club_name}</p>
       <div className="field"><span className="mut">Remise sur le prix par joueur</span>
         <div className="chips">{[10, 15, 20, 30, 40, 50].map((v) => <button key={v} type="button" className={"chip" + (pct === v ? " on" : "")} aria-pressed={pct === v} onClick={() => setPct(v)}>−{v} %</button>)}</div>
       </div>
@@ -249,7 +249,7 @@ function FreeCard({ cb, promo, onRemove, onPromo, onStopPromo }) {
     <div className="card">
       <div className="row">
         <div>
-          <b style={{ textTransform: "capitalize" }}>{dayLabel(cb.start)} · {h24(cb.start)} – {h24(new Date(toDate(cb.start).getTime() + cb.duration_min * 60000).toISOString())}</b>
+          <b className="cap1">{dayLabel(cb.start)} · {h24(cb.start)} – {h24(new Date(toDate(cb.start).getTime() + cb.duration_min * 60000).toISOString())}</b>
           <div className="mut">{cb.club_name}{cb.court_label && ` · ${cb.court_label}`}{cb.series_id && <> · <Icon name="repeat" size={12} /> régulier</>}</div>
         </div>
         <button className="small sec iconbtn" title="Supprimer" aria-label="Supprimer" onClick={() => onRemove(cb)}><Icon name="trash" size={15} /></button>
@@ -270,7 +270,7 @@ function SeriesCard({ g, promos, onRemove, onRemoveSeries, onPromo, onStopPromo 
         <div>
           <b><Icon name="repeat" size={15} /> {frequency(g.items)} · {h24(first.start)} – {h24(end)}</b>
           <div className="mut">{first.club_name}{first.court_label && ` · ${first.court_label}`}</div>
-          <div className="mut small-p">Jusqu'au {longDate(last.start)} · {g.items.length} créneau{g.items.length > 1 ? "x" : ""} libre{g.items.length > 1 ? "s" : ""} · prochain : <span style={{ textTransform: "capitalize" }}>{dayLabel(first.start)}</span></div>
+          <div className="mut small-p">Jusqu'au {longDate(last.start)} · {g.items.length} créneau{g.items.length > 1 ? "x" : ""} libre{g.items.length > 1 ? "s" : ""} · prochain : <span className="cap1">{dayLabel(first.start)}</span></div>
         </div>
       </div>
       <div className="actions">
@@ -283,7 +283,7 @@ function SeriesCard({ g, promos, onRemove, onRemoveSeries, onPromo, onStopPromo 
             const promo = promos.find((p) => p.court_booking_id === cb.id && p.active);
             return (
               <div key={cb.id} className="series-row">
-                <span style={{ textTransform: "capitalize", flex: 1 }}>{dayLabel(cb.start)}{promo && <span className="promo-tag" style={{ marginLeft: 6 }}>−{promo.discount_pct} %</span>}</span>
+                <span className="cap1" style={{ flex: 1 }}>{dayLabel(cb.start)}{promo && <span className="promo-tag" style={{ marginLeft: 6 }}>−{promo.discount_pct} %</span>}</span>
                 {!promo && <button className="small sec iconbtn" title="Promotion" aria-label="Proposer une promotion" onClick={() => onPromo(cb)}><Icon name="sparkles" size={14} /></button>}
                 {promo && <button className="small sec" onClick={() => onStopPromo(promo)}>Arrêter</button>}
                 <button className="small sec iconbtn" title="Supprimer cette date" aria-label="Supprimer cette date" onClick={() => onRemove(cb)}><Icon name="trash" size={14} /></button>

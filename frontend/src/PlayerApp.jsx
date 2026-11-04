@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api, dayLabel, hhmm, setToken, tnd, toDate, useLive } from "./api.js";
 import Icon from "./Icon.jsx";
 import { confirmDialog, Modal, toast, toastError } from "./feedback.jsx";
@@ -327,13 +327,13 @@ function Mine({ me, sessions, reload }) {
           {done.length === 0 && <div className="card mut">Pas encore de séance terminée.</div>}
           {groups.map(([month, list]) => (
             <div key={month}>
-              <h2 style={{ textTransform: "capitalize" }}>{month}</h2>
+              <h2 className="cap1">{month}</h2>
               {list.map((h) => (
                 <div className={"card past" + (openId === h.session_id ? " open" : "")} key={h.session_id} onClick={() => setOpenId(openId === h.session_id ? null : h.session_id)}>
                   <div className="row">
                     <div className="row g10">
                       <span className="kdot" style={{ background: KIND[h.kind].color }}><Icon name={KIND[h.kind].icon} size={14} /></span>
-                      <div><b style={{ textTransform: "capitalize" }}>{fmt(h.start, { weekday: "short", day: "numeric", month: "short" })}</b><div className="mut">{hhmm(h.start)} · {KIND[h.kind].label}</div></div>
+                      <div><b className="cap1">{fmt(h.start, { weekday: "short", day: "numeric", month: "short" })}</b><div className="mut">{hhmm(h.start)} · {KIND[h.kind].label}</div></div>
                     </div>
                     <div className="row g10">
                       {h.worked_on.slice(0, 1).map((t) => <span key={t} className="chip on small static">{t}</span>)}
@@ -374,12 +374,14 @@ function announce(before, after) {
 export default function PlayerApp() {
   const [[tab = "home", sub], setTab] = useRoute("home");
   const [data, setData] = useState(null);
+  const last = useRef(null); // séances du chargement précédent: pour annoncer une validation du coach
   const load = () =>
     Promise.all([api("/me"), api("/me/sessions"), api("/me/progress"), api("/me/credits"), api("/me/proposals"), api("/me/promotions").catch(() => [])])
-      .then(([me, sessions, progress, credits, proposals, promos]) => setData((old) => {
-        announce(old?.sessions, sessions);
-        return { me, sessions, progress, credits, proposals, promos };
-      }));
+      .then(([me, sessions, progress, credits, proposals, promos]) => {
+        announce(last.current, sessions); // hors de setData: une mise à jour d'état doit rester pure
+        last.current = sessions;
+        setData({ me, sessions, progress, credits, proposals, promos });
+      });
   useEffect(() => { load(); }, []);
   useLive(load); // la validation du coach apparaît sans se reconnecter
   if (!data) return <main><Loading hero rows={3} /></main>;

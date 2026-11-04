@@ -50,7 +50,7 @@ export default function Replace({ token }) {
             <h1>Une place pour vous</h1>
             <p className="mut">{info.leaving} ne peut plus venir et vous propose sa place.</p>
             <div className="card" style={{ background: "var(--soft)", boxShadow: "none" }}>
-              <b style={{ textTransform: "capitalize" }}>{dayLabel(info.start)} · {hhmm(info.start)}</b>
+              <b className="cap1">{dayLabel(info.start)} · {hhmm(info.start)}</b>
               <div className="mut small-p">{k?.label} · {info.duration_min} min · avec {info.coach_name}</div>
               {(info.club || info.court) && <div className="where" style={{ marginTop: 4 }}><Icon name="pin" size={12} /> {info.club || "Club à préciser"}{info.court && ` · ${info.court}`}</div>}
               {info.players.length > 0 && (

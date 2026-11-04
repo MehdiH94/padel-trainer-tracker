@@ -1137,8 +1137,8 @@ def test_coach_invites_players_who_trained_with_him(client, monkeypatch):
     ok = mkplayer(client, phone="22 000 001", name="Ancien", category="P250+", contact_channel="whatsapp")
     far = mkplayer(client, phone="22 000 002", name="TropFort", category="P1000-")
     mkplayer(client, phone="22 000 003", name="Nouveau", category="P250-")  # jamais entraîné
-    for pid in (ok["id"], far["id"]):
-        s = client.post("/sessions", json={"start": "2026-01-05T10:00:00Z", "player_ids": [pid]}).json()[0]
+    for h, pid in ((10, ok["id"]), (12, far["id"])):  # le coach n'est pas à deux séances en même temps
+        s = client.post("/sessions", json={"start": f"2026-01-05T{h}:00:00Z", "player_ids": [pid]}).json()[0]
         client.patch(f"/sessions/{s['id']}", json={"status": "effectuee"})
     g = open_duo(client, host, hours=72, kind="groupe")
     inv = client.get(f"/sessions/{g['id']}/invitable").json()
@@ -1343,7 +1343,7 @@ def test_no_credits_means_debt_then_recharge_settles_it(client):
     client.post(f"/players/{p['id']}/credits", json={"amount_millimes": 0})  # refusé, sans effet
     p2, pc2 = player_client(client, phone="98 111 222", name="Ali")
     client.post(f"/players/{p2['id']}/credits", json={"amount_millimes": 50000})
-    s = client.post("/sessions", json={"start": (datetime.now(timezone.utc) - timedelta(days=1)).isoformat(), "kind": "individuel",
+    s = client.post("/sessions", json={"start": (datetime.now(timezone.utc) - timedelta(days=1, hours=3)).isoformat(), "kind": "individuel",
                                        "price_millimes": 60000, "player_ids": [p2["id"]]}).json()[0]
     client.patch(f"/sessions/{s['id']}", json={"status": "effectuee"})
     w = pc2.get("/me").json()["wallets"][0]
@@ -1697,7 +1697,8 @@ def test_coach_session_price_comes_from_settings_with_optional_promo(client):
     start = (datetime.now(timezone.utc) + timedelta(days=3)).isoformat()
     s = client.post("/sessions", json={"start": start, "kind": "duo", "player_ids": [a["id"], b["id"]], "discount_pct": 0, "price_millimes": 999000}).json()[0]
     assert (s["price_millimes"], s["price_mode"]) == (40000, "par_joueur")  # le prix saisi est ignoré
-    s = client.post("/sessions", json={"start": start, "kind": "individuel", "player_ids": [a["id"]], "discount_pct": 25}).json()[0]
+    later = (datetime.now(timezone.utc) + timedelta(days=3, hours=3)).isoformat()  # pas deux séances en même temps
+    s = client.post("/sessions", json={"start": later, "kind": "individuel", "player_ids": [a["id"]], "discount_pct": 25}).json()[0]
     assert s["price_millimes"] == 45000  # 60 TND - 25 %
     assert client.post("/sessions", json={"start": start, "kind": "individuel", "discount_pct": 95}).status_code == 422
 
@@ -1950,3 +1951,42 @@ def test_admin_sees_test_flag(two_worlds, monkeypatch):
     player_client(real)
     assert {c["email"]: c["is_test"] for c in real.get("/admin/coaches").json()} == {"a@b.tn": False, "coach.test@padel.tn": True}
     assert sorted((p["coach_name"], p["is_test"]) for p in real.get("/admin/players").json()) == [("Coach Test", False), ("Coach Test", True)]
+
+
+def test_coach_cannot_have_two_sessions_at_once_and_reminders_list_all_sessions(client):
+    """Ticket n°11: deux séances qui se chevauchent sont refusées. Ticket n°14: un seul rappel par joueur pour
+    toutes ses séances de demain (clé unique)."""
+    from app.services.common import TUNIS
+    p = mkplayer(client, name="Sami Ben Ali")
+    day = (datetime.now(TUNIS) + timedelta(days=1)).date()
+    at = lambda h: datetime.combine(day, datetime.min.time().replace(hour=h), TUNIS).isoformat()  # noqa: E731
+    assert client.post("/sessions", json={"start": at(12), "player_ids": [p["id"]]}).status_code == 201
+    r = client.post("/sessions", json={"start": at(12), "player_ids": [p["id"]]})
+    assert r.status_code == 409 and "déjà une séance" in r.json()["detail"] and "Sami Ben Ali" in r.json()["detail"]
+    assert client.post("/sessions", json={"start": at(12) .replace("T12", "T12"), "duration_min": 90, "kind": "groupe"}).status_code == 409
+    assert client.post("/sessions", json={"start": at(13), "player_ids": [p["id"]]}).status_code == 201  # juste après: accepté
+    assert client.post("/sessions", json={"start": at(21), "player_ids": [p["id"]]}).status_code == 201
+    rem = [x for x in client.get("/reminders").json() if x["kind"] == "seance"]
+    assert len(rem) == 1 and rem[0]["sessions"] == 3 and "3 séances" in rem[0]["message"] and "21h00" in rem[0]["message"]
+    keys = [x["key"] for x in client.get("/reminders").json()]
+    assert len(keys) == len(set(keys))
+
+
+def test_payment_after_recharge_debt_keeps_finances_consistent(client):
+    """Ticket n°12: une recharge de 60 paie une séance de 70 en crédits (solde -10); les paiements suivants
+    règlent d'abord les séances, puis comblent ce solde: après avoir tout versé, le joueur est à jour."""
+    p = mkplayer(client, name="Wassim")
+    starts = [(datetime.now(timezone.utc) - timedelta(days=d)).isoformat() for d in (3, 2)]
+    for st, price in zip(starts, (70000, 40000)):
+        s = client.post("/sessions", json={"start": st, "kind": "individuel", "price_millimes": price, "player_ids": [p["id"]]}).json()[0]
+        client.patch(f"/sessions/{s['id']}", json={"status": "effectuee"})
+    fin = lambda: client.get(f"/players/{p['id']}/profile").json()["finance"]  # noqa: E731
+    assert fin()["due_millimes"] == 110000
+    client.post(f"/players/{p['id']}/credits", json={"amount_millimes": 60000, "method": "especes"})
+    f = fin()
+    assert f["due_millimes"] == 50000  # 40 de séance + 10 de crédits manquants
+    client.post("/payments", json={"player_id": p["id"], "amount_millimes": 20000, "method": "especes"})
+    client.post("/payments", json={"player_id": p["id"], "amount_millimes": 30000, "method": "virement"})
+    f = fin()
+    assert f["due_millimes"] == 0 and f["paid_millimes"] <= f["billed_millimes"] and f["credits_balance_millimes"] == 0
+    assert all(u["player_id"] != p["id"] for u in client.get("/dashboard").json()["unpaid"])

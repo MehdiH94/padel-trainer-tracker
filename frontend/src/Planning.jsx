@@ -136,7 +136,7 @@ export default function Planning({ go, summary }) {
           <button className="small sec iconbtn" aria-label="Semaine suivante" disabled={ymd(monday) >= ymd(maxMonday)} onClick={() => shift(1)}><Icon name="chevR" size={16} /></button>
         </div>
       </div>
-      <p className="mut" style={{ textTransform: "capitalize", margin: "6px 0 10px" }}>{monthLabel}</p>
+      <p className="mut cap1" style={{ margin: "6px 0 10px" }}>{monthLabel}</p>
 
       <div className="seg mini" role="tablist" aria-label="Affichage" style={{ marginBottom: 10 }}>
         <button role="tab" aria-selected={view === "calendrier"} className={view === "calendrier" ? "on" : ""} onClick={() => setView("calendrier")}><Icon name="calendar" size={14} /> Calendrier</button>

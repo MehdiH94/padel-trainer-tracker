@@ -52,15 +52,22 @@ def reminders(base: str = "", coach: Coach = Depends(current_coach), db: Session
     # 2. Séances de demain
     now = datetime.now(timezone.utc)
     tomorrow = (now.astimezone(TUNIS) + timedelta(days=1)).date()
-    for s in sessions:
+    # un seul rappel par joueur, qui liste toutes ses séances de demain (clé unique, journal d'envoi juste)
+    tomorrow_by_player: dict[int, list[TrainingSession]] = {}
+    for s in sorted(sessions, key=lambda x: aware(x.start)):
         if s.status != "prevue" or aware(s.start).astimezone(TUNIS).date() != tomorrow:
             continue
-        t = aware(s.start).astimezone(TUNIS)
-        where = f" ({s.club})" if s.club else ""
         for a in s.attendances:
-            p = players.get(a.player_id)
-            if p:
-                add(p, "seance", "Rappel de séance", f"Bonjour {p.name.split()[0]}, rappel : séance de padel demain ({JOURS[t.weekday()]} {t:%d/%m}) à {t:%H}h{t:%M}{where}. Répondez-moi si vous avez un empêchement. — {coach.name}", {"start": s.start})
+            if a.player_id in players:
+                tomorrow_by_player.setdefault(a.player_id, []).append(s)
+    for pid, ss in tomorrow_by_player.items():
+        p = players[pid]
+        t0 = aware(ss[0].start).astimezone(TUNIS)
+        times = [f"{aware(s.start).astimezone(TUNIS):%H}h{aware(s.start).astimezone(TUNIS):%M}" + (f" ({s.club})" if s.club else "") for s in ss]
+        what = (f"séance de padel demain ({JOURS[t0.weekday()]} {t0:%d/%m}) à {times[0]}" if len(ss) == 1
+                else f"{len(ss)} séances de padel demain ({JOURS[t0.weekday()]} {t0:%d/%m}) : " + ", ".join(times[:-1]) + " et " + times[-1])
+        add(p, "seance", "Rappel de séance", f"Bonjour {p.name.split()[0]}, rappel : {what}. Répondez-moi si vous avez un empêchement. — {coach.name}",
+            {"start": ss[0].start, "sessions": len(ss)})
 
     # 3. Invitations (joueurs sans compte)
     for p in players.values():

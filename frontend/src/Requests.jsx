@@ -22,7 +22,7 @@ function Head({ r }) {
         <span className="kind-pill" style={{ background: k.color + "1a", color: k.color }}><Icon name={k.icon} size={14} /> {k.label}</span>
       </div>
       <div className="when">
-        <Icon name="calendar" size={16} /> <b style={{ textTransform: "capitalize" }}>{dayLabel(r.start)}</b>
+        <Icon name="calendar" size={16} /> <b className="cap1">{dayLabel(r.start)}</b>
         <span className="sep" /> <Icon name="clock" size={16} /> {hm(r.start, r.duration_min)}
         <span className="sep" /> <Icon name="wallet" size={16} /> {tnd(r.price_millimes ?? r.charged_millimes)}
         {r.price_millimes < r.base_millimes && <span className="promo-tag">−{Math.round(100 - (r.price_millimes * 100) / r.base_millimes)} %</span>}
@@ -139,7 +139,7 @@ function ToNotify({ r, reload }) {
   return (
     <div className="card req done">
       <div className="row">
-        <div className="row g10"><Avatar name={r.name} size={38} /><div><b><PlayerTag p={r} /></b><div className="mut" style={{ textTransform: "capitalize" }}>{dayLabel(r.start)} · {hhmm(r.start)}</div></div></div>
+        <div className="row g10"><Avatar name={r.name} size={38} /><div><b><PlayerTag p={r} /></b><div className="mut cap1">{dayLabel(r.start)} · {hhmm(r.start)}</div></div></div>
         <span className="court-badge ok"><Icon name="checkCircle" size={13} /> Confirmée</span>
       </div>
       <textarea className="msg" rows={3} value={text} onChange={(e) => setText(e.target.value)} />
@@ -168,7 +168,7 @@ function Groups({ reload: refresh }) {
           <div className="card req" key={g.session_id} style={{ borderLeft: `5px solid ${k.color}` }}>
             <div className="row">
               <div>
-                <b style={{ textTransform: "capitalize" }}>{dayLabel(g.start)} · {hhmm(g.start)}</b>
+                <b className="cap1">{dayLabel(g.start)} · {hhmm(g.start)}</b>
                 <div className="mut">{k.label}{g.club && ` · ${g.club}`}</div>
               </div>
               <span className="spots">{g.capacity - g.spots_left}/{g.capacity}</span>

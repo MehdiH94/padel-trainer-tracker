@@ -37,7 +37,7 @@ function DonePanel({ s, name, byId, strokes, onSaved, onClose }) {
   return (
     <div className="card donepanel">
       <div className="row">
-        <b style={{ textTransform: "capitalize" }}>{shortDate(s.start)} · {hhmm(s.start)} · {KIND[s.kind].label}</b>
+        <b className="cap1">{shortDate(s.start)} · {hhmm(s.start)} · {KIND[s.kind].label}</b>
         <button className="small sec iconbtn" aria-label="Fermer" onClick={onClose}><Icon name="x" size={15} /></button>
       </div>
       {s.payments?.length > 0 && (

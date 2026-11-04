@@ -4,7 +4,7 @@ import FeedbackEditor from "./FeedbackEditor.jsx";
 import Icon from "./Icon.jsx";
 import InviteLink from "./InviteLink.jsx";
 import { Modal, toast, toastError } from "./feedback.jsx";
-import { Avatar, CATEGORIES, catOption, CategoryBadge, ContactLinks, KIND, Loading, Progress, RadarChart } from "./ui.jsx";
+import { Avatar, CATEGORIES, catOption, CategoryBadge, ContactLinks, KIND, Loading, METHOD, MoneyInput, Progress, RadarChart, STATUS } from "./ui.jsx";
 
 function Dots({ score, onPick }) {
   return (
@@ -88,7 +88,7 @@ function AddToSession({ player, onClose }) {
         {list?.map((s) => (
           <button key={s.id} className="searchrow" onClick={() => add(s)}>
             <span className="kdot" style={{ background: KIND[s.kind].color }}><Icon name={KIND[s.kind].icon} size={15} /></span>
-            <span><span style={{ textTransform: "capitalize" }}>{shortDate(s.start)} · {hhmm(s.start)}</span><small>{KIND[s.kind].label}{s.club && ` · ${s.club}`} · {KIND[s.kind].cap - s.player_ids.length} place{KIND[s.kind].cap - s.player_ids.length > 1 ? "s" : ""}</small></span>
+            <span><span className="cap1">{shortDate(s.start)} · {hhmm(s.start)}</span><small>{KIND[s.kind].label}{s.club && ` · ${s.club}`} · {KIND[s.kind].cap - s.player_ids.length} place{KIND[s.kind].cap - s.player_ids.length > 1 ? "s" : ""}</small></span>
             <Icon name="plus" size={16} />
           </button>
         ))}
@@ -104,8 +104,9 @@ export default function PlayerPage({ id, onBack }) {
   const [tab, setTab] = useState("padel");
   const [edit, setEdit] = useState(null);
   const [editing, setEditing] = useState(false);
-  const [pay, setPay] = useState({ amount: "", method: "especes" });
-  const [cr, setCr] = useState({ amount: "", method: "especes" });
+  // montants en millimes (MoneyInput: la virgule est acceptée, « 25,5 » = 25,500 TND)
+  const [pay, setPay] = useState({ amount: 0, method: "especes" });
+  const [cr, setCr] = useState({ amount: 0, method: "especes" });
   const [adding, setAdding] = useState(false);
   const load = () => api(`/players/${id}/profile`).then(setP);
   useEffect(() => { load(); api("/strokes").then(setStrokes); }, [id]);
@@ -114,24 +115,26 @@ export default function PlayerPage({ id, onBack }) {
   const rate = (stroke, score) => api(`/players/${id}/skills`, { method: "POST", body: { stroke, score } }).then(load);
   const encaisser = async (e) => {
     e.preventDefault();
+    if (!pay.amount) return toastError(new Error("Indiquez le montant reçu."));
     try {
-      await api("/payments", { method: "POST", body: { player_id: id, amount_millimes: Math.round(pay.amount * 1000), method: pay.method } });
+      await api("/payments", { method: "POST", body: { player_id: id, amount_millimes: pay.amount, method: pay.method } });
     } catch (x) {
       return toastError(x);
     }
-    toast(`Paiement de ${tnd(Math.round(pay.amount * 1000))} enregistré`);
-    setPay({ ...pay, amount: "" });
+    toast(`Paiement de ${tnd(pay.amount)} enregistré`);
+    setPay({ ...pay, amount: 0 });
     load();
   };
   const recharger = async (e) => {
     e.preventDefault();
+    if (!cr.amount) return toastError(new Error("Indiquez le montant de la recharge."));
     try {
-      await api(`/players/${id}/credits`, { method: "POST", body: { amount_millimes: Math.round(cr.amount * 1000), method: cr.method } });
+      await api(`/players/${id}/credits`, { method: "POST", body: { amount_millimes: cr.amount, method: cr.method } });
     } catch (x) {
       return toastError(x);
     }
-    toast(`Crédits rechargés : +${tnd(Math.round(cr.amount * 1000))}`);
-    setCr({ ...cr, amount: "" });
+    toast(`Crédits rechargés : +${tnd(cr.amount)}`);
+    setCr({ ...cr, amount: 0 });
     load();
   };
   const ratedCount = skills.filter((s) => s.score != null).length;
@@ -184,7 +187,7 @@ export default function PlayerPage({ id, onBack }) {
             <div className="mut">Dernière séance travaillée</div>
             {last ? (
               <>
-                <b style={{ textTransform: "capitalize" }}>{dayLabel(last.start)}</b>
+                <b className="cap1">{dayLabel(last.start)}</b>
                 <div className="chips" style={{ margin: "8px 0" }}>{last.worked_on.map((t) => <span key={t} className="chip on small static">{t}</span>)}</div>
                 {last.note && <div>{last.note}</div>}
                 {last.to_improve && <div className="red">À retravailler : {last.to_improve}</div>}
@@ -216,7 +219,7 @@ export default function PlayerPage({ id, onBack }) {
           </div>
           {stats.upcoming_count > 0 && (
             <div className="card"><b>Prochaines séances</b>
-              {p.upcoming.map((u) => <div key={u.session_id} className="mut" style={{ textTransform: "capitalize" }}>{dayLabel(u.start)} · {hhmm(u.start)}</div>)}
+              {p.upcoming.map((u) => <div key={u.session_id} className="mut cap1">{dayLabel(u.start)} · {hhmm(u.start)}</div>)}
             </div>
           )}
         </>
@@ -235,6 +238,13 @@ export default function PlayerPage({ id, onBack }) {
                 <div className="big">{fin.due_millimes > 0 ? tnd(fin.due_millimes) : fin.credit_millimes > 0 ? tnd(fin.credit_millimes) : <Icon name="checkCircle" size={30} />}</div>
               </div>
             </div>
+            {/* écart expliqué: une séance payée en crédits au-delà du solde laisse des crédits « dans le rouge » */}
+            {fin.due_millimes > 0 && fin.credits_balance_millimes < 0 && (
+              <div className="mut small-p" style={{ marginTop: 4 }}>
+                Dont {tnd(-fin.credits_balance_millimes)} de séances payées en crédits sans solde suffisant
+                {fin.due_millimes + fin.credits_balance_millimes > 0 && ` et ${tnd(fin.due_millimes + fin.credits_balance_millimes)} de séances non réglées`}.
+              </div>
+            )}
             {fin.billed_millimes > 0 && <Progress value={Math.min(fin.paid_millimes, fin.billed_millimes)} max={fin.billed_millimes} />}
             {fin.due_millimes > 0 && (
               <ContactLinks phone={player.phone} email={player.email} subject="Rappel de paiement"
@@ -244,9 +254,9 @@ export default function PlayerPage({ id, onBack }) {
           </div>
           <form className="card" onSubmit={recharger}>
             <div className="row"><b><Icon name="card" size={16} /> Crédits prépayés</b>{fin.credits_balance_millimes > 0 && <b>{tnd(fin.credits_balance_millimes)}</b>}</div>{/* négatif: déjà compté dans « Reste à payer » */}
-            <div className="mut">{player.has_account ? "Le joueur réserve ses séances avec ce solde." : "Utilisables dès que le joueur aura créé son compte."}</div>
+            <div className="mut">Les crédits paient automatiquement ses séances effectuées{player.has_account ? " et ses réservations" : ""}. Un paiement qui dépasse les séances dues devient des crédits.</div>
             <div className="grid" style={{ marginTop: 8 }}>
-              <input type="number" step="0.001" placeholder="Montant TND" value={cr.amount} onChange={(e) => setCr({ ...cr, amount: e.target.value })} required />
+              <MoneyInput label="Montant de la recharge (TND)" placeholder="Montant TND" value={cr.amount} onChange={(v) => setCr({ ...cr, amount: v })} />
               <select value={cr.method} onChange={(e) => setCr({ ...cr, method: e.target.value })}><option value="especes">Espèces</option><option value="virement">Virement</option></select>
             </div>
             <button className="sec" style={{ width: "100%" }}>Recharger les crédits</button>
@@ -254,7 +264,7 @@ export default function PlayerPage({ id, onBack }) {
           <form className="card" onSubmit={encaisser}>
             <b>Encaisser un paiement de séance</b>
             <div className="grid" style={{ marginTop: 8 }}>
-              <input type="number" step="0.001" placeholder="Montant TND" value={pay.amount} onChange={(e) => setPay({ ...pay, amount: e.target.value })} required />
+              <MoneyInput label="Montant reçu (TND)" placeholder="Montant TND" value={pay.amount} onChange={(v) => setPay({ ...pay, amount: v })} />
               <select value={pay.method} onChange={(e) => setPay({ ...pay, method: e.target.value })}><option value="especes">Espèces</option><option value="virement">Virement</option></select>
             </div>
             <button style={{ width: "100%" }}>Enregistrer</button>
@@ -262,7 +272,7 @@ export default function PlayerPage({ id, onBack }) {
           <h2>Paiements reçus</h2>
           {fin.payments.length === 0 && <div className="card mut">Aucun paiement.</div>}
           {fin.payments.map((x) => (
-            <div className="card row" key={x.id}><span>{shortDate(x.paid_at)} · {x.method}{x.kind === "credit" && " · recharge"}</span><b>{tnd(x.amount_millimes)}</b></div>
+            <div className="card row" key={x.id}><span>{shortDate(x.paid_at)} · {METHOD[x.method] ?? x.method}{x.kind === "credit" && " · recharge"}</span><b>{tnd(x.amount_millimes)}</b></div>
           ))}
         </>
       )}
@@ -271,8 +281,8 @@ export default function PlayerPage({ id, onBack }) {
         <div className="card" key={h.session_id} style={{ borderLeft: `5px solid ${KIND[h.kind]?.color}`, cursor: h.status === "effectuee" ? "pointer" : "default" }}
           onClick={() => h.status === "effectuee" && setEdit(edit === h.session_id ? null : h.session_id)}>
           <div className="row">
-            <b style={{ textTransform: "capitalize" }}>{shortDate(h.start)} · {hhmm(h.start)}</b>
-            <span className={"badge " + h.status}>{h.status === "effectuee" ? (h.prepaid ? "Crédits" : tnd(h.share_millimes)) : h.status}</span>
+            <b className="cap1">{shortDate(h.start)} · {hhmm(h.start)}</b>
+            <span className={"badge " + h.status}>{h.status === "effectuee" ? (h.prepaid ? "Crédits" : tnd(h.share_millimes)) : STATUS[h.status] ?? h.status}</span>
           </div>
           <div className="mut">{KIND[h.kind]?.label}{h.club && ` · ${h.club}`}</div>
           {h.worked_on.length > 0 && <div className="chips" style={{ marginTop: 6 }}>{h.worked_on.map((t) => <span key={t} className="chip on small static">{t}</span>)}</div>}

@@ -28,6 +28,7 @@ export const KIND = {
 };
 
 export const STATUS = { prevue: "Prévue", effectuee: "Effectuée", annulee: "Annulée" };
+export const METHOD = { especes: "Espèces", virement: "Virement", carte: "Carte", cheque: "Chèque", credits: "Crédits" }; // moyens de paiement
 
 // Classement: tranches de l'entrée de gamme (P25) au plus fort (P1000), chacune en bas « - » / haut « + »
 export const TIERS = ["P25", "P50", "P100", "P250", "P500", "P1000"];
