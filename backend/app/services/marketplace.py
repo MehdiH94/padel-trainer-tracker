@@ -12,6 +12,7 @@ from ..constants import CAPACITY
 from ..models import Attendance, Availability, Club, Coach, CourtBooking, HappyHour, Player, TrainingSession
 from . import courts
 from .accounts import linked
+from .isolation import visible_coaches
 from . import groups as grp
 from .booking import attendee_ids, fits_session, free_slots, join_price, join_target, pending_joins, price_for, spots_left
 from .common import TUNIS, aware
@@ -33,9 +34,10 @@ def coach_clubs(db: Session, coach: Coach) -> list[str]:
     return sorted(out)
 
 
-def all_clubs(db: Session) -> list[str]:
+def all_clubs(db: Session, coaches: list[Coach]) -> list[str]:
+    """Clubs des coachs donnés (ceux que le joueur peut voir)."""
     out: list[str] = []
-    for c in db.scalars(select(Coach)):
+    for c in coaches:
         for n in coach_clubs(db, c):
             if not any(same_club(n, o) for o in out):
                 out.append(n)
@@ -80,7 +82,7 @@ def offers(db: Session, account: Player, day: date, kinds: list[str], coach_id: 
     kinds: formules acceptées par le joueur (une ou plusieurs parmi individuel, duo, groupe)."""
     kinds = [k for k in CAPACITY if k in kinds] or list(CAPACITY)
     my_ids = {p.id for p in linked(db, account)}
-    coaches = [db.get(Coach, coach_id)] if coach_id else list(db.scalars(select(Coach)))
+    coaches = [c for c in visible_coaches(db, account) if not coach_id or c.id == coach_id]  # comptes test à part
     now = datetime.now(timezone.utc)
     groups, with_court, other = [], [], []
     other_kinds: dict[str, int] = {}  # séances ouvertes ce jour-là d'une formule que le joueur n'a pas choisie

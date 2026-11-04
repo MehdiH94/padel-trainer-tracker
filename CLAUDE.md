@@ -17,7 +17,7 @@ Application de gestion pour un coach de padel indépendant (Tunisie) + espace jo
 # Backend (depuis backend/)
 python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
-python -m pytest -q                                  # 120 tests, doivent rester verts
+python -m pytest -q                                  # 125 tests, doivent rester verts
 uvicorn app.main:app --port 8000
 python seed_demo.py                                  # données de démo (base vide): coach demo@padel.tn / demo1234, joueur sami@demo.tn / demo1234
 python seed_more_coaches.py                          # + 2 coachs fictifs (coach.youssef@demo.tn, coach.meriem@demo.tn / demo1234), sans effet s'ils existent
@@ -67,4 +67,5 @@ Le schéma est créé par `create_all`: après un changement de modèle, supprim
 - Données à jour sans recharger: `useLive(load)` (`api.js`) relance le chargement toutes les 15 s quand l'appli est affichée et dès qu'on y revient (appli joueur, accueil, planning, demandes, terrains); le joueur voit un message quand sa réservation est acceptée ou confirmée. Nouvelle version déployée: l'appli ouverte se recharge seule au retour dedans (ou toutes les 5 min hors saisie), voir `main.jsx`.
 - Erreurs toujours expliquées en français, jamais un code seul: les refus de formulaire (validation) sont traduits champ par champ (`app/errors.py`: `validation_handler`, `check_fields` pour nom / e-mail / mot de passe), messages des `ValueError` de `schemas.py` rédigés pour l'utilisateur; côté appli, `api.js` (`explain`) remplace tout « Erreur 4xx/5xx » par une phrase, et `emailProblem` signale un e-mail mal formé pendant la saisie.
 - Connexion: « Rester connecté » coché par défaut (jeton gardé dans `localStorage`, sinon `sessionStorage` = déconnecté à la fermeture, `api.js` `setSession(r, remember)`); jeton de 60 jours renouvelé à chaque ouverture (`refreshSession` → `/auth/refresh`, pas pour un accès administrateur de 12 h).
+- Comptes test des agents de test quotidiens (DP-004, `services/isolation.py`): e-mails listés dans `TEST_ACCOUNT_EMAILS` (`deploy/.env`, rien en base, pas modifiable depuis l'appli). Deux mondes étanches (`same_world`): un vrai joueur ne voit ni ne réserve jamais un coach test (`/me/coaches`, page du coach, `/me/clubs`, `offers`, `/me/book`), un joueur test seulement les coachs test (aussi propositions, promotions, remplacement); promotions / annonces / invitations d'un coach seulement aux joueurs de son monde (`promotions.recipients`, `invitable`); `is_test` dans Administration › Coachs / Joueurs, à exclure des statistiques.
 - Garder le code simple, commentaires en français, pas de dépendances inutiles.

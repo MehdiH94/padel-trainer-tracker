@@ -15,7 +15,7 @@ from ..models import Booking, Coach, Player, TrainingSession
 from ..schemas import CHANNELS, normalize_tn_phone
 from ..services import booking as svc
 from ..services import email_verification as verification
-from ..services import signups
+from ..services import isolation, signups
 from ..services.accounts import row_for_coach
 from ..services.common import aware
 from .auth import session_for
@@ -44,7 +44,10 @@ def info(token: str, db: Session = Depends(get_db)):
 
 
 def _take(db: Session, b: Booking, account: Player) -> dict:
-    row = row_for_coach(db, account, db.get(Coach, b.coach_id))
+    coach = db.get(Coach, b.coach_id)
+    if not isolation.same_world(db, coach, account):  # comptes test à part
+        raise HTTPException(404, "Cette place n'est plus disponible (déjà reprise, annulée ou séance passée).")
+    row = row_for_coach(db, account, coach)
     try:
         nb = svc.replace(db, b, row)
     except svc.BookingError as e:
@@ -91,6 +94,8 @@ def signup(token: str, body: SignupIn, db: Session = Depends(get_db)):
         body.contact_channel = "email"
     if db.scalar(select(Coach).where(Coach.email == email)) or db.scalar(select(Player).where(Player.email == email)):
         raise HTTPException(409, "Cet e-mail a déjà un compte : connectez-vous pour prendre la place.")
+    if isolation.is_test_email(email) != isolation.is_test_coach(db.get(Coach, b.coach_id)):  # comptes test à part
+        raise HTTPException(404, "Cette place n'est plus disponible (déjà reprise, annulée ou séance passée).")
     p = Player(coach_id=b.coach_id, name=body.name.strip(), phone=body.phone, email=email, password_hash=hash_password(body.password),
                gender=body.gender, category=body.category, contact_channel=body.contact_channel)
     db.add(p)

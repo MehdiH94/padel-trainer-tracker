@@ -13,7 +13,7 @@ from ..constants import CAPACITY
 from ..db import get_db
 from ..models import Attendance, Booking, Coach, CreditTx, Player, Proposal, TrainingSession
 from ..services import booking as svc
-from ..services import groups, marketplace
+from ..services import groups, isolation, marketplace
 from ..services import email_verification as verification
 from ..services.accounts import linked, row_for_coach
 from ..services.common import aware
@@ -49,8 +49,11 @@ def me(player: Player = Depends(current_player), db: Session = Depends(get_db)):
 
 def _main_coach(db: Session, player: Player) -> Coach | None:
     """Coach du compte, sinon celui de sa première fiche chez un coach (compte créé par le lien public)."""
-    row = next((p for p in linked(db, player) if p.coach_id), None)
-    return db.get(Coach, row.coach_id) if row else None
+    for p in linked(db, player):
+        coach = db.get(Coach, p.coach_id) if p.coach_id else None
+        if coach and isolation.same_world(db, coach, player):  # jamais un coach d'un autre monde (comptes test)
+            return coach
+    return None
 
 
 def _wallet(db: Session, p: Player) -> dict:
@@ -129,6 +132,8 @@ def book(body: BookIn, player: Player = Depends(current_player), db: Session = D
     coach = db.get(Coach, coach_id) if coach_id else None
     if not coach:
         raise HTTPException(422, "Choisissez d'abord un coach.")
+    if not isolation.same_world(db, coach, player):  # compte test chez un vrai coach (ou l'inverse)
+        raise HTTPException(404, "Coach introuvable")
     row = row_for_coach(db, player, coach)  # fiche du joueur chez ce coach (créée au besoin)
     try:
         if s:
@@ -257,6 +262,8 @@ def proposals(player: Player = Depends(current_player), db: Session = Depends(ge
     for p in db.scalars(select(Proposal).where(Proposal.player_id.in_(ids), Proposal.status == "proposee")):
         s = db.get(TrainingSession, p.session_id)
         coach = db.get(Coach, s.coach_id)
+        if not isolation.same_world(db, coach, player):  # comptes test à part
+            continue
         if s.status != "prevue" or aware(s.start) < datetime.now(timezone.utc) or svc.spots_left(db, s) <= 0:
             continue
         out.append({
@@ -280,6 +287,8 @@ def accept_proposal(proposal_id: int, player: Player = Depends(current_player), 
     p = _own_proposal(db, player, proposal_id)
     row = db.get(Player, p.player_id)
     coach = db.get(Coach, row.coach_id)
+    if not isolation.same_world(db, coach, player):
+        raise HTTPException(404, "Proposition introuvable")
     try:
         b = svc.request_join(db, coach, row, db.get(TrainingSession, p.session_id), sms, force_accept=True)  # le coach l'a proposé: acceptation directe
     except svc.BookingError as e:
@@ -322,14 +331,14 @@ def progress(player: Player = Depends(current_player), db: Session = Depends(get
 @router.get("/coaches")
 def coaches(player: Player = Depends(current_player), db: Session = Depends(get_db)):
     """Tous les coachs de l'application (les « miens » en premier)."""
-    out = [marketplace.coach_summary(db, c, player) for c in db.scalars(select(Coach).order_by(Coach.name))]
+    out = [marketplace.coach_summary(db, c, player) for c in isolation.visible_coaches(db, player)]
     return sorted(out, key=lambda c: not c["mine"])
 
 
 @router.get("/coaches/{coach_id}")
 def coach_page(coach_id: int, player: Player = Depends(current_player), db: Session = Depends(get_db)):
     coach = db.get(Coach, coach_id)
-    if not coach:
+    if not coach or not isolation.same_world(db, coach, player):
         raise HTTPException(404, "Coach introuvable")
     row = row_for_coach(db, player, coach, create=False)
     return marketplace.coach_profile(db, coach, player) | {"credits_millimes": credit_balance(db, row.id) if row else 0}
@@ -337,7 +346,7 @@ def coach_page(coach_id: int, player: Player = Depends(current_player), db: Sess
 
 @router.get("/clubs")
 def clubs(player: Player = Depends(current_player), db: Session = Depends(get_db)):
-    return marketplace.all_clubs(db)
+    return marketplace.all_clubs(db, isolation.visible_coaches(db, player))
 
 
 @router.get("/offers")

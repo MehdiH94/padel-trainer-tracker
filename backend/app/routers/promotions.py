@@ -12,6 +12,7 @@ from ..db import get_db
 from ..models import Club, Coach, CourtBooking, Player, Promotion
 from ..notify import Notifier, channel_for
 from ..services import booking as booking_svc
+from ..services import isolation
 from ..services.accounts import account_of, contact_email, has_account, linked
 from ..notify import letter
 from ..services.common import TUNIS, aware, quand
@@ -51,11 +52,12 @@ def promo_out(db: Session, p: Promotion) -> dict:
 
 
 def recipients(db: Session, coach: Coach) -> list[Player]:
-    """Joueurs du coach, un seul message par compte (un joueur peut avoir plusieurs fiches)."""
+    """Joueurs du coach, un seul message par compte (un joueur peut avoir plusieurs fiches).
+    Comptes test à part: un coach test n'écrit qu'aux joueurs test, un vrai coach jamais à eux."""
     seen, out = set(), []
     for p in db.scalars(select(Player).where(Player.coach_id == coach.id)):
         key = account_of(db, p).id
-        if key not in seen:
+        if key not in seen and isolation.same_world(db, coach, p):
             seen.add(key)
             out.append(p)
     return out
@@ -124,7 +126,7 @@ def stop_promotion(promo_id: int, coach: Coach = Depends(current_coach), db: Ses
 @router.get("/me/promotions")
 def my_promotions(player: Player = Depends(current_player), db: Session = Depends(get_db)):
     """Promotions en cours chez les coachs du joueur (ceux dont il a une fiche)."""
-    coach_ids = {p.coach_id for p in linked(db, player)}
+    coach_ids = {p.coach_id for p in linked(db, player) if p.coach_id and isolation.same_world(db, db.get(Coach, p.coach_id), player)}
     rows = db.scalars(select(Promotion).where(Promotion.active.is_(True), Promotion.coach_id.in_(coach_ids)))
     return sorted((x for x in (promo_out(db, p) for p in rows) if x["active"]), key=lambda x: aware(x["start"]))
 

@@ -15,7 +15,7 @@ from ..models import Attendance, Club, Coach, CourtBooking, Player, Promotion, T
 from ..services.common import aware
 from ..schemas import PlayerIn
 from ..errors import check_fields
-from ..services import admin_ops, signups
+from ..services import admin_ops, isolation, signups
 from ..services.accounts import account_of, contact_conflicts, has_account, share_profile
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -131,7 +131,7 @@ def all_players(admin: Coach = Depends(current_admin), db: Session = Depends(get
     counts = dict(db.execute(select(Attendance.player_id, func.count()).group_by(Attendance.player_id)).all())
     return [{"id": p.id, "name": p.name, "phone": p.phone, "email": account_of(db, p).email, "gender": p.gender, "category": p.category,
              "coach_id": p.coach_id, "coach_name": coaches.get(p.coach_id, "?") if p.coach_id else "Sans coach", "has_account": has_account(p),
-             "signup_status": p.signup_status, "sessions": counts.get(p.id, 0),
+             "signup_status": p.signup_status, "sessions": counts.get(p.id, 0), "is_test": isolation.is_test_player(db, p),
              "dominant_hand": p.dominant_hand, "side": p.side, "goals": p.goals, "notes": p.notes}
             for p in db.scalars(select(Player).order_by(Player.name))]
 
@@ -174,7 +174,7 @@ def all_coaches(admin: Coach = Depends(current_admin), db: Session = Depends(get
     sessions = dict(db.execute(select(TrainingSession.coach_id, func.count()).group_by(TrainingSession.coach_id)).all())
     return [{"id": c.id, "name": c.name, "email": c.email, "players": players.get(c.id, 0), "sessions": sessions.get(c.id, 0),
              "admin": signups.is_admin(c), "admin_fixed": c.email.lower() in signups.admin_emails(), "phone": c.phone,
-             "signup_status": c.signup_status, "clubs": sorted(x.name for x in db.scalars(select(Club).where(Club.coach_id == c.id, Club.active.is_(True), Club.removed.is_(False))))}
+             "signup_status": c.signup_status, "is_test": isolation.is_test_coach(c), "clubs": sorted(x.name for x in db.scalars(select(Club).where(Club.coach_id == c.id, Club.active.is_(True), Club.removed.is_(False))))}
             for c in db.scalars(select(Coach).order_by(Coach.name))]
 
 

@@ -15,7 +15,7 @@ from ..notify import letter
 from ..services import booking as booking_svc
 from ..services import courts
 from ..services.accounts import has_account
-from ..services import groups
+from ..services import groups, isolation
 from ..services import finance
 from ..services.finance import session_payments, share
 from ..services.pricing import base_price
@@ -196,7 +196,7 @@ def invitable(session_id: int, coach: Coach = Depends(current_coach), db: Sessio
     inside = {a.player_id for a in s.attendances}
     out = []
     for p in db.scalars(select(Player).where(Player.coach_id == coach.id).order_by(Player.name)):
-        if p.id not in inside and booking_svc.fits_session(db, p, s)[0]:
+        if p.id not in inside and isolation.same_world(db, coach, p) and booking_svc.fits_session(db, p, s)[0]:
             out.append({"id": p.id, "name": p.name, "category": p.category, "gender": p.gender, "has_account": has_account(p),
                         "contact_channel": p.contact_channel or "sms", "trained": p.id in trained})
     out.sort(key=lambda x: (not x["trained"], not x["has_account"]))  # déjà entraînés chez lui d'abord

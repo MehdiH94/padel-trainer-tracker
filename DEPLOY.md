@@ -32,3 +32,19 @@ Pour utiliser le Caddy intégré à la place (ports 80/443 libres): `docker comp
 
 ## Domaine définitif et e-mails
 Voir `docs/DOMAINE.md` (DNS, HTTPS, redirection de l'ancienne adresse avec `CANONICAL_HOST`, SMTP, SPF/DKIM/DMARC, vérifications).
+
+## Comptes test (agents de test quotidiens)
+Les agents qui testent l'appli chaque matin utilisent des comptes ordinaires (un coach, un joueur), marqués « test » côté serveur seulement, dans `deploy/.env`:
+
+```bash
+TEST_ACCOUNT_EMAILS=coach.test@exemple.tn,joueur.test@exemple.tn   # e-mails de connexion, séparés par des virgules
+```
+puis `cd deploy && docker compose up -d` (relit `.env`; `update.sh` le fait aussi à chaque déploiement). Rien n'est modifiable depuis l'appli et rien n'est écrit en base: retirer une adresse de la liste suffit à « démarquer » le compte.
+
+Effet (`backend/app/services/isolation.py`), deux mondes étanches:
+- un vrai joueur ne voit jamais un coach test (liste des coachs, page du coach, clubs, recherche de créneaux, séances à rejoindre) et ne peut ni réserver chez lui, ni rejoindre ses séances;
+- un joueur test ne voit que les coachs test et ne peut réserver chez un vrai coach (ni par une proposition, ni par un lien « remplacez-moi »): un vrai coach ne reçoit jamais sa demande;
+- promotions, annonces de terrain libre et invitations d'un coach ne partent qu'aux joueurs de son monde;
+- Administration › Coachs et Joueurs: champ `is_test` dans les réponses, à exclure de toute statistique de la plateforme.
+
+Vérifier après le déploiement: connecté avec un vrai compte joueur, le coach test n'apparaît pas dans « Coachs » ni dans la recherche; connecté avec le joueur test, seul le coach test apparaît.

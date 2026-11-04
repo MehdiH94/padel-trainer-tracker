@@ -1819,3 +1819,134 @@ def test_one_court_at_a_time_and_sessions_go_on_the_free_court(client):
     assert b.status_code == 201, b.text
     r = client.post(f"/booking/requests/{b.json()['id']}/accept", json={"club_id": other["id"]}).json()
     assert r["status"] == "confirmee"
+
+
+# --- Comptes test isolés (DP-004) -----------------------------------------
+
+TEST_EMAILS = " Coach.Test@padel.tn , joueur.test@x.tn,ancien.test@x.tn"
+
+
+def invited(c, email, **extra):
+    """Joueur ajouté par le coach c, qui crée son compte avec cet e-mail."""
+    p = mkplayer(c, **extra)
+    token = c.post(f"/players/{p['id']}/invite").json()["token"]
+    r = TestClient(app).post(f"/auth/invite/{token}", json={"email": email, "password": "secret1"}).json()
+    return p, login_as(TestClient(app), r["token"])
+
+
+@pytest.fixture
+def two_worlds(client, monkeypatch):
+    """Un vrai coach (client) et un coach test, chacun avec son club; les comptes test sont listés côté serveur."""
+    monkeypatch.setenv("TEST_ACCOUNT_EMAILS", TEST_EMAILS)
+    open_week(client, auto_confirm=False)
+    mkclub(client)
+    tc = register("coach.test@padel.tn")
+    open_week(tc, auto_confirm=False)
+    tc.post("/clubs", json={"name": "Club Agents", "phone": "71 000 001"})
+    return client, tc
+
+
+def _coaches(pc):
+    return {c["id"]: c["name"] for c in pc.get("/me/coaches").json()}
+
+
+def _in(days, hour_utc=9):
+    return (datetime.now(timezone.utc) + timedelta(days=days)).replace(hour=hour_utc, minute=0, second=0, microsecond=0).isoformat()
+
+
+def test_real_player_never_sees_test_coach(two_worlds):
+    real, tc = two_worlds
+    _, pc = player_client(real)
+    _, tpc = invited(tc, "joueur.test@x.tn")
+    [real_id] = _coaches(pc)  # seul le vrai coach est listé
+    [test_id] = _coaches(tpc)
+    assert test_id != real_id
+    assert pc.get(f"/me/coaches/{test_id}").status_code == 404
+    clubs = pc.get("/me/clubs").json()
+    assert "Club Agents" not in clubs and "Padel Club La Marsa" in clubs
+    day = _day_of(pc.get("/me/slots").json()[0])
+    off = pc.get(f"/me/offers?day={day}&kinds=individuel,duo,groupe").json()
+    assert off["slots_other"] and all(x["coach"]["id"] == real_id for x in off["slots_other"] + off["slots_with_court"] + off["groups"])
+    assert pc.get(f"/me/offers?day={day}&kinds=individuel&coach_id={test_id}").json()["slots_other"] == []
+    assert pc.post("/me/book", json={"kind": "individuel", "start": _in(3), "coach_id": test_id}).status_code == 404
+    # une séance ouverte du coach test n'est jamais proposée, ni rejointe
+    s = tc.post("/sessions", json={"start": _in(4), "kind": "groupe", "open": True}).json()[0]
+    assert all(g["session_id"] != s["id"] for g in pc.get(f"/me/offers?day={_day_of(_in(4))}&kinds=groupe").json()["groups"])
+    assert pc.post("/me/book", json={"session_id": s["id"], "kinds": ["groupe"]}).status_code == 404
+    assert tc.get("/booking/requests").json() == []
+
+
+def test_test_player_sees_only_test_coach_and_never_reaches_real_coach(two_worlds):
+    real, tc = two_worlds
+    sami, pc = player_client(real)
+    [real_id] = _coaches(pc)
+    _, tpc = invited(tc, "Joueur.Test@x.tn")  # majuscules sans importance
+    assert list(_coaches(tpc).values()) == ["Coach Test"]
+    assert tpc.get("/me/clubs").json() == ["Club Agents"]
+    assert tpc.get(f"/me/coaches/{real_id}").status_code == 404
+    day = _day_of(tpc.get("/me/slots").json()[0])
+    off = tpc.get(f"/me/offers?day={day}&kinds=individuel").json()
+    assert off["slots_other"] and all(x["coach"]["id"] != real_id for x in off["slots_other"] + off["slots_with_court"])
+    assert tpc.post("/me/book", json={"kind": "individuel", "start": _in(3), "coach_id": real_id}).status_code == 404
+    # ni par le lien « remplacez-moi » d'un vrai joueur
+    near = next(x for x in pc.get("/me/slots").json() if datetime.fromisoformat(x) < datetime.now(timezone.utc) + timedelta(hours=23))
+    b = pc.post("/me/book", json={"kind": "individuel", "start": near}).json()
+    real.post(f"/booking/requests/{b['id']}/accept", json={})
+    token = pc.post(f"/me/bookings/{b['id']}/replacement").json()["path"].split("/")[-1]
+    assert tpc.post(f"/replace/{token}/take").status_code == 404
+    signup = {"name": "Agent Deux", "phone": "98 123 001", "email": "ancien.test@x.tn", "password": "secret1"}
+    assert TestClient(app).post(f"/replace/{token}/signup", json=signup).status_code == 404
+    # le vrai coach n'a aucune demande ni fiche du joueur test
+    assert real.get("/booking/requests").json() == []  # (celle de Sami est déjà acceptée)
+    assert [p["name"] for p in real.get("/players").json()] == ["Sami"]
+
+
+def test_test_player_full_booking_cycle_with_test_coach(two_worlds):
+    real, tc = two_worlds
+    p, tpc = invited(tc, "joueur.test@x.tn")
+    tc.post(f"/players/{p['id']}/credits", json={"amount_millimes": 100000})
+    far = next(s for s in tpc.get("/me/slots").json() if datetime.fromisoformat(s) > datetime.now(timezone.utc) + timedelta(hours=30))
+    r = tpc.post("/me/book", json={"kind": "individuel", "start": far}).json()
+    assert r["status"] == "en_attente" and r["credits_millimes"] == 100000  # rien n'est débité à la demande
+    [req] = tc.get("/booking/requests").json()
+    assert tc.post(f"/booking/requests/{req['id']}/accept", json={}).status_code == 200
+    assert tpc.get("/me").json()["wallets"][0]["credits_millimes"] == 40000  # 60 TND débités à la validation
+    assert tpc.post(f"/me/bookings/{r['id']}/cancel").json()["refunded"] is True
+    assert tpc.get("/me").json()["wallets"][0]["credits_millimes"] == 100000
+    assert real.get("/booking/requests").json() == []
+
+
+def test_messages_stay_in_their_world(two_worlds):
+    """Promotions, annonces et invitations: un coach test n'écrit qu'aux joueurs test, un vrai coach jamais à eux."""
+    real, tc = two_worlds
+    _, tpc = invited(tc, "joueur.test@x.tn")
+    player_client(tc, name="Vrai Chez Test", phone="20555666")  # vrai joueur inscrit chez le coach test
+    player_client(real)
+    _, old = invited(real, "ancien.test@x.tn", name="Ancien", phone="20999000")  # compte test resté chez le vrai coach
+    start = _in(4, 8)
+    cb = free_court(tc, start, club=tc.get("/clubs").json()[0])
+    assert [x["name"] for x in tc.get(f"/court-bookings/{cb['id']}/announce").json()["players"]] == ["Sami"]
+    assert tc.get(f"/promotions/preview?court_booking_id={cb['id']}").json()["recipients"] == 1
+    assert tc.post("/promotions", json={"court_booking_id": cb["id"], "discount_pct": 20}).json()["notified_count"] == 1
+    assert len(tpc.get("/me/promotions").json()) == 1
+    s = tc.post("/sessions", json={"start": _in(5), "kind": "groupe", "open": True}).json()[0]
+    assert [x["name"] for x in tc.get(f"/sessions/{s['id']}/invitable").json()["players"]] == ["Sami"]
+    # le vrai coach n'écrit jamais au compte test, qui ne voit ni ses promotions ni ses propositions
+    rcb = free_court(real, start, club=real.get("/clubs").json()[0])
+    assert [x["name"] for x in real.get(f"/court-bookings/{rcb['id']}/announce").json()["players"]] == ["Sami"]
+    real.post("/promotions", json={"court_booking_id": rcb["id"], "discount_pct": 20})
+    assert old.get("/me/promotions").json() == [] and old.get("/me/coaches").json()[0]["name"] == "Coach Test"
+    rs = real.post("/sessions", json={"start": _in(5, 15), "kind": "groupe", "open": True}).json()[0]
+    ancien = next(p["id"] for p in real.get("/players").json() if p["name"] == "Ancien")
+    assert real.post(f"/sessions/{rs['id']}/invite", json={"player_ids": [ancien]}).json()["sent"] == 0
+    assert old.get("/me/proposals").json() == []
+
+
+def test_admin_sees_test_flag(two_worlds, monkeypatch):
+    """Les comptes test restent visibles de l'administrateur, marqués is_test (à exclure des statistiques)."""
+    real, tc = two_worlds
+    monkeypatch.setenv("ADMIN_EMAILS", "a@b.tn")
+    invited(tc, "joueur.test@x.tn")
+    player_client(real)
+    assert {c["email"]: c["is_test"] for c in real.get("/admin/coaches").json()} == {"a@b.tn": False, "coach.test@padel.tn": True}
+    assert sorted((p["coach_name"], p["is_test"]) for p in real.get("/admin/players").json()) == [("Coach Test", False), ("Coach Test", True)]
