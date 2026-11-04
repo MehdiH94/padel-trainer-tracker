@@ -662,3 +662,5 @@ button.choice > svg { margin-top: 2px; }
 /* Date en toutes lettres: seule la première lettre en majuscule (« Jeudi 29 octobre », pas « Jeudi 29 Octobre ») */
 .cap1 { display: inline-block; }
 .cap1::first-letter { text-transform: uppercase; }
+/* Compte test des agents de test (DP-004): invisible des vrais utilisateurs */
+.test-tag { margin-left: 6px; padding: 1px 6px; border-radius: 6px; font-size: .7rem; font-weight: 700; text-transform: uppercase; background: var(--amber-l); color: var(--warn-txt); vertical-align: 2px; }

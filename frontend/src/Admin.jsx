@@ -237,7 +237,7 @@ function AdminPlayers({ coaches }) {
           <div className="row g10" style={{ minWidth: 0 }}>
             <Avatar name={p.name} size={36} />
             <div style={{ minWidth: 0 }}>
-              <b><PlayerTag p={p} /></b>
+              <b><PlayerTag p={p} />{p.is_test && <span className="test-tag">test</span>}</b>
               <div className="mut small-p">Chez {p.coach_name} · {p.phone}{p.email ? ` · ${p.email}` : " · sans compte"}{p.sessions ? ` · ${p.sessions} séance${p.sessions > 1 ? "s" : ""}` : ""}</div>
             </div>
           </div>
@@ -310,7 +310,7 @@ function AdminCoaches({ list, load, me }) {
           <div className="row g10" style={{ minWidth: 0 }}>
             <Avatar name={c.name} size={36} />
             <div style={{ minWidth: 0 }}>
-              <b>{c.name}{c.admin && <span className="mut small-p"> · admin</span>}{c.signup_status === "a_valider" && <span className="warn-txt small-p"> · à confirmer</span>}{c.signup_status === "refusee" && <span className="red small-p"> · refusé</span>}</b>
+              <b>{c.name}{c.admin && <span className="mut small-p"> · admin</span>}{c.is_test && <span className="test-tag">test</span>}{c.signup_status === "a_valider" && <span className="warn-txt small-p"> · à confirmer</span>}{c.signup_status === "refusee" && <span className="red small-p"> · refusé</span>}</b>
               <div className="mut small-p">{c.email} · {c.players} joueur{c.players > 1 ? "s" : ""} · {c.sessions} séance{c.sessions > 1 ? "s" : ""}</div>
               {c.clubs.length > 0 && <div className="mut small-p"><Icon name="pin" size={12} /> {c.clubs.join(", ")}</div>}
             </div>
