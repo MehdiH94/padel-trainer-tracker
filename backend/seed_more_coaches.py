@@ -36,7 +36,7 @@ COACHES = [
                "Pédagogie douce et ludique, séances en petits groupes, dames bienvenues.",
         "specialties": ["Service", "Retour de service", "Volée", "Déplacements"],
         "clubs": [("Padel Club La Marsa", "71 745 100"), ("Hammamet Padel Club", "72 280 330")],
-        "prices": (55000, 35000, 25000), "durations": (60, 75, 90), "auto_confirm": False,
+        "prices": (55000, 35000, 25000), "durations": (60, 90, 90), "auto_confirm": False,
         "availability": [(d, "09:00", "13:00") for d in range(1, 7)] + [(d, "15:00", "20:00") for d in range(1, 7)],
         "happy_hours": [(d, "15:00", "17:00", 10000) for d in (1, 2, 3)],  # -10 TND
         "players": [("Leila Chebbi", "F", "P25+"), ("Hana Ben Romdhane", "F", "P50-"), ("Malek Toumi", "M", "P50+"),

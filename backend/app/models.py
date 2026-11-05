@@ -18,7 +18,8 @@ class Coach(Base):
     name: Mapped[str] = mapped_column(String(120))
     # Réservation par les joueurs avec leurs crédits
     auto_confirm: Mapped[bool] = mapped_column(default=True)
-    slot_minutes: Mapped[int] = mapped_column(Integer, default=60)  # durée d'une séance individuelle
+    slot_minutes: Mapped[int] = mapped_column(Integer, default=60)  # ancien réglage (durées choisies par le joueur maintenant)
+    hourly_prices: Mapped[bool] = mapped_column(default=True)  # prix par heure (anciens prix par séance convertis au démarrage)
     duration_duo: Mapped[int | None] = mapped_column(Integer, nullable=True)  # None = comme slot_minutes
     duration_groupe: Mapped[int | None] = mapped_column(Integer, nullable=True)
     price_individuel: Mapped[int] = mapped_column(Integer, default=0)  # prix par joueur, en millimes
@@ -105,6 +106,7 @@ class Attendance(Base):
     to_improve: Mapped[str] = mapped_column(Text, default="")
     credit_paid_millimes: Mapped[int] = mapped_column(Integer, default=0)  # payé avec les crédits: rien à facturer
     accepted_kinds: Mapped[str] = mapped_column(String(40), default="")  # formules acceptées (séance formée par les joueurs, services/groups)
+    refunded: Mapped[bool] = mapped_column(default=False)  # absent, remboursé par le coach: rien à payer
 
 
 class Club(Base):

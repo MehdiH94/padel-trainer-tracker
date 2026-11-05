@@ -139,8 +139,8 @@ def booking_out(db: Session, coach: Coach, b: Booking) -> dict:
         "min_players": min(grp.sizes(grp.split(b.accepted_kinds) or [b.kind])),  # minimum voulu (plus petite formule cochée)
         "players_count": len(s.attendances) if s else 0, "min_needed": grp.min_needed(s) if s else None,
         # prix convenu; les réservations d'avant les remises n'en ont pas: prix de la séance ou tarif du coach
-        "price_millimes": b.price_millimes or b.charged_millimes or (s.price_millimes if s else 0) or base_price(coach, b.kind),
-        "base_millimes": base_price(coach, b.kind),
+        "price_millimes": b.price_millimes or b.charged_millimes or (s.price_millimes if s else 0) or base_price(coach, b.kind, b.duration_min),
+        "base_millimes": base_price(coach, b.kind, b.duration_min),
     }
     if b.status == "en_attente":
         # y a-t-il un terrain pour ce créneau ?

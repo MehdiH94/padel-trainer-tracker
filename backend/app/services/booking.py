@@ -1,6 +1,5 @@
 """Réservations des joueurs payées avec leurs crédits: créneaux libres, suggestions de groupes, demandes."""
 from datetime import datetime, time, timedelta, timezone
-from math import gcd
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -13,7 +12,7 @@ from . import groups
 from ..notify import letter
 from .common import TUNIS, aware, quand
 from .finance import credit_balance
-from .pricing import duration_for, quote, reduced
+from .pricing import duration_for, kinds_at, quote, reduced
 
 HORIZON_DAYS = 14
 MIN_NOTICE_H = 2
@@ -66,24 +65,13 @@ def join_price(coach: Coach, s: TrainingSession, target: int) -> int:
 
 # --- Créneaux libres ----------------------------------------------------
 
-def _longest(coach: Coach, kinds: list[str], default: int) -> int:
-    """Durée la plus longue parmi les formules encore possibles: c'est elle qui est retenue sur le planning
-    (une séance ouverte « seul ou en groupe » peut devenir un groupe de 90 min: personne ne doit commencer à 9 h)."""
-    return max([duration_for(coach, k) for k in kinds] + [default])
-
-
 def _busy(db: Session, coach: Coach) -> list[tuple[datetime, datetime]]:
-    """Périodes déjà prises chez ce coach: séances (toute la durée qu'elles peuvent encore atteindre) et demandes
-    de nouvelles séances pas encore traitées."""
-    busy = []
-    for s in db.scalars(select(TrainingSession).where(TrainingSession.coach_id == coach.id, TrainingSession.status != "annulee")):
-        minutes = s.duration_min
-        if s.status == "prevue" and groups.is_dynamic(s) and s.duration_min == duration_for(coach, s.kind):
-            minutes = _longest(coach, [groups.kind_for_size(n) for n in groups.allowed(s)], s.duration_min)
-        busy.append((aware(s.start), aware(s.start) + timedelta(minutes=minutes)))
+    """Périodes déjà prises chez ce coach: séances et demandes de nouvelles séances pas encore traitées
+    (la durée est fixée à l'ouverture: choisie par le joueur ou par le coach)."""
+    busy = [(aware(s.start), aware(s.start) + timedelta(minutes=s.duration_min))
+            for s in db.scalars(select(TrainingSession).where(TrainingSession.coach_id == coach.id, TrainingSession.status != "annulee"))]
     for b in db.scalars(select(Booking).where(Booking.coach_id == coach.id, Booking.status == "en_attente", Booking.session_id.is_(None))):
-        minutes = _longest(coach, groups.split(b.accepted_kinds), b.duration_min) if b.duration_min == duration_for(coach, b.kind) else b.duration_min
-        busy.append((aware(b.start), aware(b.start) + timedelta(minutes=minutes)))
+        busy.append((aware(b.start), aware(b.start) + timedelta(minutes=b.duration_min)))
     return busy
 
 
@@ -100,15 +88,15 @@ def _fits(cur: datetime, length: timedelta, lo: datetime, hi: datetime, busy, sh
 
 
 def _grid(coach: Coach) -> tuple[timedelta, timedelta]:
-    durations = [duration_for(coach, k) for k in CAPACITY]
-    return timedelta(minutes=gcd(*durations)), timedelta(minutes=min(durations))
+    """Débuts toutes les 30 min (séances d'1 h ou d'1 h 30); pas de trou de moins d'1 h entre deux séances."""
+    return timedelta(minutes=30), timedelta(minutes=60)
 
 
 def _free_on_courts(db: Session, coach: Coach, now: datetime, earliest: datetime, minutes: int | None) -> list[datetime]:
     """Mode « terrains »: créneaux qui tiennent entièrement dans un terrain réservé encore libre (et le coach libre)."""
     busy = _busy(db, coach)
     step, shortest = _grid(coach)
-    length = timedelta(minutes=minutes or coach.slot_minutes)
+    length = timedelta(minutes=minutes or 60)
     horizon = now + timedelta(days=HORIZON_DAYS + 1)
     out = set()
     for cb in db.scalars(select(CourtBooking).where(CourtBooking.coach_id == coach.id, CourtBooking.session_id.is_(None),
@@ -137,58 +125,6 @@ def is_day_off(offs: list[tuple], when: datetime) -> bool:
     return any(a <= d <= b for a, b in offs)
 
 
-def free_windows(db: Session, coach: Coach, now: datetime | None = None) -> list[tuple[datetime, datetime]]:
-    """Plages libres (terrains libres ou disponibilités, moins les séances et demandes), à partir du préavis,
-    hors jours d'absence."""
-    now = now or datetime.now(timezone.utc)
-    earliest = now + timedelta(hours=MIN_NOTICE_H)
-    horizon = now + timedelta(days=HORIZON_DAYS + 1)
-    base = []
-    if coach.booking_mode != "disponibilites":
-        for cb in db.scalars(select(CourtBooking).where(CourtBooking.coach_id == coach.id, CourtBooking.session_id.is_(None),
-                                                       CourtBooking.status == "confirmee", CourtBooking.start.is_not(None))):
-            base.append((aware(cb.start), aware(cb.start) + timedelta(minutes=cb.duration_min)))
-    else:
-        today = now.astimezone(TUNIS).date()
-        for w in db.scalars(select(Availability).where(Availability.coach_id == coach.id)):
-            for off in range(HORIZON_DAYS + 1):
-                day = today + timedelta(days=off)
-                if day.weekday() == w.weekday:
-                    base.append((datetime.combine(day, time.fromisoformat(w.start_time), TUNIS).astimezone(timezone.utc),
-                                 datetime.combine(day, time.fromisoformat(w.end_time), TUNIS).astimezone(timezone.utc)))
-    busy = sorted(_busy(db, coach))
-    offs = days_off(db, coach)
-    out = []
-    for lo, hi in base:
-        cur = lo
-        for b_start, b_end in busy:
-            if b_end <= cur or b_start >= hi:
-                continue
-            if b_start > cur:
-                out.append((cur, b_start))
-            cur = max(cur, b_end)
-        if cur < hi:
-            out.append((cur, hi))
-    return sorted((a, b) for a, b in out if a >= earliest and a < horizon and not is_day_off(offs, a))
-
-
-def slot_choices(db: Session, coach: Coach, kind: str, now: datetime | None = None) -> list[tuple[datetime, int]]:
-    """Débuts et durées proposés pour une formule. La durée préférée du coach (Réglages) d'abord; mais quand une
-    plage libre n'a pas de place pour elle sans laisser de trou, la plage entière est proposée à toutes les formules,
-    au prorata du prix: 1 h restante = un groupe peut y jouer 1 h; 1 h 30 restante = un joueur seul y joue 1 h 30
-    (pas de demi-heure perdue)."""
-    pref = duration_for(coach, kind)
-    _, shortest = _grid(coach)
-    starts = free_slots(db, coach, now, minutes=pref)
-    out = {(s, pref) for s in starts}
-    for lo, hi in free_windows(db, coach, now):
-        length = int((hi - lo).total_seconds() // 60)
-        if any(lo <= s < hi for s in starts) or length < shortest.total_seconds() // 60 or length > 2 * pref:
-            continue
-        out.add((lo, length))
-    return sorted(out)
-
-
 def free_slots(db: Session, coach: Coach, now: datetime | None = None, minutes: int | None = None) -> list[datetime]:
     """Créneaux libres, sauf les jours d'absence du coach."""
     offs = days_off(db, coach)
@@ -206,7 +142,7 @@ def _free_slots(db: Session, coach: Coach, now: datetime | None = None, minutes:
     windows = db.scalars(select(Availability).where(Availability.coach_id == coach.id)).all()
     busy = _busy(db, coach)
     step, shortest = _grid(coach)
-    length = timedelta(minutes=minutes or coach.slot_minutes)
+    length = timedelta(minutes=minutes or 60)
     out = []
     today = now.astimezone(TUNIS).date()
     for off in range(HORIZON_DAYS + 1):
@@ -259,7 +195,7 @@ def suggestions(db: Session, coach: Coach, player: Player, kinds: list[str]) -> 
         players = [db.get(Player, pid) for pid in attendee_ids(s)]
         out.append({
             "session_id": s.id, "start": s.start, "duration_min": s.duration_min, "kind": s.kind, "club": s.club,
-            "spots_left": spots_left(db, s), "capacity": CAPACITY[s.kind], "price_millimes": s.price_millimes or price_for(coach, s.kind),
+            "spots_left": spots_left(db, s), "capacity": CAPACITY[s.kind], "price_millimes": s.price_millimes or price_for(coach, s.kind, s.duration_min),
             "players": [{"name": p.name, "category": p.category, "gender": p.gender} for p in players],
             "level": s.level, "gap": round(gap, 1), "court_state": court_state(db, s),
             "match": "ideal" if kind_penalty == 0 else "proche", "_score": gap + kind_penalty + days * 0.03,
@@ -284,9 +220,14 @@ def _debit(db: Session, b: Booking) -> None:
 
 
 def request_join(db: Session, coach: Coach, player: Player, s: TrainingSession, sms: SmsProvider | None = None, *, force_accept: bool = False,
-                 kinds: list[str] | None = None) -> Booking:
-    """Le joueur demande une place dans une séance existante (kinds: formules qu'il a choisies, s'il les a précisées).
+                 kinds: list[str] | None = None, durations: dict | None = None) -> Booking:
+    """Le joueur demande une place dans une séance existante (kinds: formules qu'il a choisies, s'il les a précisées;
+    durations: durées acceptées par formule, seules comptent les formules possibles à la durée de cette séance).
     La taille de la séance après son arrivée doit convenir à tous (voir services/groups)."""
+    if kinds and durations is not None:
+        kinds = kinds_at(kinds, durations, s.duration_min)
+        if not kinds:
+            raise BookingError(f"Cette séance dure {s.duration_min} min : ce n'est pas la durée que vous avez choisie")
     if not s.open or s.status != "prevue" or aware(s.start) < datetime.now(timezone.utc):
         raise BookingError("Cette séance n'est plus disponible")
     if player.id in attendee_ids(s) or db.scalar(select(Booking).where(Booking.session_id == s.id, Booking.player_id == player.id, Booking.status.in_(ACTIVE))):
@@ -312,23 +253,25 @@ def request_join(db: Session, coach: Coach, player: Player, s: TrainingSession, 
 
 
 def request_new(db: Session, coach: Coach, player: Player, kind: str, start: datetime, sms: SmsProvider | None = None,
-                accepted_kinds: list[str] | None = None, minutes: int | None = None) -> Booking:
-    """Le joueur demande un nouveau créneau (séance de ce type, ouverte aux autres joueurs si duo/groupe).
-    accepted_kinds: toutes les formules qu'il accepte (seul, duo, groupe), montrées au coach."""
+                accepted_kinds: list[str] | None = None, minutes: int | None = None, durations: dict | None = None) -> Booking:
+    """Le joueur demande un nouveau créneau (séance ouverte aux autres joueurs si duo/groupe), de la durée choisie.
+    accepted_kinds: formules qu'il accepte (seul, duo, groupe), durations: durées acceptées pour chacune
+    (seul = toujours 1 h). Seules les formules possibles à cette durée sont retenues et montrées au coach."""
     if kind not in CAPACITY:
         raise BookingError("Type de séance invalide")
-    accepted = [k for k in groups.ORDER if k in (accepted_kinds or []) or k == kind]
+    wanted = [k for k in groups.ORDER if k in (accepted_kinds or []) or k == kind]
+    minutes = minutes or 60
+    accepted = kinds_at(wanted, durations, minutes)
+    if not accepted:
+        raise BookingError("Une séance seul dure toujours 1 h" if wanted == ["individuel"] else "Durée impossible pour ces formules (1 h ou 1 h 30)")
     kind = groups.smallest(accepted)  # s'il reste seul (ou au minimum voulu), c'est cette formule qui est jouée
     if not groups.can_open(kind, start):
         raise BookingError("Pour ouvrir une séance à deux ou en groupe, elle doit avoir lieu dans plus de 24 h (le temps de compléter le groupe)")
-    choices = slot_choices(db, coach, kind)
-    if minutes is None:  # durée de la formule, sinon celle du créneau restant à ce début
-        minutes = next((m for s, m in choices if s == aware(start)), duration_for(coach, kind))
-    if (aware(start), minutes) not in choices:
+    if aware(start) not in free_slots(db, coach, minutes=minutes):
         raise BookingError("Ce créneau n'est plus disponible")
-    q = quote(db, coach, kind, start, minutes)  # prix au prorata de la durée, heures creuses / promotion
+    q = quote(db, coach, kind, start, minutes)  # prix de l'heure au prorata, heures creuses / promotion
     price = q["price_millimes"]
-    b = Booking(coach_id=coach.id, player_id=player.id, kind=kind, start=aware(start), duration_min=q["duration_min"], charged_millimes=0,
+    b = Booking(coach_id=coach.id, player_id=player.id, kind=kind, start=aware(start), duration_min=minutes, charged_millimes=0,
                 accepted_kinds=",".join(accepted), price_millimes=price, discount_pct=q["discount_pct"],
                 discount_millimes=q["discount_millimes"])
     db.add(b)

@@ -86,10 +86,10 @@ export default function SessionForm({ players, onDone, initial }) {
   useEffect(() => {
     // un seul club: choisi d'office (le menu apparaît quand le coach a plusieurs clubs)
     api("/clubs").then((cs) => { setClubs(cs); if (cs.length === 1) setF((x) => ({ ...x, club_id: x.club_id || String(cs[0].id) })); });
-    api("/booking/settings").then((st) => { setPrefs(st); setF((x) => ({ ...x, duration_min: st.slot_minutes || x.duration_min })); }).catch(() => {});
+    api("/booking/settings").then((st) => { setPrefs(st); setF((x) => ({ ...x, duration_min: x.duration_min || 60 })); }).catch(() => {});
   }, []);
-  const DUR = { individuel: "slot_minutes", duo: "duration_duo", groupe: "duration_groupe" };
-  const base = prefs ? prefs["price_" + f.kind] : 0; // prix par joueur de la formule (Réglages)
+  const DUR = { individuel: 60, duo: 90, groupe: 90 }; // durée proposée par défaut (le coach choisit librement)
+  const base = prefs ? Math.round((prefs["price_" + f.kind] * f.duration_min) / 60) : 0; // prix de l'heure (Réglages) au prorata de la durée
   const price = Math.max(base - f.discount_millimes, 0); // réduction en dinars par joueur
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
   const max = KIND[f.kind].cap;
@@ -97,7 +97,7 @@ export default function SessionForm({ players, onDone, initial }) {
 
   function setKind(kind) {
     setF({ ...f, kind, player_ids: f.player_ids.slice(0, KIND[kind].cap), open: kind !== "individuel",
-      duration_min: prefs?.[DUR[kind]] || f.duration_min }); // durée de la formule dans vos réglages
+      duration_min: DUR[kind] }); // durée proposée, modifiable
   }
   function togglePlayer(id) {
     if (max === 1) return setF({ ...f, player_ids: [id] });

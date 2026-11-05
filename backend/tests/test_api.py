@@ -597,7 +597,7 @@ def test_completed_session_shows_what_each_player_paid(client):
     client.post("/payments", json={"player_id": a, "amount_millimes": 25000, "session_id": s["id"]})
     client.post("/payments", json={"player_id": a, "amount_millimes": 15000, "session_id": s["id"]})
     pay = {x["player_id"]: x for x in client.get("/sessions").json()[0]["payments"]}
-    assert pay[a] == {"player_id": a, "due_millimes": 40000, "credit_millimes": 0, "paid_millimes": 40000}
+    assert pay[a] == {"player_id": a, "due_millimes": 40000, "credit_millimes": 0, "paid_millimes": 40000, "refunded": False}
     assert pay[b]["paid_millimes"] == 0 and pay[b]["due_millimes"] == 40000
     other = mkplayer(client, phone="22 000 222", name="Cyr")["id"]  # pas dans la séance
     assert client.post("/payments", json={"player_id": other, "amount_millimes": 1000, "session_id": s["id"]}).status_code == 404
@@ -823,7 +823,8 @@ def test_player_books_with_another_coach_and_sees_coach_page(client):
     assert {w["coach_id"] for w in pc.get("/me").json()["wallets"]} == {coaches[0]["id"], coaches[1]["id"]}
     # en groupe: le groupe déjà formé chez le second coach est proposé, avec de nouveaux créneaux
     host = other.post("/players", json={"name": "Host", "phone": "22 999 999", "category": "P250-"}).json()
-    g_start = next(x for x in slots if _day_of(x) == day and x != target)
+    t0 = datetime.fromisoformat(target)
+    g_start = next(x for x in slots if _day_of(x) == day and abs(datetime.fromisoformat(x) - t0) >= timedelta(hours=2))
     g = other.post("/sessions", json={"start": g_start, "kind": "groupe", "open": True, "player_ids": [host["id"]], "price_millimes": 30000, "club_id": club["id"]}).json()[0]
     # (à moins de 24 h, il faut accepter d'être 2: plus le temps de compléter un groupe de 3)
     off = pc.get(f"/me/offers?day={day}&kinds=duo,groupe").json()
@@ -836,40 +837,76 @@ def test_player_books_with_another_coach_and_sees_coach_page(client):
 
 # --- Formules multiples, durées par formule, happy hours, promotions ---------
 
-def test_durations_happy_hours_and_multiple_kinds(client):
-    open_week(client)
+def test_player_chooses_duration_happy_hours_and_multiple_kinds(client):
+    """Le joueur choisit la durée: seul = toujours 1 h; à deux / en groupe = 1 h, 1 h 30 (par défaut) ou les deux.
+    Prix du coach par heure et par joueur, 1 h 30 au prorata (x 1,5)."""
+    open_week(client)  # 60 / 40 / 30 TND l'heure
     st = client.get("/booking/settings").json()
     hh = [{"weekday": d, "start_time": "09:00", "end_time": "12:00", "discount_millimes": 15000} for d in range(7)]  # heures creuses: -15 TND
-    st = client.put("/booking/settings", json={**st, "duration_groupe": 90, "happy_hours": hh}).json()
-    assert (st["duration_duo"], st["duration_groupe"], len(st["happy_hours"])) == (60, 90, 7)
+    st = client.put("/booking/settings", json={**st, "happy_hours": hh}).json()
     assert client.put("/booking/settings", json={**st, "happy_hours": [{**hh[0], "discount_millimes": 0}]}).status_code == 422
     p, pc = player_client(client)
     day = _day_of(pc.get("/me/slots").json()[-1])
-    off = pc.get(f"/me/offers?day={day}&kinds=individuel,groupe").json()
-    slots = off["slots_other"]
-    morning = next(x for x in slots if datetime.fromisoformat(x["start"].replace("Z", "+00:00")).astimezone(timezone.utc).hour == 8)  # 9h à Tunis
-    opts = {o["kind"]: o for o in morning["options"]}
-    assert opts["groupe"]["duration_min"] == 90 and opts["individuel"]["duration_min"] == 60
-    assert opts["individuel"]["price_millimes"] == 45000 and opts["individuel"]["reason"] == "happy_hour"  # 60 TND - 15 TND
-    # grille commune: créneaux toutes les 30 min, mais un groupe de 90 min ne dépasse pas 21h
-    last = [x for x in slots if any(o["kind"] == "groupe" for o in x["options"])][-1]
-    assert datetime.fromisoformat(last["start"].replace("Z", "+00:00")).astimezone(timezone.utc).strftime("%H:%M") == "18:30"  # 19h30 à Tunis
-    # réservation: formules acceptées montrées au coach; il démarre seul (plus petite formule cochée), prix happy hour retenu
-    r = pc.post("/me/book", json={"kind": "groupe", "start": morning["start"], "kinds": ["individuel", "groupe"]}).json()
+    utc = lambda x: datetime.fromisoformat(x["start"].replace("Z", "+00:00")).astimezone(timezone.utc)  # noqa: E731
+    off = pc.get(f"/me/offers?day={day}&kinds=individuel,groupe&groupe_min=90").json()
+    morning = next(x for x in off["slots_other"] if utc(x).hour == 8 and utc(x).minute == 0)  # 9 h à Tunis
+    opts = {(o["kind"], o["duration_min"]): o for o in morning["options"]}
+    assert set(opts) == {("individuel", 60), ("groupe", 90)}  # jamais seul 1 h 30, groupe seulement 1 h 30 (son choix)
+    assert opts[("individuel", 60)]["price_millimes"] == 45000 and opts[("individuel", 60)]["reason"] == "happy_hour"  # 60 - 15
+    assert opts[("groupe", 90)]["base_millimes"] == 45000 and opts[("groupe", 90)]["price_millimes"] == 30000  # 30 TND/h x 1,5 - 15
+    both = pc.get(f"/me/offers?day={day}&kinds=groupe&groupe_min=60,90").json()["slots_other"]
+    assert {o["duration_min"] for x in both for o in x["options"]} == {60, 90}  # les deux durées, chacune son prix
+    last = [x for x in off["slots_other"] if any(o["duration_min"] == 90 for o in x["options"])][-1]
+    assert utc(last).strftime("%H:%M") == "18:30"  # un groupe d'1 h 30 ne dépasse pas 21 h
+    # seul: toujours 1 h
+    assert pc.post("/me/book", json={"kind": "individuel", "start": morning["start"], "kinds": ["individuel"], "minutes": 90}).status_code == 409
+    # 1 h: seul ou groupe d'1 h 30 -> à 1 h seule la formule « seul » reste
+    r = pc.post("/me/book", json={"kind": "individuel", "start": morning["start"], "kinds": ["individuel", "groupe"], "minutes": 60, "durations": {"groupe": [90]}}).json()
     req = client.get("/booking/requests").json()[0]
-    assert req["accepted_kinds"] == ["individuel", "groupe"] and req["kind"] == "individuel" and req["duration_min"] == 60 and req["price_millimes"] == 45000
-    # en groupe uniquement: 90 min, prix du groupe avec la happy hour
+    assert req["accepted_kinds"] == ["individuel"] and req["kind"] == "individuel" and req["duration_min"] == 60 and req["price_millimes"] == 45000
+    # en groupe 1 h 30, juste après (sans trou)
     p2, pc2 = player_client(client, name="Gaby", phone="20444555")
-    # le 1er créneau (9 h, seul ou en groupe) peut devenir un groupe de 90 min: il retient 9 h-10 h 30, 10 h n'est plus proposé
-    t0 = datetime.fromisoformat(morning["start"].replace("Z", "+00:00"))
-    at10 = (t0 + timedelta(hours=1)).isoformat()
-    assert pc2.post("/me/book", json={"kind": "groupe", "start": at10, "kinds": ["groupe"]}).status_code == 409
-    later = [x for x in pc2.get(f"/me/offers?day={day}&kinds=groupe").json()["slots_other"] if datetime.fromisoformat(x["start"].replace("Z", "+00:00")) > t0]
-    assert datetime.fromisoformat(later[0]["start"].replace("Z", "+00:00")) == t0 + timedelta(minutes=90)  # juste après, sans trou
-    r2 = pc2.post("/me/book", json={"kind": "groupe", "start": next(x for x in later if any(o["kind"] == "groupe" and o["reason"] == "happy_hour" for o in x["options"]))["start"], "kinds": ["groupe"]}).json()
+    t0 = utc(morning)
+    later = [x for x in pc2.get(f"/me/offers?day={day}&kinds=groupe&groupe_min=90").json()["slots_other"] if utc(x) > t0]
+    assert utc(later[0]) == t0 + timedelta(minutes=60)
+    r2 = pc2.post("/me/book", json={"kind": "groupe", "start": later[0]["start"], "kinds": ["groupe"], "minutes": 90, "durations": {"groupe": [90]}}).json()
     req2 = next(x for x in client.get("/booking/requests").json() if x["id"] == r2["id"])
-    assert (req2["kind"], req2["duration_min"], req2["price_millimes"]) == ("groupe", 90, 15000)
+    assert (req2["kind"], req2["duration_min"], req2["price_millimes"]) == ("groupe", 90, 30000)
     assert r["status"] == "en_attente" and r["charged_millimes"] == 0  # validation par le coach, rien de débité avant
+
+
+def test_session_of_another_duration_is_shown_with_a_note(client):
+    """Duo d'1 h 30 demandé: une séance à deux d'1 h existante est quand même montrée (« autre durée »);
+    le joueur peut la rejoindre en acceptant cette durée."""
+    open_week(client)
+    a, b = mkplayer(client, name="Host"), None
+    start = (datetime.now(timezone.utc) + timedelta(days=3)).replace(hour=9, minute=0, second=0, microsecond=0)
+    s = client.post("/sessions", json={"start": start.isoformat(), "kind": "duo", "duration_min": 60, "open": True, "player_ids": [a["id"]]}).json()[0]
+    p, pc = player_client(client, phone="20555666")
+    g = pc.get(f"/me/offers?day={_day_of(start.isoformat())}&kinds=duo&duo_min=90").json()["groups"]
+    assert [(x["session_id"], x["other_duration"]) for x in g] == [(s["id"], True)]
+    assert pc.post("/me/book", json={"session_id": s["id"], "kinds": ["duo"], "durations": {"duo": [90]}}).status_code == 409
+    r = pc.post("/me/book", json={"session_id": s["id"], "kinds": ["duo"], "durations": {"duo": [60, 90]}})
+    assert r.status_code == 201 and r.json()["price_millimes"] == 40000  # 1 h à deux
+
+
+def test_coach_refunds_an_absent_player(client):
+    """Séance effectuée, un joueur n'est pas venu: le coach le rembourse, ses crédits lui reviennent."""
+    open_week(client)  # 40 TND l'heure à deux
+    a, b = mkplayer(client, name="Ali"), mkplayer(client, name="Bea")
+    start = (datetime.now(timezone.utc) + timedelta(days=1)).isoformat()
+    s = client.post("/sessions", json={"start": start, "kind": "duo", "player_ids": [a["id"], b["id"]], "discount_millimes": 0}).json()[0]
+    client.patch(f"/sessions/{s['id']}", json={"status": "effectuee"})
+    for x in (a, b):  # la recharge règle d'abord la séance effectuée
+        client.post(f"/players/{x['id']}/credits", json={"amount_millimes": 100000})
+    bal = lambda x: client.get(f"/players/{x['id']}/credits").json()["balance_millimes"]  # noqa: E731
+    assert bal(a) == bal(b) == 60000  # 40 TND l'heure, à deux
+    out = client.post(f"/sessions/{s['id']}/refund/{b['id']}").json()
+    assert next(x for x in out["payments"] if x["player_id"] == b["id"])["refunded"] is True
+    assert bal(b) == 100000 and bal(a) == 60000
+    assert client.post(f"/sessions/{s['id']}/refund/{b['id']}").status_code == 409  # pas deux fois
+    client.patch(f"/sessions/{s['id']}", json={"status": "prevue"})  # retour à « prévue »: rien n'est rendu deux fois
+    assert bal(b) == 100000
 
 
 def test_promotion_on_reserved_court_notifies_players(client, monkeypatch):
@@ -921,7 +958,7 @@ def test_dp001_debit_on_coach_validation_and_negative_balance(client):
     open_week(client, auto_confirm=False)
     p, pc = player_client(client)
     client.post(f"/players/{p['id']}/credits", json={"amount_millimes": 120000})
-    slots = pc.get("/me/slots").json()
+    slots = [s for s in pc.get("/me/slots").json() if s[14:16] == "00"]  # heures pleines (grille de 30 min)
     ids = [pc.post("/me/book", json={"kind": "individuel", "start": slots[i]}).json()["id"] for i in (-1, -3, -5, -7)]  # loin: annulable
     bal = lambda: pc.get("/me").json()["credits_millimes"]  # noqa: E731
     assert bal() == 120000  # demandes en attente: rien de débité
@@ -1678,11 +1715,10 @@ def test_public_signup_without_coach_then_books_a_coach(client, monkeypatch):
 
 
 def test_slots_never_overlap_and_leave_no_unusable_gap(client):
-    """Terrain 8 h-12 h, séances de 60 et 90 min: une séance ouverte à 8 h (pouvant durer 90 min) bloque jusqu'à 9 h 30;
-    les débuts proposés ne laissent jamais de trou de moins d'une séance (ex. pas de début à 8 h 30)."""
+    """Terrain 8 h-12 h: une séance d'1 h 30 ouverte à 8 h bloque jusqu'à 9 h 30; les débuts proposés ne laissent
+    jamais de trou de moins d'1 h (ex. pas de début à 8 h 30)."""
     st = client.get("/booking/settings").json()
-    client.put("/booking/settings", json={**st, "auto_confirm": False, "slot_minutes": 60, "duration_duo": 60, "duration_groupe": 90,
-                                          "price_individuel": 60000, "price_duo": 40000, "price_groupe": 30000, "booking_mode": "terrains"})
+    client.put("/booking/settings", json={**st, "auto_confirm": False, "price_individuel": 60000, "price_duo": 40000, "price_groupe": 30000, "booking_mode": "terrains"})
     day = (datetime.now(timezone.utc) + timedelta(days=4)).date()
     eight = datetime(day.year, day.month, day.day, 7, 0, tzinfo=timezone.utc)  # 8 h à Tunis
     free_court(client, eight.isoformat(), minutes=240)
@@ -1691,7 +1727,7 @@ def test_slots_never_overlap_and_leave_no_unusable_gap(client):
     first = pc.get(f"/me/offers?day={day}&kinds=individuel").json()["slots_with_court"]
     # terrain déjà payé: pas d'heure creuse, seulement au bord du terrain (8 h, ou 11 h pour finir à midi)
     assert hhmm(first) == ["08:00", "11:00"]
-    r = pc.post("/me/book", json={"kind": "groupe", "start": eight.isoformat(), "kinds": ["individuel", "groupe"]})
+    r = pc.post("/me/book", json={"kind": "groupe", "start": eight.isoformat(), "kinds": ["groupe"], "minutes": 90})
     assert r.status_code == 201
     after = pc.get(f"/me/offers?day={day}&kinds=individuel,duo,groupe").json()["slots_with_court"]
     assert hhmm(after)[0] == "09:30" and "09:00" not in hhmm(after)  # à la suite du groupe (8 h-9 h 30)
@@ -2066,30 +2102,6 @@ def test_player_specific_spider_criteria(client):
     assert [s["stroke"] for s in client.get(f"/players/{p['id']}/profile").json()["skills"]] == names
     assert len(client.get(f"/players/{q['id']}/profile").json()["skills"]) == 9  # les autres gardent ceux du coach
     assert client.put(f"/players/{p['id']}/criteria", json={"names": []}).json()["custom"] is False
-
-
-def test_flexible_durations_fill_the_remaining_window(client):
-    """Durées préférées du coach (seul 60 min, groupe 90 min), mais pas de règle stricte: 1 h libre = un groupe
-    peut y jouer 1 h; 1 h 30 libre = un joueur seul y joue 1 h 30 (pas de demi-heure perdue). Prix au prorata."""
-    st = client.get("/booking/settings").json()
-    client.put("/booking/settings", json={**st, "auto_confirm": False, "slot_minutes": 60, "duration_duo": 60, "duration_groupe": 90,
-                                          "price_individuel": 60000, "price_duo": 40000, "price_groupe": 30000, "booking_mode": "terrains"})
-    day = (datetime.now(timezone.utc) + timedelta(days=4)).date()
-    at = lambda h, m=0: datetime(day.year, day.month, day.day, h, m, tzinfo=timezone.utc)  # noqa: E731
-    club = mkclub(client)
-    free_court(client, at(7).isoformat(), minutes=60, club=club)  # 8 h-9 h à Tunis: 1 h libre
-    client.post("/court-bookings/manual", json={"club_id": club["id"], "start": at(13).isoformat(), "duration_min": 90})  # 14 h-15 h 30
-    p, pc = player_client(client)
-    off = pc.get(f"/me/offers?day={day}&kinds=individuel,groupe").json()["slots_with_court"]
-    opts = {(x["start"][11:16], o["kind"]): o for x in off for o in x["options"]}
-    assert opts[("07:00", "groupe")]["duration_min"] == 60 and opts[("07:00", "groupe")]["price_millimes"] == 20000  # 30 TND/1 h 30 -> 20 TND/1 h
-    assert opts[("13:00", "individuel")]["duration_min"] == 90 and opts[("13:00", "individuel")]["price_millimes"] == 90000  # 60 TND/h -> 90
-    assert ("13:30", "individuel") not in opts  # pas de demi-heure perdue
-    r = pc.post("/me/book", json={"kind": "individuel", "kinds": ["individuel"], "start": at(13).isoformat(), "minutes": 90}).json()
-    assert r["status"] == "en_attente"
-    req = next(x for x in client.get("/booking/requests").json() if x["id"] == r["id"])
-    assert (req["duration_min"], req["price_millimes"]) == (90, 90000)
-    assert pc.post("/me/book", json={"kind": "individuel", "kinds": ["individuel"], "start": at(7).isoformat(), "minutes": 45}).status_code == 409
 
 
 def test_player_planning_matches_coach_feedback_and_progress(client):

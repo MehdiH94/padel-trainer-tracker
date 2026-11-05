@@ -42,11 +42,18 @@ NEW_COLUMNS = [
     ("coaches", "email_token_sent_at", "TIMESTAMP"),
     ("happy_hours", "discount_millimes", "INTEGER DEFAULT 0"), ("promotions", "discount_millimes", "INTEGER DEFAULT 0"),
     ("bookings", "discount_millimes", "INTEGER DEFAULT 0"), ("skill_ratings", "value", "INTEGER"), ("coaches", "criteria", "TEXT"), ("players", "criteria", "TEXT"),
+    ("coaches", "hourly_prices", "BOOLEAN DEFAULT 0"), ("attendances", "refunded", "BOOLEAN DEFAULT 0"),
 ]
 with engine.begin() as conn:
     for table, column, ddl in NEW_COLUMNS:
         if column not in {c["name"] for c in inspect(engine).get_columns(table)}:
             conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}"))
+            if column == "hourly_prices":  # prix par séance de la durée de la formule -> prix par heure (une seule fois)
+                conn.execute(text("UPDATE coaches SET price_individuel = ROUND(price_individuel * 60.0 / slot_minutes) WHERE slot_minutes > 0 AND slot_minutes != 60"))
+                for k in ("duo", "groupe"):
+                    conn.execute(text(f"UPDATE coaches SET price_{k} = ROUND(price_{k} * 60.0 / COALESCE(duration_{k}, slot_minutes)) "
+                                      f"WHERE COALESCE(duration_{k}, slot_minutes) > 0 AND COALESCE(duration_{k}, slot_minutes) != 60"))
+                conn.execute(text("UPDATE coaches SET hourly_prices = 1"))
             if column == "email_verified_at":  # comptes créés avant la vérification (DP-002): considérés comme vérifiés
                 conn.execute(text("UPDATE players SET email_verified_at = CURRENT_TIMESTAMP WHERE password_hash IS NOT NULL"))
     # Notes de 1 à 5 (avant) -> 0 à 100 (note sur 10 au dixième)

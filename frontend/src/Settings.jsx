@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, peek } from "./api.js";
+import { api, peek, tnd } from "./api.js";
 import Icon from "./Icon.jsx";
 import { toast, toastError } from "./feedback.jsx";
 import CriteriaEditor from "./CriteriaEditor.jsx";
@@ -7,7 +7,6 @@ import { ClockPicker, KIND, Loading, MoneyInput } from "./ui.jsx";
 
 const DAYS = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"];
 const FULL_DAYS = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"];
-const DUR = { individuel: "slot_minutes", duo: "duration_duo", groupe: "duration_groupe" }; // champ de durée par formule
 
 export default function Settings({ onBack, sub }) {
   const [s, setS] = useState(() => peek("/booking/settings") ?? null);
@@ -93,15 +92,14 @@ export default function Settings({ onBack, sub }) {
         <div className="mut small-p" style={{ marginTop: 6 }}>Pensez à enregistrer en bas de la page.</div>
       </div>
 
-      <h2 id="formules">Formules : durée et prix par joueur</h2>
+      <h2 id="formules">Formules : prix par heure et par joueur</h2>
       <div className="card">
+        <div className="mut small-p" style={{ marginBottom: 8 }}>Vos joueurs choisissent la durée en réservant : seul toujours 1 h, à deux ou en groupe 1 h ou 1 h 30 (prix × 1,5). Vos propres séances, vous les créez de la durée que vous voulez.</div>
         {Object.entries(KIND).map(([k, v]) => (
           <div className="formula" key={k}>
             <span className="formula-name"><Icon name={v.icon} size={16} /> <b>{v.label}</b> <span className="mut">· {v.short}</span></span>
-            <select aria-label={`Durée ${v.label}`} value={s[DUR[k]]} onChange={(e) => setS({ ...s, [DUR[k]]: +e.target.value })}>
-              {[45, 60, 75, 90, 120].map((m) => <option key={m} value={m}>{m} min</option>)}
-            </select>
-            <span className="inputunit"><MoneyInput label={`Prix ${v.label}`} value={s["price_" + k]} onChange={(m) => setS({ ...s, ["price_" + k]: m })} /><em>TND</em></span>
+            <span className="inputunit"><MoneyInput label={`Prix ${v.label}`} value={s["price_" + k]} onChange={(m) => setS({ ...s, ["price_" + k]: m })} /><em>TND / h</em></span>
+            {k !== "individuel" && s["price_" + k] > 0 && <small className="mut">1 h 30 : {tnd(Math.round(s["price_" + k] * 1.5))}</small>}
           </div>
         ))}
       </div>

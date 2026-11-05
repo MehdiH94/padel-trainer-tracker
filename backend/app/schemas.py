@@ -114,6 +114,7 @@ class PlayerPaymentOut(BaseModel):
     due_millimes: int  # part due pour cette séance (0 si payée avec les crédits)
     credit_millimes: int  # payé avec les crédits
     paid_millimes: int  # paiements enregistrés pour cette séance
+    refunded: bool = False  # absent, remboursé par le coach
 
 
 class SessionOut(BaseModel):

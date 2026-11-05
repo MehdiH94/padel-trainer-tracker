@@ -134,7 +134,8 @@ class BookIn(BaseModel):
     start: datetime | None = None  # nouveau créneau
     coach_id: int | None = None  # coach du nouveau créneau (par défaut: le coach qui a invité le joueur)
     kinds: list[str] = []  # toutes les formules acceptées par le joueur (montrées au coach)
-    minutes: int | None = None  # durée du créneau proposé (formule, ou plage restante entière)
+    minutes: int | None = None  # durée du nouveau créneau (60 ou 90)
+    durations: dict[str, list[int]] | None = None  # durées acceptées par formule ({"duo": [60, 90]}; seul = toujours 60)
     session_id: int | None = None  # ou rejoindre une séance existante
 
 
@@ -154,9 +155,9 @@ def book(body: BookIn, player: Player = Depends(current_player), db: Session = D
     row = row_for_coach(db, player, coach)  # fiche du joueur chez ce coach (créée au besoin)
     try:
         if s:
-            b = svc.request_join(db, coach, row, s, sms, kinds=body.kinds)
+            b = svc.request_join(db, coach, row, s, sms, kinds=body.kinds, durations=body.durations)
         elif body.start and body.kind:
-            b = svc.request_new(db, coach, row, body.kind, body.start, sms, accepted_kinds=body.kinds, minutes=body.minutes)
+            b = svc.request_new(db, coach, row, body.kind, body.start, sms, accepted_kinds=body.kinds, minutes=body.minutes, durations=body.durations)
         else:
             raise HTTPException(422, "Choisissez une séance ou un créneau")
     except svc.BookingError as e:
@@ -412,7 +413,7 @@ def clubs(player: Player = Depends(current_player), db: Session = Depends(get_db
 
 @router.get("/offers")
 def offers(day: date, kinds: str = "", kind: str = "", coach_id: int | None = None, coach_ids: str = "", club: str | None = None, period: str | None = None,
-           hour: int | None = None, player: Player = Depends(current_player), db: Session = Depends(get_db)):
+           hour: int | None = None, duo_min: str = "", groupe_min: str = "", player: Player = Depends(current_player), db: Session = Depends(get_db)):
     """Pour le jour choisi: groupes à rejoindre et créneaux à créer, selon le coach, le club et les formules acceptées
     (kinds=individuel,duo: plusieurs choix possibles)."""
     wanted = [k for k in (kinds or kind or "groupe").split(",") if k]
@@ -421,4 +422,5 @@ def offers(day: date, kinds: str = "", kind: str = "", coach_id: int | None = No
     player.pref_kinds = ",".join(wanted)  # préférences retenues (groupes proposés par le coach)
     db.commit()
     chosen = {int(x) for x in coach_ids.split(",") if x.strip().isdigit()} or ({coach_id} if coach_id else None)  # un ou plusieurs coachs
-    return marketplace.offers(db, player, day, wanted, chosen, club or None, period or None, hour)
+    durations = {k: [int(x) for x in v.split(",") if x.strip().isdigit()] for k, v in (("duo", duo_min), ("groupe", groupe_min))}  # ex. duo_min=60,90
+    return marketplace.offers(db, player, day, wanted, chosen, club or None, period or None, hour, durations)

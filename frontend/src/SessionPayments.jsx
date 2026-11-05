@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { api, tnd } from "./api.js";
 import Icon from "./Icon.jsx";
-import { toast } from "./feedback.jsx";
+import { confirmDialog, toast, toastError } from "./feedback.jsx";
 import { PlayerTag } from "./ui.jsx";
 
 // Reste à régler par un joueur pour une séance effectuée
@@ -32,6 +32,13 @@ export default function SessionPayments({ s, name, byId, onPaid }) {
       setErr(x.message);
     }
   }
+  // Joueur absent: le coach peut le rembourser (ses crédits lui reviennent, la séance ne lui est plus facturée)
+  async function refund(pid) {
+    const first = name(pid).split(" ")[0];
+    const ok = await confirmDialog({ title: `Rembourser ${first} ?`, message: `${first} n'est pas venu : ce qu'il a payé pour cette séance lui revient en crédits, et elle ne lui est plus facturée.`, confirm: "Rembourser", cancel: "Retour" });
+    if (!ok) return;
+    api(`/sessions/${s.id}/refund/${pid}`, { method: "POST" }).then(() => { toast(`${first} remboursé`); onPaid?.(); }).catch(toastError);
+  }
   return (
     <div className="paylist">
       {s.payments.map((x) => {
@@ -40,11 +47,14 @@ export default function SessionPayments({ s, name, byId, onPaid }) {
           <div key={x.player_id}>
             <div className="payrow">
               <b>{byId?.(x.player_id) ? <PlayerTag p={byId(x.player_id)} /> : name(x.player_id)}</b>
-              {x.credit_millimes > 0 ? (
+              {x.refunded ? (
+                <span className="paytag">Absent · remboursé</span>
+              ) : x.credit_millimes > 0 ? (
                 <span className="paytag ok">Payé en crédits · {tnd(x.credit_millimes)}</span>
               ) : (
                 <span className={"paytag " + (left ? "ko" : "ok")}>Réglé {tnd(x.paid_millimes)} / {tnd(x.due_millimes)}</span>
               )}
+              {!x.refunded && <button className="small sec" onClick={() => refund(x.player_id)}>Absent ? Rembourser</button>}
               {left > 0 && form?.player_id !== x.player_id && (
                 <button className="small sec" onClick={() => setForm({ player_id: x.player_id, amount: (left / 1000).toFixed(3), method: "especes" })}>Encaisser</button>
               )}

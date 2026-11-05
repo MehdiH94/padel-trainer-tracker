@@ -1,4 +1,8 @@
-"""Durées et prix des séances selon la formule (seul / duo / groupe), avec heures creuses et promotions (réductions en dinars)."""
+"""Durées et prix des séances selon la formule (seul / duo / groupe), avec heures creuses et promotions (réductions en dinars).
+
+Le coach fixe un prix par heure et par joueur pour chaque formule; une séance d'une autre durée est au prorata
+(100 TND l'heure -> 150 TND pour 1 h 30). Côté joueur, la durée se choisit à la réservation: seul = toujours 1 h,
+à deux ou en groupe = 1 h, 1 h 30 ou les deux (1 h 30 par défaut). Le coach, lui, crée ses séances comme il veut."""
 from datetime import datetime, timedelta
 
 from sqlalchemy import select
@@ -8,16 +12,33 @@ from ..models import Coach, CourtBooking, HappyHour, Promotion
 from .common import TUNIS, aware
 
 
-def duration_for(coach: Coach, kind: str) -> int:
-    return {"duo": coach.duration_duo, "groupe": coach.duration_groupe}.get(kind) or coach.slot_minutes
+PLAYER_DURATIONS = {"individuel": (60,), "duo": (60, 90), "groupe": (60, 90)}  # durées que le joueur peut choisir
+DEFAULT_DURATION = {"individuel": 60, "duo": 90, "groupe": 90}
+
+
+def duration_for(coach: Coach | None, kind: str) -> int:
+    """Durée proposée par défaut pour une formule (seul 1 h, à deux ou en groupe 1 h 30)."""
+    return DEFAULT_DURATION.get(kind, 60)
+
+
+def player_durations(chosen: dict | None) -> dict[str, list[int]]:
+    """Durées acceptées par le joueur pour chaque formule (seul: toujours 1 h). Rien de précisé pour une formule:
+    toutes ses durées possibles (l'appli, elle, envoie toujours le choix du joueur: 1 h 30 par défaut)."""
+    chosen = chosen or {}
+    return {k: sorted({int(m) for m in (chosen.get(k) or allowed) if int(m) in allowed}) or list(allowed)
+            for k, allowed in PLAYER_DURATIONS.items()}
+
+
+def kinds_at(kinds: list[str], durations: dict | None, minutes: int) -> list[str]:
+    """Formules du joueur possibles pour une séance de cette durée (jamais seul pendant 1 h 30)."""
+    d = player_durations(durations)
+    return [k for k in ("individuel", "duo", "groupe") if k in kinds and minutes in d[k]]
 
 
 def base_price(coach: Coach, kind: str, minutes: int | None = None) -> int:
-    """Prix par joueur de la formule (Réglages) pour sa durée préférée; pour une autre durée, au prorata
-    (100 TND l'heure -> 150 TND pour 1 h 30)."""
+    """Prix par joueur: prix de l'heure de la formule (Réglages) au prorata de la durée (1 h 30 = 1,5 fois)."""
     price = {"individuel": coach.price_individuel, "duo": coach.price_duo, "groupe": coach.price_groupe}[kind]
-    pref = duration_for(coach, kind)
-    return price if not minutes or minutes == pref else round(price * minutes / pref)
+    return round(price * (minutes or 60) / 60)
 
 
 def reduced(base: int, pct: int = 0, millimes: int = 0) -> int:
@@ -50,7 +71,7 @@ def promo_for(db: Session, coach: Coach, start: datetime, minutes: int) -> Promo
 
 
 def quote(db: Session, coach: Coach, kind: str, start: datetime, minutes: int | None = None) -> dict:
-    """Prix par joueur d'une nouvelle séance (durée de la formule, ou celle du créneau restant, au prorata):
+    """Prix par joueur d'une nouvelle séance de cette durée (prix de l'heure au prorata):
     la plus forte réduction entre heure creuse et promotion s'applique."""
     minutes = minutes or duration_for(coach, kind)
     base = base_price(coach, kind, minutes)

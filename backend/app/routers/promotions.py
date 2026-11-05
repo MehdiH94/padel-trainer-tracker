@@ -46,8 +46,8 @@ def promo_out(db: Session, p: Promotion) -> dict:
         "id": p.id, "coach_id": coach.id, "coach_name": coach.name, "court_booking_id": cb.id, "club": db.get(Club, cb.club_id).name,
         "start": cb.start, "duration_min": cb.duration_min, "discount_pct": p.discount_pct, "discount_millimes": p.discount_millimes, "message": p.message,
         "notified_count": p.notified_count, "active": p.active and not taken and aware(cb.start) > datetime.now(timezone.utc), "taken": taken,
-        "prices": {k: reduced(base_price(coach, k), p.discount_pct, p.discount_millimes) for k in ("individuel", "duo", "groupe")},
-        "base_prices": {k: base_price(coach, k) for k in ("individuel", "duo", "groupe")},
+        "prices": {k: reduced(base_price(coach, k, duration_for(coach, k)), p.discount_pct, p.discount_millimes) for k in ("individuel", "duo", "groupe")},
+        "base_prices": {k: base_price(coach, k, duration_for(coach, k)) for k in ("individuel", "duo", "groupe")},
         "durations": {k: duration_for(coach, k) for k in ("individuel", "duo", "groupe")},
     }
 

@@ -39,7 +39,7 @@ def to_out(s: TrainingSession, court_status: str | None = None, paid: dict[tuple
         out.payments = [
             PlayerPaymentOut(
                 player_id=a.player_id, due_millimes=share(s, i), credit_millimes=a.credit_paid_millimes,
-                paid_millimes=paid.get((s.id, a.player_id), 0),
+                paid_millimes=paid.get((s.id, a.player_id), 0), refunded=bool(a.refunded),
             )
             for i, a in enumerate(s.attendances)
         ]
@@ -107,7 +107,7 @@ def create_sessions(
     elif body.discount_pct is not None:  # prix des réglages (par joueur), promotion éventuelle
         if not 0 <= body.discount_pct <= 90:
             raise HTTPException(422, "Promotion : entre 0 et 90 %.")
-        data["price_millimes"] = round(base_price(coach, body.kind) * (100 - body.discount_pct) / 100)
+        data["price_millimes"] = round(base_price(coach, body.kind, body.duration_min) * (100 - body.discount_pct) / 100)
         data["price_mode"] = "par_joueur"
     if club:
         data["club"] = club.name
@@ -233,6 +233,26 @@ class InviteIn(BaseModel):
     message: str = ""
 
 
+@router.post("/{session_id}/refund/{player_id}", response_model=SessionOut)
+def refund_absent(session_id: int, player_id: int, coach: Coach = Depends(current_coach), db: Session = Depends(get_db)):
+    """Joueur absent d'une séance effectuée: le coach peut le rembourser (ses crédits lui reviennent)."""
+    s = get_owned_session(db, coach, session_id)
+    if s.status != "effectuee":
+        raise HTTPException(409, "Seule une séance effectuée peut être remboursée à un absent.")
+    a = next((x for x in s.attendances if x.player_id == player_id), None)
+    if not a:
+        raise HTTPException(404, "Ce joueur n'est pas dans cette séance")
+    if a.refunded:
+        raise HTTPException(409, "Ce joueur a déjà été remboursé pour cette séance.")
+    amount = finance.refund_absent(db, s, a)
+    p = db.get(Player, player_id)
+    booking_svc.notify(db, [p], "Séance remboursée", lambda pl: letter(
+        pl.name, f"Vous n'avez pas pu venir à la séance du {quand(s.start, s.duration_min)} : {coach.name} vous la rembourse."
+        + (f" {dinars(amount)} ont été ajoutés à vos crédits." if amount else ""), sign=coach.name))
+    db.commit()
+    return to_out(s, None, session_payments(db, coach.id))
+
+
 @router.post("/{session_id}/invite")
 def invite_players(session_id: int, body: InviteIn, coach: Coach = Depends(current_coach), db: Session = Depends(get_db)):
     """Notifie les joueurs cochés et leur fait une proposition (acceptable dans leur appli)."""
@@ -291,7 +311,7 @@ def message_players(session_id: int, body: LowIn, coach: Coach = Depends(current
                 b.discount_pct, b.discount_millimes = 0, body.discount_millimes
                 booking_svc._reprice(db, coach, s, b)
         if s.price_mode == "par_joueur":  # séance montée par le coach: prix par joueur
-            s.price_millimes = min(s.price_millimes, max(base_price(coach, s.kind) - body.discount_millimes, 0))
+            s.price_millimes = min(s.price_millimes, max(base_price(coach, s.kind, s.duration_min) - body.discount_millimes, 0))
     message = body.message.strip() or default_low_message(coach, s, body.discount_millimes)
     sent = booking_svc.notify(db, chosen, "Votre séance de padel", lambda _p: message)
     db.commit()

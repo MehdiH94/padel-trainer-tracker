@@ -760,3 +760,8 @@ button.saved { background: var(--green); border-color: var(--green); color: #fff
 .navbadge.inline { position: static; display: inline-grid; margin-left: 6px; animation: none; }
 .plain-card { color: var(--txt); font-weight: 400; }
 .plain-card:hover { background: var(--card); }
+.dur-choice { display: grid; gap: 6px; margin: 8px 0; }
+.dur-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 6px 10px; }
+.dur-row > span:first-child { font-weight: 600; }
+.dur-row .chips { margin: 0; }
+.offer-price.two { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }

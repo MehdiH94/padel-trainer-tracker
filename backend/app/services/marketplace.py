@@ -14,9 +14,9 @@ from . import courts
 from .accounts import linked
 from .isolation import visible_coaches
 from . import groups as grp
-from .booking import attendee_ids, fits_session, free_slots, slot_choices, join_price, join_target, pending_joins, price_for, spots_left
+from .booking import attendee_ids, fits_session, free_slots, join_price, join_target, pending_joins, price_for, spots_left
 from .common import TUNIS, aware
-from .pricing import duration_for, quote
+from .pricing import duration_for, kinds_at, player_durations, quote
 
 PERIODS = {"matin": (0, 12), "apres-midi": (12, 17), "soir": (17, 24)}
 
@@ -77,10 +77,12 @@ def _in_window(start: datetime, day: date, period: str | None) -> bool:
 
 
 def offers(db: Session, account: Player, day: date, kinds: list[str], coach_ids: set[int] | None = None, club: str | None = None,
-           period: str | None = None, hour: int | None = None) -> dict:
+           period: str | None = None, hour: int | None = None, durations: dict | None = None) -> dict:
     """Groupes à rejoindre et créneaux à créer pour ce jour, chez les coachs (et au club) choisis.
-    kinds: formules acceptées par le joueur (une ou plusieurs parmi individuel, duo, groupe)."""
+    kinds: formules acceptées par le joueur (une ou plusieurs parmi individuel, duo, groupe);
+    durations: durées acceptées pour chacune (seul = 1 h; à deux, en groupe: 1 h, 1 h 30 ou les deux)."""
     kinds = [k for k in CAPACITY if k in kinds] or list(CAPACITY)
+    durations = player_durations(durations)
     my_ids = {p.id for p in linked(db, account)}
     coaches = [c for c in visible_coaches(db, account) if not coach_ids or c.id in coach_ids]  # comptes test à part; un ou plusieurs coachs
     now = datetime.now(timezone.utc)
@@ -104,7 +106,12 @@ def offers(db: Session, account: Player, day: date, kinds: list[str], coach_ids:
             ok, gap = fits_session(db, account, s)
             if not ok:
                 continue
-            target = join_target(db, s, kinds)
+            mine = kinds_at(kinds, durations, s.duration_min)
+            target = join_target(db, s, mine) if mine else None
+            # bonne formule mais autre durée (ex. 1 h au lieu d'1 h 30): montrée quand même, avec une petite note
+            other_duration = target is None and join_target(db, s, kinds) is not None
+            if other_duration:
+                target = join_target(db, s, kinds)
             if target is None:
                 alt = join_target(db, s, None)
                 if alt:
@@ -118,18 +125,22 @@ def offers(db: Session, account: Player, day: date, kinds: list[str], coach_ids:
                 "club": s.club, "court": courts_state(db, s), "price_millimes": join_price(c, s, target),
                 "spots_left": spots_left(db, s), "players": [{"name": p.name, "category": p.category, "gender": p.gender} for p in others],
                 "count": taken, "missing": max(0, target - taken - 1),  # joueurs qu'il manquera encore après lui
-                "_gap": gap,
+                "other_duration": other_duration, "_gap": gap + (10 if other_duration else 0),
             })
-        # 2. Nouveaux créneaux: pour chaque début possible, les formules qui y tiennent (durée propre à chacune)
+        # 2. Nouveaux créneaux: pour chaque durée choisie (1 h, 1 h 30), les débuts possibles et le prix de chaque
+        #    formule acceptée à cette durée (la séance démarre avec la plus petite, le prix suit la formule jouée)
         starts: dict[datetime, list[dict]] = {}
-        for k in kinds:
-            for start, minutes in slot_choices(db, c, k):  # durée de la formule, ou plage restante entière
+        for minutes in (60, 90):
+            ks = kinds_at(kinds, durations, minutes)
+            if not ks:
+                continue
+            for start in free_slots(db, c, minutes=minutes):
                 if not _in_window(start, day, period):
                     continue
-                if not grp.can_open(k, start):  # ouvrir un duo/groupe seul: seulement à plus de 24 h
-                    too_late.add(k)
+                too_late.update(k for k in ks if not grp.can_open(k, start))
+                if not grp.can_open(ks[0], start):  # ouvrir un duo/groupe seul: seulement à plus de 24 h
                     continue
-                starts.setdefault(start, []).append(quote(db, c, k, start, minutes))
+                starts.setdefault(start, []).extend(quote(db, c, k, start, minutes) for k in ks)
         for start, options in sorted(starts.items()):
             held = [cb for cb in courts.held_covering(db, c, start, min(o["duration_min"] for o in options))
                     if not club or same_club(club, db.get(Club, cb.club_id).name)]

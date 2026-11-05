@@ -11,6 +11,7 @@ const ymd = (d) => d.toLocaleDateString("fr-CA", { timeZone: TZ });
 const PERIODS = [["", "Toute la journée"], ["matin", "Matin"], ["apres-midi", "Après-midi"], ["soir", "Soir"]];
 const DAYS = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"];
 const HOW = { individuel: "Seul", duo: "À deux", groupe: "En groupe" };
+const dur = (m) => (m % 60 ? `${Math.floor(m / 60) ? Math.floor(m / 60) + " h " : ""}${m % 60}` : `${m / 60} h`); // 90 -> « 1 h 30 »
 
 // Le prix est débité des crédits chez ce coach quand il valide la réservation; le solde peut passer en négatif (dette)
 const payment = (me, coachId, price) => {
@@ -41,20 +42,26 @@ function CourtTag({ court }) {
 }
 
 // Une proposition (groupe à rejoindre ou créneau à créer), avec confirmation sur place
-function Offer({ o, me, kinds, onBooked, openCoach }) {
+function Offer({ o, me, kinds, durs, onBooked, openCoach }) {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
+  // Créneau proposé en 1 h et/ou 1 h 30 (durées choisies par le joueur): il choisit la durée, chacune son prix.
   // Pas de formule à choisir: on démarre avec la plus petite formule cochée, et le prix suit la formule
   // réellement jouée (seul, à deux, en groupe) selon le nombre de joueurs final.
-  const options = o.options ?? [];
-  const start = options[0]; // plus petite formule cochée possible sur ce créneau
+  const lengths = [...new Set((o.options ?? []).map((x) => x.duration_min))].sort((a, b) => a - b);
+  const [chosenLen, setLen] = useState(null);
+  const len = lengths.includes(chosenLen) ? chosenLen : lengths[lengths.length - 1]; // 1 h 30 par défaut
+  const options = (o.options ?? []).filter((x) => x.duration_min === len);
+  const start = options[0]; // plus petite formule cochée possible sur ce créneau, à cette durée
   const pick = start?.kind ?? o.kind;
-  const shown = o.type === "slot" ? { ...o, chosen: start } : o;
+  const shown = o.type === "slot" ? { ...o, options, chosen: start } : o;
+  const firstAt = (m) => (o.options ?? []).find((x) => x.duration_min === m);
   const book = async () => {
     setBusy(true);
     try {
-      // durée du créneau proposé (souple: 1 h 30 si c'est ce qui reste de libre), prix au prorata
-      const body = o.type === "group" ? { session_id: o.session_id, kinds } : { kind: pick, start: o.start, coach_id: o.coach.id, kinds, minutes: start?.duration_min };
+      // séance d'une autre durée que celle choisie: le joueur l'accepte en la rejoignant
+      const accept = o.other_duration ? { duo: [...durs.duo, o.duration_min], groupe: [...durs.groupe, o.duration_min] } : durs;
+      const body = o.type === "group" ? { session_id: o.session_id, kinds, durations: accept } : { kind: pick, start: o.start, coach_id: o.coach.id, kinds, minutes: len, durations: durs };
       onBooked({ ...(await api("/me/book", { method: "POST", body })), start: o.start });
     } catch (x) {
       toastError(x);
@@ -64,13 +71,15 @@ function Offer({ o, me, kinds, onBooked, openCoach }) {
   return (
     <div className={"card offer" + (open ? " open" : "")}>
       <button className="offer-head" aria-expanded={open} onClick={() => setOpen(!open)}>
-        <span className="offer-time"><b>{hhmm(o.start)}</b><small>{(start ?? o).duration_min} min</small></span>
+        <span className="offer-time"><b>{hhmm(o.start)}</b><small>{o.type === "slot" ? lengths.map(dur).join(" / ") : dur(o.duration_min)}</small></span>
         <span className="offer-main">
           <span className="offer-coach">{o.coach.name}</span>
           <small>{o.club || "Club à confirmer"}</small>
-          <span><CourtTag court={o.court} />{o.type === "group" && <span className="court-badge idle"><Icon name="users" size={12} /> {o.count} inscrit{o.count > 1 ? "s" : ""} · {o.spots_left} place{o.spots_left > 1 ? "s" : ""}</span>}</span>
+          <span><CourtTag court={o.court} />{o.other_duration && <span className="court-badge wait"><Icon name="clock" size={12} /> Autre durée</span>}{o.type === "group" && <span className="court-badge idle"><Icon name="users" size={12} /> {o.count} inscrit{o.count > 1 ? "s" : ""} · {o.spots_left} place{o.spots_left > 1 ? "s" : ""}</span>}</span>
         </span>
-        <Price o={shown} open={open} />
+        {o.type === "slot" && lengths.length > 1 && !open
+          ? <span className="offer-price two">{lengths.map((m) => <span key={m}><small className="mut">{dur(m)} </small>{tnd(firstAt(m).price_millimes)}</span>)}</span>
+          : <Price o={shown} open={open} />}
       </button>
       {o.type === "group" && (
         <div className="partners">
@@ -79,6 +88,12 @@ function Offer({ o, me, kinds, onBooked, openCoach }) {
       )}
       {open && (
         <div className="confirm-box">
+          {lengths.length > 1 && (
+            <div className="seg-choice" role="group" aria-label="Durée">
+              {lengths.map((m) => <button key={m} type="button" className={len === m ? "on" : ""} aria-pressed={len === m} onClick={() => setLen(m)}>{dur(m)} · {tnd(firstAt(m).price_millimes)}</button>)}
+            </div>
+          )}
+          {o.other_duration && <div className="note warn small-p"><Icon name="clock" size={13} /> Cette séance dure {dur(o.duration_min)}, pas la durée choisie. Ça vous va quand même ?</div>}
           {options.length > 1 && (
             <div className="price-table" aria-label="Prix selon la formule jouée">
               <div className="small-p"><b>Vous paierez selon le nombre de joueurs final :</b></div>
@@ -122,22 +137,25 @@ export function Book({ me, reload, go, coachParam }) {
   const [period, setPeriod] = useState(k0.hour ? "" : k0.period ?? ""); // heure précise choisie: pas de période en plus
   const [hour, setHour] = useState(k0.hour ?? "");
   const [kinds, setKinds] = useState(k0.kinds ?? me.pref_kinds);
+  // durées acceptées: seul = toujours 1 h; à deux / en groupe = 1 h 30 par défaut, 1 h ou les deux
+  const [durs, setDurs] = useState(k0.durs ?? { duo: [90], groupe: [90] });
+  const toggleDur = (k, m) => setDurs({ ...durs, [k]: durs[k].includes(m) ? (durs[k].length > 1 ? durs[k].filter((x) => x !== m) : durs[k]) : [...durs[k], m].sort() });
   const toggleKind = (k) => setKinds(kinds.includes(k) ? (kinds.length > 1 ? kinds.filter((x) => x !== k) : kinds) : ["individuel", "duo", "groupe"].filter((x) => x === k || kinds.includes(x)));
   const solo = kinds.length === 1 && kinds[0] === "individuel";
   const [more, setMore] = useState(false);
   useEffect(() => {
-    try { sessionStorage.setItem(KEEP, JSON.stringify({ coachIds, club, day, period, hour, kinds })); } catch { /* stockage indisponible */ }
+    try { sessionStorage.setItem(KEEP, JSON.stringify({ coachIds, club, day, period, hour, kinds, durs })); } catch { /* stockage indisponible */ }
     setMore(false);
-  }, [coachIds.join(","), club, day, period, hour, kinds.join(",")]);
+  }, [coachIds.join(","), club, day, period, hour, kinds.join(","), JSON.stringify(durs)]);
   const [offers, setOffers] = useState(null);
   const [done, setDone] = useState(null);
   useEffect(() => { api("/me/coaches").then(setCoaches); api("/me/clubs").then(setClubs); }, []);
   useEffect(() => {
     if (!day) return;
-    const q = new URLSearchParams({ day, kinds: kinds.join(","), ...(coachIds.length && { coach_ids: coachIds.join(",") }), ...(club && { club }), ...(period && { period }), ...(hour !== "" && { hour }) });
+    const q = new URLSearchParams({ day, kinds: kinds.join(","), duo_min: durs.duo.join(","), groupe_min: durs.groupe.join(","), ...(coachIds.length && { coach_ids: coachIds.join(",") }), ...(club && { club }), ...(period && { period }), ...(hour !== "" && { hour }) });
     setOffers(peek("/me/offers?" + q) ?? null); // même recherche déjà faite: affichée tout de suite, puis mise à jour
     api("/me/offers?" + q).then(setOffers).catch(toastError);
-  }, [day, kinds.join(","), coachIds.join(","), club, period, hour]);
+  }, [day, kinds.join(","), JSON.stringify(durs), coachIds.join(","), club, period, hour]);
 
   const days = Array.from({ length: 14 }, (_, i) => new Date(Date.now() + i * 86400000));
   const openCoach = (id) => go(`coach/${id}`);
@@ -161,7 +179,7 @@ export function Book({ me, reload, go, coachParam }) {
   }
 
   const nothing = offers && !offers.groups.length && !offers.slots_with_court.length && !offers.slots_other.length;
-  const list = (items) => items.map((o) => <Offer key={(o.session_id ?? "") + o.coach.id + o.start} o={o} me={me} kinds={kinds} onBooked={booked} openCoach={openCoach} />);
+  const list = (items) => items.map((o) => <Offer key={(o.session_id ?? "") + o.coach.id + o.start} o={o} me={me} kinds={kinds} durs={durs} onBooked={booked} openCoach={openCoach} />);
   return (
     <>
       <h1>Réserver</h1>
@@ -220,6 +238,15 @@ export function Book({ me, reload, go, coachParam }) {
             <small>{v.short}</small>
             <span className={"tick" + (kinds.includes(k) ? "" : " off")}>{kinds.includes(k) && <Icon name="check" size={12} strokeWidth={3} />}</span>
           </button>
+        ))}
+      </div>
+      <div className="dur-choice" aria-label="Durée de l'entraînement">
+        {kinds.includes("individuel") && <div className="dur-row"><span>Seul</span><span className="mut small-p">toujours 1 h</span></div>}
+        {["duo", "groupe"].filter((k) => kinds.includes(k)).map((k) => (
+          <div key={k} className="dur-row" role="group" aria-label={`Durée ${HOW[k].toLowerCase()}`}>
+            <span>{HOW[k]}</span>
+            <span className="chips">{[60, 90].map((m) => <button key={m} type="button" className={"chip small" + (durs[k].includes(m) ? " on" : "")} aria-pressed={durs[k].includes(m)} onClick={() => toggleDur(k, m)}>{dur(m)}</button>)}</span>
+          </div>
         ))}
       </div>
       <div className="accept-summary">
@@ -296,7 +323,7 @@ export function CoachPage({ id, go, onBack }) {
       {c.specialties.length > 0 && (
         <><h2>Spécialités</h2><div className="chips">{c.specialties.map((t) => <span key={t} className="theme big-theme">{t}</span>)}</div></>
       )}
-      <h2>Tarifs par joueur</h2>
+      <h2>Tarifs par heure et par joueur</h2>
       <div className="grid three">
         {Object.entries(KIND).map(([k, v]) => <div key={k} className="kpi"><div className="mut small-p">{HOW[k]}</div><b className="big sm">{tnd(c.prices[k])}</b></div>)}
       </div>
@@ -307,7 +334,7 @@ export function CoachPage({ id, go, onBack }) {
         {byDay.map(([d, ws]) => (
           <div key={d} className="row avail"><span>{d}</span><span className={ws.length ? "" : "mut"}>{ws.length ? ws.map((w) => `${w.start_time}–${w.end_time}`).join(" · ") : "Fermé"}</span></div>
         ))}
-        <div className="mut small-p" style={{ marginTop: 8 }}>Durées : seul {c.durations.individuel} min · à deux {c.durations.duo} min · en groupe {c.durations.groupe} min · annulation jusqu'à 24 h avant (seul) ou 48 h avant (à deux, en groupe).</div>
+        <div className="mut small-p" style={{ marginTop: 8 }}>Durées : seul 1 h · à deux ou en groupe 1 h ou 1 h 30 · annulation jusqu'à 24 h avant (seul) ou 48 h avant (à deux, en groupe).</div>
       </div>
       {c.happy_hours.length > 0 && (
         <>

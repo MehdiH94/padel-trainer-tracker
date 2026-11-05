@@ -1,12 +1,12 @@
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from ..models import Attendance, CreditTx, Payment, TrainingSession
+from ..models import Attendance, Booking, CreditTx, Payment, TrainingSession
 
 
 def share(s: TrainingSession, index: int) -> int:
     """Part due par le joueur n°index (0-based) d'une séance, en millimes."""
-    if s.attendances[index].credit_paid_millimes > 0:  # déjà payé avec les crédits
+    if s.attendances[index].credit_paid_millimes > 0 or s.attendances[index].refunded:  # payé en crédits, ou absent remboursé
         return 0
     if s.price_mode == "groupe":
         n = len(s.attendances) or 1
@@ -111,6 +111,27 @@ def settle(db: Session, coach_id: int, player_ids) -> None:
             a.credit_paid_millimes = due
             bal[a.player_id] -= due
     db.flush()
+
+
+def refund_absent(db: Session, s: TrainingSession, a: Attendance) -> int:
+    """Joueur absent d'une séance effectuée: le coach le rembourse. Ce qu'il a payé pour elle (crédits débités,
+    paiement rattaché à la séance) lui revient en crédits, et la séance ne lui est plus facturée. Rend le montant."""
+    if a.refunded:
+        return 0
+    amount = 0
+    for t in db.scalars(select(CreditTx).where(CreditTx.player_id == a.player_id, CreditTx.reason.in_(("seance", "reservation", "ajustement")))):
+        b = db.get(Booking, t.booking_id) if t.booking_id else None
+        if t.session_id == s.id or (b and b.session_id == s.id):
+            amount -= t.amount_millimes  # débits (négatifs) et ajustements de prix pour cette séance
+            t.reason = {"seance": "seance_annulee"}.get(t.reason, t.reason)  # ne pas le rendre une seconde fois (unsettle)
+    for p in db.scalars(select(Payment).where(Payment.session_id == s.id, Payment.player_id == a.player_id, Payment.kind == "seance")):
+        amount += p.amount_millimes
+        p.kind = "credit"  # l'argent versé pour la séance devient des crédits
+    a.refunded, a.credit_paid_millimes = True, 0
+    if amount > 0:
+        db.add(CreditTx(coach_id=s.coach_id, player_id=a.player_id, amount_millimes=amount, reason="remboursement", session_id=s.id))
+    db.flush()
+    return max(amount, 0)
 
 
 def unsettle(db: Session, s: TrainingSession) -> None:

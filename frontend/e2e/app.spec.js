@@ -442,3 +442,28 @@ test("planning du joueur: il ajoute un match coaché, note son résultat, et son
   await page.locator("nav").getByRole("button", { name: "Crédits" }).click();
   await expect(page.getByRole("heading", { name: "Historique" })).toBeVisible();
 });
+
+test("réserver: seul toujours 1 h, à deux ou en groupe 1 h 30 par défaut, 1 h ou les deux", async ({ page }) => {
+  await login(page, "sami@demo.tn");
+  await page.locator("nav").getByRole("button", { name: "Réserver" }).click();
+  const duo = page.getByRole("checkbox", { name: /À deux/ });
+  if ((await duo.getAttribute("aria-checked")) !== "true") await duo.click();
+  const durDuo = page.getByRole("group", { name: "Durée à deux" });
+  await expect(durDuo.getByRole("button", { name: "1 h 30" })).toHaveAttribute("aria-pressed", "true");
+  await expect(durDuo.getByRole("button", { name: "1 h", exact: true })).toHaveAttribute("aria-pressed", "false");
+  await durDuo.getByRole("button", { name: "1 h", exact: true }).click(); // les deux durées
+  await expect(durDuo.getByRole("button", { name: "1 h", exact: true })).toHaveAttribute("aria-pressed", "true");
+  await expect(durDuo.getByRole("button", { name: "1 h 30" })).toHaveAttribute("aria-pressed", "true");
+  const solo = page.getByRole("checkbox", { name: /Seul/ });
+  if ((await solo.getAttribute("aria-checked")) !== "true") await solo.click();
+  await expect(page.getByText("toujours 1 h")).toBeVisible();
+});
+
+test("séance effectuée: le coach rembourse un joueur absent", async ({ page }) => {
+  await login(page, "demo@padel.tn");
+  await page.locator(".donechip").first().click();
+  const panel = page.locator(".donepanel");
+  await panel.getByRole("button", { name: "Absent ? Rembourser" }).first().click();
+  await page.getByRole("dialog").getByRole("button", { name: "Rembourser" }).click();
+  await expect(panel.getByText("Absent · remboursé")).toBeVisible();
+});
