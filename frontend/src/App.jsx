@@ -89,9 +89,9 @@ function PlayerSearch({ onPick, onClose }) {
 
 const TABS = [
   ["home", "home", "Accueil", Home],
-  ["planning", "calendar", "Planning", Planning],
-  ["players", "users", "Joueurs", Players],
   ["requests", "inbox", "Demandes", Requests],
+  ["planning", "calendar", "Planning", Planning], // au milieu
+  ["players", "users", "Joueurs", Players],
   ["finance", "wallet", "Finance", Finance],
 ];
 const PAGES = { admin: Admin, courts: Courts, settings: Settings, exercises: Exercises, session: SessionPlan };
