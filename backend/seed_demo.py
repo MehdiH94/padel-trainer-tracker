@@ -152,7 +152,8 @@ for n, credit in accounts.items():
 slots = pcs["Sami Ben Ali"].get("/me/slots").json()
 by_day = {}
 for sl in slots:
-    by_day.setdefault(sl[:10], []).append(sl)
+    if sl[14:16] == "00":  # heures pleines (débuts toutes les 30 min)
+        by_day.setdefault(sl[:10], []).append(sl)
 days = sorted(by_day)
 held = []
 for k, day in enumerate(days[:5]):
@@ -174,11 +175,12 @@ open_session(5, 17, "duo", ["Lina Zouari"], 40000)
 # Demandes de réservation des joueurs (créneaux recalculés: les séances ouvertes en ont pris certains)
 slots = pcs["Sami Ben Ali"].get("/me/slots").json()
 ok = {x[:16] for x in slots}
-usable = [h for h in held if h["start"][:16] in ok]
+usable = [h for h in held if "start" in h and h["start"][:16] in ok]  # (un terrain refusé, ex. chevauchement, est ignoré)
 pick = lambda day_i, hour: next((x for x in slots if x[:10] == days[day_i] and x[11:13] == hour), slots[day_i * 3])  # noqa: E731
 
 # 1) Sami demande un créneau couvert par un terrain libre -> « terrain disponible »
-pcs["Sami Ben Ali"].post("/me/book", json={"kind": "individuel", "start": usable[0]["start"]})
+if usable:
+    pcs["Sami Ben Ali"].post("/me/book", json={"kind": "individuel", "start": usable[0]["start"]})
 # 2) Ines demande un créneau pour un duo, sans terrain -> « aucun terrain »
 pcs["Ines Trabelsi"].post("/me/book", json={"kind": "duo", "start": pick(2, "16")})
 # 3) Mehdi rejoint une séance ouverte
