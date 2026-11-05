@@ -2125,3 +2125,9 @@ def test_player_planning_matches_coach_feedback_and_progress(client):
     assert next(s for s in pr["by_coach"][0]["skills"] if s["stroke"] == "Volée")["score"] == 8
     assert pr["play"]["tournoi"]["total"] == 2 and pr["play"]["tournoi"]["count"] == 1
     assert pc.delete(f"/me/events/{e['id']}").status_code == 200 and pc.get("/me/events").json() == []
+    # « autre » (kiné, physique…): une description, pas de coach, pas compté dans le temps de jeu
+    assert pc.post("/me/events", json={"kind": "autre", "start": past}).status_code == 422
+    o = pc.post("/me/events", json={"kind": "autre", "title": "Kiné", "start": past, "duration_min": 60, "coach_id": coach_id}).json()
+    assert o["title"] == "Kiné" and o["coach_id"] is None
+    m = pc.post("/me/events", json={"kind": "match", "start": past, "court_reserved": True}).json()
+    assert m["court_reserved"] is True and pc.get("/me/progress").json()["play"]["match"]["count"] == 1

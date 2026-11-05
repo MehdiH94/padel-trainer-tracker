@@ -383,7 +383,7 @@ def _play_time(db: Session, player: Player, rows: list[Player]) -> dict:
     for s in db.scalars(select(TrainingSession).join(Attendance).where(Attendance.player_id.in_(ids), TrainingSession.status == "effectuee")):
         add("entrainement", s.start, s.duration_min)
     for e in db.scalars(select(PlayerEvent).where(PlayerEvent.account_id == player.id)):
-        if aware(e.start) <= now:
+        if aware(e.start) <= now and e.kind in out:  # « autre » (kiné, physique…) n'est pas du temps de jeu
             add(e.kind, e.start, e.duration_min)
     return {k: {kk: round(v, 1) if kk != "count" else v for kk, v in d.items()} for k, d in out.items()}
 

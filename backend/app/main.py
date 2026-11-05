@@ -43,6 +43,7 @@ NEW_COLUMNS = [
     ("happy_hours", "discount_millimes", "INTEGER DEFAULT 0"), ("promotions", "discount_millimes", "INTEGER DEFAULT 0"),
     ("bookings", "discount_millimes", "INTEGER DEFAULT 0"), ("skill_ratings", "value", "INTEGER"), ("coaches", "criteria", "TEXT"), ("players", "criteria", "TEXT"),
     ("coaches", "hourly_prices", "BOOLEAN DEFAULT 0"), ("attendances", "refunded", "BOOLEAN DEFAULT 0"),
+    ("player_events", "court_reserved", "BOOLEAN DEFAULT 0"),
 ]
 with engine.begin() as conn:
     for table, column, ddl in NEW_COLUMNS:

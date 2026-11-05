@@ -14,13 +14,13 @@ from ..services.accounts import account_of, linked
 from ..services.common import aware
 
 router = APIRouter(tags=["planning joueur"])
-KINDS = ("match", "tournoi")
+KINDS = ("match", "tournoi", "autre")  # autre: entraînement physique, kiné… (décrit dans title)
 
 
 def out(db: Session, e: PlayerEvent) -> dict:
     coach = db.get(Coach, e.coach_id) if e.coach_id else None
     return {"id": e.id, "kind": e.kind, "title": e.title, "start": e.start, "duration_min": e.duration_min, "place": e.place,
-            "result": e.result, "score": e.score, "rating": e.rating / 10 if e.rating is not None else None, "comment": e.comment,
+            "court_reserved": bool(e.court_reserved), "result": e.result, "score": e.score, "rating": e.rating / 10 if e.rating is not None else None, "comment": e.comment,
             "coach_id": e.coach_id, "coach_name": coach.name if coach else "", "coach_feedback": e.coach_feedback,
             "feedback_at": e.feedback_at, "player_name": db.get(Player, e.account_id).name}
 
@@ -35,12 +35,15 @@ class EventIn(BaseModel):
     score: str = ""
     rating: float | None = None  # 0 à 10
     comment: str = ""
+    court_reserved: bool = False
     coach_id: int | None = None  # coaché par ce coach (un de ses coachs)
 
 
 def _check(db: Session, player: Player, body: EventIn) -> None:
     if body.kind not in KINDS or body.result not in ("", "victoire", "defaite"):
         raise HTTPException(422, "Type ou résultat invalide.")
+    if body.kind == "autre" and not body.title.strip():
+        raise HTTPException(422, "Dites ce que c'est (ex. kiné, séance physique).")
     if not 15 <= body.duration_min <= 720:
         raise HTTPException(422, "Durée invalide.")
     if body.rating is not None and not 0 <= body.rating <= 10:
@@ -54,7 +57,8 @@ def _fill(e: PlayerEvent, body: EventIn) -> None:
     e.start = body.start if body.start.tzinfo else body.start.replace(tzinfo=timezone.utc)
     e.result, e.score, e.comment = body.result, body.score.strip()[:60], body.comment.strip()[:2000]
     e.rating = round(body.rating * 10) if body.rating is not None else None
-    e.coach_id = body.coach_id or None
+    e.coach_id = (body.coach_id or None) if body.kind != "autre" else None
+    e.court_reserved = body.court_reserved and body.kind != "autre"
 
 
 @router.get("/me/events")

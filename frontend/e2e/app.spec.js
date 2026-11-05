@@ -122,6 +122,7 @@ test("le joueur ne peut plus annuler hors délai mais peut se faire remplacer", 
   await login(page, "sami@demo.tn");
   await expect(page.getByRole("heading", { name: "Ma prochaine séance" })).toBeVisible();
   await page.locator("nav").getByRole("button", { name: "Planning" }).click();
+  await page.getByRole("tab", { name: /Liste/ }).click();
   await page.locator(".late-btn").first().click();
   const dialog = page.getByRole("dialog");
   await expect(dialog.getByText("Trop tard pour annuler")).toBeVisible();
@@ -132,6 +133,7 @@ test("le joueur ne peut plus annuler hors délai mais peut se faire remplacer", 
 test("la validation du coach arrive chez le joueur sans recharger la page", async ({ page, browser }) => {
   await login(page, "sami@demo.tn");
   await page.locator("nav").getByRole("button", { name: "Planning" }).click();
+  await page.getByRole("tab", { name: /Liste/ }).click();
   await expect(page.getByText("En attente du coach").first()).toBeVisible();
   const waiting = await page.getByText("En attente du coach").count();
 
@@ -410,7 +412,9 @@ test("installation sur l'écran d'accueil: manifeste avec icônes 192 et 512 (do
 test("planning du joueur: il ajoute un match coaché, note son résultat, et son coach y répond", async ({ page, browser }) => {
   await login(page, "sami@demo.tn");
   await page.locator("nav").getByRole("button", { name: "Planning" }).click();
-  await page.getByRole("button", { name: "Match amical" }).click();
+  await expect(page.getByRole("grid", { name: "Mon agenda de la semaine" })).toBeVisible(); // agenda de la semaine par défaut
+  await page.getByRole("button", { name: /Ajouter à mon planning/ }).click();
+  await page.getByRole("dialog").getByRole("button", { name: /Match amical/ }).click();
   const form = page.getByRole("dialog");
   await form.getByLabel("Jour", { exact: true }).selectOption({ index: 88 }); // il y a deux jours: déjà joué
   await form.getByPlaceholder(/avec Karim/).fill("Match du jeudi e2e");
@@ -420,6 +424,7 @@ test("planning du joueur: il ajoute un match coaché, note son résultat, et son
   await form.getByLabel("Mon commentaire").fill("Bon jeu au filet");
   await form.getByRole("button", { name: "Enregistrer" }).click();
   await expect(page.getByText("Match amical ajouté à votre planning")).toBeVisible();
+  await page.getByRole("tab", { name: /Liste/ }).click();
   await page.getByRole("button", { name: /Passé/ }).click();
   await expect(page.getByText("Match du jeudi e2e")).toBeVisible();
 
@@ -435,6 +440,7 @@ test("planning du joueur: il ajoute un match coaché, note son résultat, et son
 
   await page.reload();
   await page.locator("nav").getByRole("button", { name: "Planning" }).click();
+  await page.getByRole("tab", { name: /Liste/ }).click();
   await page.getByRole("button", { name: /Passé/ }).click();
   await expect(page.getByText("Super placement, continue")).toBeVisible();
   await page.locator("nav").getByRole("button", { name: "Progression" }).click();
@@ -466,4 +472,21 @@ test("séance effectuée: le coach rembourse un joueur absent", async ({ page })
   await panel.getByRole("button", { name: "Absent ? Rembourser" }).first().click();
   await page.getByRole("dialog").getByRole("button", { name: "Rembourser" }).click();
   await expect(panel.getByText("Absent · remboursé")).toBeVisible();
+});
+
+test("agenda du joueur: semaine, « Autre » (kiné…) et « Entraînement » qui mène à Réserver", async ({ page }) => {
+  await login(page, "sami@demo.tn");
+  await page.locator("nav").getByRole("button", { name: "Planning" }).click();
+  await page.getByRole("button", { name: "Semaine suivante" }).click();
+  await page.getByRole("button", { name: /Ajouter à mon planning/ }).click();
+  await page.getByRole("dialog").getByRole("button", { name: /Autre/ }).click();
+  const form = page.getByRole("dialog");
+  await form.getByPlaceholder(/kiné/).fill("Kiné genou");
+  await form.getByRole("button", { name: "Enregistrer" }).click();
+  await expect(page.getByText("Autre ajouté à votre planning")).toBeVisible();
+  await page.getByRole("button", { name: "Aujourd'hui" }).click();
+  await expect(page.getByRole("grid", { name: "Mon agenda de la semaine" }).getByRole("button", { name: /Kiné genou/ })).toBeVisible();
+  await page.getByRole("button", { name: /Ajouter à mon planning/ }).click();
+  await page.getByRole("dialog").getByRole("button", { name: /Entraînement/ }).click();
+  await expect(page.getByRole("heading", { name: "Réserver" })).toBeVisible();
 });

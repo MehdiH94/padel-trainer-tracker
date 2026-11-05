@@ -29,7 +29,7 @@ export const STATES = {
 };
 
 // Côte à côte quand plusieurs blocs se chevauchent le même jour
-function lanes(items) {
+export function lanes(items) {
   const ends = [];
   return items.map((cb) => {
     const s = hourOf(cb.start), e = s + cb.duration_min / 60;

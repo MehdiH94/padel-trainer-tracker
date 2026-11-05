@@ -320,7 +320,8 @@ class PlayerEvent(Base):
     __tablename__ = "player_events"
     id: Mapped[int] = mapped_column(primary_key=True)
     account_id: Mapped[int] = mapped_column(ForeignKey("players.id"), index=True)  # fiche compte du joueur
-    kind: Mapped[str] = mapped_column(String(10), default="match")  # match (amical) / tournoi
+    kind: Mapped[str] = mapped_column(String(10), default="match")  # match (amical) / tournoi / autre (kiné, physique…: dans title)
+    court_reserved: Mapped[bool] = mapped_column(default=False)  # le joueur a un terrain réservé pour ce match
     title: Mapped[str] = mapped_column(String(120), default="")
     start: Mapped[datetime] = mapped_column(UTCDateTime, index=True)
     duration_min: Mapped[int] = mapped_column(Integer, default=90)
