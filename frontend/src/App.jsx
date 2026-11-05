@@ -126,7 +126,7 @@ function CoachApp() {
   useEffect(() => {
     // puis les autres onglets (demandes, relances, réglages, exercices): chacun s'ouvre déjà rempli
     const t = setTimeout(() => prefetch(["/sessions", "/players", "/court-bookings", "/clubs", "/promotions", "/time-off", "/booking/requests",
-      "/finance", "/booking/settings", "/criteria", "/clubs/catalog", "/exercise-themes", "/exercises", "/strokes", "/dashboard"]), 1500);
+      "/booking/settings", "/criteria", "/clubs/catalog", "/exercise-themes", "/exercises", "/strokes", "/dashboard"]), 1500);
     return () => clearTimeout(t);
   }, []);
   useEffect(() => {

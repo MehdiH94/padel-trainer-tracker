@@ -2,11 +2,12 @@ import { useEffect, useState } from "react";
 import { api, dayKey, dayLabel, hhmm, peek, shortDate, tnd, toDate, useLive } from "./api.js";
 import { Modal } from "./feedback.jsx";
 import FeedbackEditor from "./FeedbackEditor.jsx";
+import { monthRange } from "./Finance.jsx";
 import SessionPayments from "./SessionPayments.jsx";
 import Icon from "./Icon.jsx";
 import { guideHidden, guideSteps, hideGuide } from "./guide.js";
 import { sessionStatus } from "./sessionActions.js";
-import { Avatar, AvatarStack, BarChart, ContactLinks, COURT_STATUS, InstallCard, KIND, Loading, PlayerTag, PlayerTags, Where } from "./ui.jsx";
+import { Avatar, AvatarStack, BarChart, byWeek, ContactLinks, COURT_STATUS, InstallCard, KIND, Loading, PlayerTag, PlayerTags, Where } from "./ui.jsx";
 
 const TZ = "Africa/Tunis";
 const ymd = (d) => d.toLocaleDateString("fr-CA", { timeZone: TZ });
@@ -132,11 +133,11 @@ function TodayRow({ s, now, byId, go, openPlayer, onCancel }) {
   );
 }
 
-const dayNum = (key) => +key.slice(8, 10);
-
 export default function Home({ go, openPlayer, summary }) {
   // données du dernier passage affichées tout de suite (peek), mises à jour ensuite
-  const [fin, setFin] = useState(() => peek("/finance") ?? null); // mois en cours: heures, gagné, impayés
+  const [month] = useState(() => monthRange(ymd(new Date()))); // mois en cours en entier: S1 à S5 sur les graphes
+  const finUrl = `/finance?start=${month[0]}&end=${month[1]}`;
+  const [fin, setFin] = useState(() => peek(finUrl) ?? null); // mois en cours: heures, gagné, impayés
   const [sessions, setSessions] = useState(() => peek("/sessions") ?? null); // null = pas encore chargées
   const [players, setPlayers] = useState(() => peek("/players") ?? []);
   const [strokes, setStrokes] = useState(() => peek("/criteria")?.names ?? []);
@@ -147,7 +148,7 @@ export default function Home({ go, openPlayer, summary }) {
   const [playersLoaded, setPlayersLoaded] = useState(() => !!peek("/players"));
   const load = () => {
     api("/booking/settings").then(setSettings).catch(() => {});
-    api("/finance").then(setFin);
+    api(finUrl).then(setFin);
     api("/sessions").then(setSessions);
     api("/players").then((p) => { setPlayers(p); setPlayersLoaded(true); });
   };
@@ -168,6 +169,9 @@ export default function Home({ go, openPlayer, summary }) {
   const weekAgo = Date.now() - 7 * 86400000;
   const toRate = all.filter((s) => s.status === "effectuee" && s.feedback_missing && toDate(s.start).getTime() > weekAgo).sort((a, b) => toDate(b.start) - toDate(a.start));
   const setStatus = sessionStatus(all, load);
+  // prochaine séance: en cours ou à venir (aujourd'hui ou plus tard); les autres du jour sont listées en bas
+  const focus = all.filter((s) => s.status === "prevue" && endOf(s) > now).sort((a, b) => toDate(a.start) - toDate(b.start))[0];
+  const rest = left.filter((s) => s.id !== focus?.id);
   const alerts = (summary?.pending ?? 0) + (summary?.to_notify ?? 0);
   const monthName = now.toLocaleDateString("fr-FR", { month: "long", timeZone: TZ });
 
@@ -202,6 +206,42 @@ export default function Home({ go, openPlayer, summary }) {
       {settings && playersLoaded && sessions && <Onboarding settings={settings} players={players} sessions={sessions} go={go} />}
       <InstallCard />
 
+      {/* La prochaine séance d'abord (en vert quand elle est en cours), avec ses actions */}
+      {focus && (() => {
+        const ph = phase(focus, now);
+        const ps = focus.player_ids.map(byId).filter(Boolean);
+        const today = dayKey(focus.start) === ymd(now);
+        return (
+          <div className={"focus " + ph.key}>
+            <div className="row">
+              <span className="pill">{ph.key === "live" ? "● En cours" : "Prochaine séance"}</span>
+              <span className="cap1">{today ? ph.label : dayLabel(focus.start)}</span>
+            </div>
+            <div className="time" style={{ fontSize: "1.7rem", margin: "6px 0 2px" }}>{hhmm(focus.start)} <span style={{ opacity: 0.7, fontSize: "1rem" }}>→ {hhmm(endOf(focus).toISOString())}</span></div>
+            <div style={{ opacity: 0.9 }}>{KIND[focus.kind]?.label}</div>
+            <Where s={focus} light />
+            <div className="row" style={{ marginTop: 10, justifyContent: "flex-start", flexWrap: "wrap" }}>
+              {ps.map((p) => (
+                <button key={p.id} className="who-btn" onClick={() => openPlayer(p.id)}><Avatar name={p.name} size={28} /><PlayerTag p={p} first /></button>
+              ))}
+            </div>
+            <div className="actions">
+              <button className="small light" onClick={() => go(`session/${focus.id}`)}><Icon name={focus.has_plan ? "checkCircle" : "sparkles"} size={15} /> {focus.has_plan ? "Plan prêt" : "Préparer la séance"}</button>
+              {ps[0] && <a className="btnlink light" href={`tel:${ps[0].phone}`}><Icon name="phone" size={16} /> Appeler</a>}
+              <button className="small light" onClick={() => setStatus(focus.id, "annulee")}>Annuler</button>
+            </div>
+          </div>
+        );
+      })()}
+
+      <h2>Vue d'ensemble</h2>
+      <div className="grid kpis">
+        <Kpi icon="clock" value={`${fin.hours} h`} label={`Heures en ${monthName}`} onClick={() => setDetail("hours")} />
+        <Kpi icon="wallet" value={tnd(fin.earned_millimes)} small label={`Gagné en ${monthName}`} onClick={() => setDetail("earned")} />
+        <Kpi icon="calendar" value={left.length} label="Séances restantes aujourd'hui" onClick={() => setDetail("today")} />
+        <Kpi icon="alert" value={tnd(fin.unpaid_total_millimes)} small warn={fin.unpaid_total_millimes > 0} label="Impayés" onClick={() => setDetail("unpaid")} />
+      </div>
+
       {/* Séances effectuées (automatiquement, à la fin de l'heure) qui attendent le retour du coach */}
       {toRate.length > 0 && (
         <div className="card torate">
@@ -222,17 +262,9 @@ export default function Home({ go, openPlayer, summary }) {
         <DonePanel s={toRate.find((s) => s.id === openDone)} name={name} byId={byId} strokes={strokes} onSaved={load} onClose={() => setOpenDone(null)} />
       )}
 
-      <div className="grid kpis">
-        <Kpi icon="clock" value={`${fin.hours} h`} label={`Heures en ${monthName}`} onClick={() => setDetail("hours")} />
-        <Kpi icon="wallet" value={tnd(fin.earned_millimes)} small label={`Gagné en ${monthName}`} onClick={() => setDetail("earned")} />
-        <Kpi icon="calendar" value={left.length} label="Séances restantes aujourd'hui" onClick={() => setDetail("today")} />
-        <Kpi icon="alert" value={tnd(fin.unpaid_total_millimes)} small warn={fin.unpaid_total_millimes > 0} label="Impayés" onClick={() => setDetail("unpaid")} />
-      </div>
-
-      <h2>Aujourd'hui</h2>
+      {rest.length > 0 && <h2>À venir aujourd'hui</h2>}
       {sessions === null && <Loading rows={1} />}
-      {sessions && left.length === 0 && <div className="card empty"><Icon name="sun" size={26} /><b>{todayAll.length ? "Toutes les séances du jour sont terminées" : "Aucune séance aujourd'hui"}</b></div>}
-      {left.map((s) => <TodayRow key={s.id} s={s} now={now} byId={byId} go={go} openPlayer={openPlayer} onCancel={(id) => setStatus(id, "annulee")} />)}
+      {rest.map((s) => <TodayRow key={s.id} s={s} now={now} byId={byId} go={go} openPlayer={openPlayer} onCancel={(id) => setStatus(id, "annulee")} />)}
 
       {detail && (
         <Modal onClose={() => setDetail(null)} label="Résumé">
@@ -240,14 +272,15 @@ export default function Home({ go, openPlayer, summary }) {
             <button className="small sec iconbtn" aria-label="Fermer" onClick={() => setDetail(null)}><Icon name="x" size={15} /></button></div>
           {detail === "hours" && (
             <>
-              <p className="mut small-p">{fin.hours} h sur {fin.sessions} séance{fin.sessions > 1 ? "s" : ""} effectuée{fin.sessions > 1 ? "s" : ""}, jour par jour.</p>
-              <BarChart data={fin.series.map((x) => ({ label: dayNum(x.key) % 5 === 1 ? String(dayNum(x.key)) : "", value: x.hours }))} format={(v) => (v >= 1 ? `${Math.round(v)}` : "")} />
+              <p className="mut small-p">{fin.hours} h sur {fin.sessions} séance{fin.sessions > 1 ? "s" : ""} effectuée{fin.sessions > 1 ? "s" : ""}. Une colonne par semaine du mois (S1 = du 1er au 7).</p>
+              <BarChart data={byWeek(fin.series, (x) => x.hours)} format={(v) => `${String(v).replace(".", ",")} h`} />
             </>
           )}
           {detail === "earned" && (
             <>
               <p className="mut small-p">Ce que vous ont rapporté vos séances effectuées ce mois-ci (payées en crédits ou à régler). Argent réellement reçu ce mois : <b>{tnd(fin.cashed_millimes)}</b>.</p>
-              <BarChart data={fin.series.map((x) => ({ label: dayNum(x.key) % 5 === 1 ? String(dayNum(x.key)) : "", value: x.earned_millimes / 1000 }))} format={(v) => (v >= 1 ? Math.round(v) : "")} color="var(--green)" />
+              <BarChart data={byWeek(fin.series, (x) => x.earned_millimes / 1000)} format={(v) => `${Math.round(v)} DT`} color="var(--green)" />
+              <div className="mut small-p center">Une colonne par semaine du mois (S1 = du 1er au 7), en dinars.</div>
               {fin.top_players.length > 0 && <div className="mut small-p" style={{ marginTop: 6 }}>Meilleurs clients : {fin.top_players.slice(0, 3).map((t) => `${t.name.split(" ")[0]} (${tnd(t.earned_millimes)})`).join(", ")}</div>}
               <button className="sec" style={{ width: "100%", marginTop: 10 }} onClick={() => go("finance")}><Icon name="wallet" size={15} /> Ouvrir Finance</button>
             </>

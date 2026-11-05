@@ -57,19 +57,23 @@ export const COURT_STATUS = {
 };
 
 // Histogramme SVG simple: data = [{label, value}]
+// data = [{label, sub?, value}]: label sous la colonne (« S1 », « nov »), sub en plus petit (« 1–7 »)
 export function BarChart({ data, format = (v) => v, color = "var(--brand)" }) {
   const max = Math.max(...data.map((d) => d.value), 1);
   const W = 320, H = 130, bw = W / data.length;
+  const subs = data.some((d) => d.sub);
   return (
-    <svg viewBox={`0 0 ${W} ${H + 34}`} width="100%" role="img">
+    <svg viewBox={`0 0 ${W} ${H + 34 + (subs ? 14 : 0)}`} width="100%" role="img">
       {data.map((d, i) => {
         const h = Math.max((d.value / max) * H, d.value ? 3 : 0);
-        const last = i === data.length - 1;
+        // colonne de la période en cours (current) en plein, les autres un peu plus claires; sans repère: toutes pleines
+        const last = data.some((x) => x.current) ? d.current : true;
         return (
           <g key={i}>
-            <rect x={i * bw + bw * 0.18} y={H - h + 16} width={bw * 0.64} height={h} rx="5" fill={color} opacity={last ? 1 : 0.35} />
+            <rect x={i * bw + bw * 0.18} y={H - h + 16} width={bw * 0.64} height={h} rx="5" fill={color} opacity={last ? 1 : 0.55} />
             {d.value > 0 && <text x={i * bw + bw / 2} y={H - h + 10} textAnchor="middle" fontSize="11" style={{ fill: "var(--txt)" }}>{format(d.value)}</text>}
-            <text x={i * bw + bw / 2} y={H + 30} textAnchor="middle" fontSize="11" style={{ fill: "var(--mut)" }}>{d.label}</text>
+            <text x={i * bw + bw / 2} y={H + 30} textAnchor="middle" fontSize="11" fontWeight="600" style={{ fill: "var(--mut)" }}>{d.label}</text>
+            {d.sub && <text x={i * bw + bw / 2} y={H + 44} textAnchor="middle" fontSize="9.5" style={{ fill: "var(--mut)" }}>{d.sub}</text>}
           </g>
         );
       })}
@@ -396,4 +400,20 @@ export function swipe(onNext, onPrev) {
       if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) (dx < 0 ? onNext : onPrev)?.();
     },
   };
+}
+
+// Regroupe une série jour par jour en semaines de 7 jours (à partir du 1er jour): S1 = du 1 au 7, etc.
+// days = [{key: "AAAA-MM-JJ", …}], pick(x) = valeur du jour. Retour: [{label: "S1", sub: "1–7", value}]
+export function byWeek(days, pick) {
+  const out = [];
+  const today = new Date().toLocaleDateString("fr-CA", { timeZone: "Africa/Tunis" });
+  days.forEach((x, i) => {
+    const w = Math.floor(i / 7);
+    const d = +x.key.slice(8, 10);
+    if (!out[w]) out[w] = { label: `S${w + 1}`, from: d, to: d, value: 0, current: false };
+    out[w].to = d;
+    out[w].value += pick(x);
+    out[w].current ||= x.key === today; // semaine en cours mise en avant
+  });
+  return out.map((w) => ({ label: w.label, sub: w.from === w.to ? `${w.from}` : `${w.from}–${w.to}`, value: Math.round(w.value * 10) / 10, current: w.current }));
 }

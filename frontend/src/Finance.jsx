@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { api, dayLabel, peek, tnd, useLive } from "./api.js";
 import Icon from "./Icon.jsx";
 import { Modal, toast, toastError } from "./feedback.jsx";
-import { Avatar, BarChart, CategoryBadge, ContactLinks, DateSelect, Loading, METHOD, MoneyInput } from "./ui.jsx";
+import { Avatar, BarChart, byWeek, CategoryBadge, ContactLinks, DateSelect, Loading, METHOD, MoneyInput } from "./ui.jsx";
 
 // Onglet Finance du coach: ce que les joueurs lui doivent (le plus important), ce qu'il a gagné et encaissé,
 // les crédits d'avance, et le journal des versements. Tout l'argent se saisit ici: « X m'a donné tant ».
@@ -10,11 +10,17 @@ const TZ = "Africa/Tunis";
 const ymd = (d) => d.toLocaleDateString("fr-CA", { timeZone: TZ });
 const addDays = (d, n) => new Date(d.getTime() + n * 86400000);
 
+// Mois entier de la date « AAAA-MM-JJ »: du 1er au dernier jour
+export const monthRange = (t) => {
+  const last = new Date(Date.UTC(+t.slice(0, 4), +t.slice(5, 7), 0)).getUTCDate();
+  return [t.slice(0, 8) + "01", t.slice(0, 8) + String(last).padStart(2, "0")];
+};
+
 function range(kind) {
   const today = new Date(), t = ymd(today);
   if (kind === "week") {
     const wd = (new Date(t + "T12:00:00Z").getUTCDay() + 6) % 7;
-    return [ymd(addDays(today, -wd)), t];
+    return [ymd(addDays(today, -wd)), ymd(addDays(today, 6 - wd))]; // lundi → dimanche
   }
   if (kind === "last") {
     const first = new Date(t.slice(0, 8) + "01T12:00:00Z");
@@ -22,9 +28,10 @@ function range(kind) {
     return [ymd(end).slice(0, 8) + "01", ymd(end)];
   }
   if (kind === "year") return [t.slice(0, 5) + "01-01", t];
-  return [t.slice(0, 8) + "01", t]; // ce mois
+  return monthRange(t); // ce mois, en entier (les semaines à venir restent vides sur le graphe)
 }
 
+const dayName = (key) => new Date(key + "T12:00:00Z").toLocaleDateString("fr-FR", { weekday: "short", timeZone: "UTC" }).replace(".", "");
 const label = (key, group) => {
   if (group === "month") return new Date(key + "-15T12:00:00Z").toLocaleDateString("fr-FR", { month: "short", timeZone: "UTC" }).replace(".", "");
   const d = new Date(key + "T12:00:00Z");
@@ -108,10 +115,15 @@ export default function Finance({ openPlayer }) {
 
   const journal = {};
   (f?.journal ?? []).forEach((j) => (journal[j.paid_at.slice(0, 10)] ||= []).push(j));
-  const series = (f?.series ?? []).map((x) => ({
-    label: label(x.key, f.group),
-    value: metric === "hours" ? x.hours : (metric === "earned" ? x.earned_millimes : x.cashed_millimes) / 1000,
-  }));
+  const pick = (x) => (metric === "hours" ? x.hours : (metric === "earned" ? x.earned_millimes : x.cashed_millimes) / 1000);
+  // Axe lisible: une semaine (≤ 7 jours) = un jour par colonne (« lun » + « 2 »); un mois = une colonne par semaine
+  // (« S1 » + « 1–7 »); plus long = semaines (date du lundi) ou mois (« nov »)
+  const raw = f?.series ?? [];
+  const series = !f ? [] : f.group === "day" && raw.length > 7 ? byWeek(raw, pick)
+    : raw.map((x) => ({ label: f.group === "day" ? dayName(x.key) : label(x.key, f.group), sub: f.group === "day" ? String(+x.key.slice(8, 10)) : undefined,
+      value: Math.round(pick(x) * 10) / 10, current: f.group === "day" && x.key === ymd(new Date()) }));
+  const unit = !f ? "" : f.group === "day" ? (raw.length > 7 ? "Une colonne par semaine (S1 = 7 premiers jours de la période)" : "Une colonne par jour")
+    : f.group === "week" ? "Une colonne par semaine (date du lundi)" : "Une colonne par mois";
   return (
     <>
       <h1 style={{ margin: 0 }}>Finance</h1>
@@ -154,10 +166,10 @@ export default function Finance({ openPlayer }) {
                 {[["earned", "Gagné"], ["cashed", "Reçu"], ["hours", "Heures"]].map(([k, l]) => <button key={k} className={metric === k ? "on" : ""} onClick={() => setMetric(k)}>{l}</button>)}
               </div>
             </div>
-            <div className="mut small-p">{f.group === "day" ? "Par jour" : f.group === "week" ? "Par semaine" : "Par mois"} · gagné = valeur des séances effectuées, reçu = argent versé par les joueurs</div>
             {series.every((x) => !x.value) ? <div className="empty mut">Rien sur cette période.</div>
               : <BarChart data={series.map((x, i) => ({ ...x, label: series.length > 12 && i % Math.ceil(series.length / 8) ? "" : x.label }))}
-                format={(v) => (series.length > 12 ? "" : metric === "hours" ? `${v}` : Math.round(v))} color={metric === "cashed" ? "var(--brand)" : "var(--green)"} />}
+                format={(v) => (series.length > 12 ? "" : metric === "hours" ? `${String(v).replace(".", ",")} h` : `${Math.round(v)} DT`)} color={metric === "cashed" ? "var(--brand)" : "var(--green)"} />}
+            <div className="mut small-p center">{unit} · gagné = valeur des séances effectuées, reçu = argent versé par les joueurs</div>
           </div>
 
           <h2>Impayés{f.unpaid.length > 0 && ` · ${f.unpaid.length}`}</h2>
