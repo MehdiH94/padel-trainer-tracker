@@ -12,6 +12,7 @@ from sqlalchemy import inspect, select, text
 from .db import Base, SessionLocal, engine
 from .constants import TIERS
 from .routers import admin, auth, replace, booking, clubs, dashboard, exercises, me, payments, players, profile, promotions, reminders, sessions, timeoff
+from .routers import finance as finance_router  # onglet Finance (le module services.finance garde son nom)
 from .notify import Notifier
 from .services import booking as booking_svc
 from .services import courts, finance, planner, session_reminders
@@ -38,6 +39,8 @@ NEW_COLUMNS = [
     ("coaches", "phone", "VARCHAR(20) DEFAULT ''"), ("coaches", "is_admin", "BOOLEAN DEFAULT 0"), ("coaches", "signup_status", "VARCHAR(12)"),
     ("coaches", "signup_at", "TIMESTAMP"), ("coaches", "email_verified_at", "TIMESTAMP"), ("coaches", "email_token", "VARCHAR(48)"),
     ("coaches", "email_token_sent_at", "TIMESTAMP"),
+    ("happy_hours", "discount_millimes", "INTEGER DEFAULT 0"), ("promotions", "discount_millimes", "INTEGER DEFAULT 0"),
+    ("bookings", "discount_millimes", "INTEGER DEFAULT 0"), ("skill_ratings", "value", "INTEGER"), ("coaches", "criteria", "TEXT"),
 ]
 with engine.begin() as conn:
     for table, column, ddl in NEW_COLUMNS:
@@ -45,6 +48,8 @@ with engine.begin() as conn:
             conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}"))
             if column == "email_verified_at":  # comptes créés avant la vérification (DP-002): considérés comme vérifiés
                 conn.execute(text("UPDATE players SET email_verified_at = CURRENT_TIMESTAMP WHERE password_hash IS NOT NULL"))
+    # Notes de 1 à 5 (avant) -> 0 à 100 (note sur 10 au dixième)
+    conn.execute(text("UPDATE skill_ratings SET value = score * 20 WHERE value IS NULL"))
     # Classement en demi-tranches: un ancien « P100 » devient « P100- » (bas de la tranche)
     for t in TIERS:
         conn.execute(text("UPDATE players SET category = :new WHERE category = :old"), {"new": t + "-", "old": t})
@@ -98,6 +103,7 @@ async def _session_reminders():
             with SessionLocal() as db:
                 session_reminders.send_due(db, Notifier(get_sms_provider()))
                 booking_svc.remind_incomplete(db)  # 6 h avant: séance pas encore assez remplie
+                booking_svc.complete_finished(db)  # séances terminées: effectuées automatiquement
         except Exception:
             logging.getLogger("rappels").exception("Échec de l'envoi des rappels")
 
@@ -112,7 +118,7 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(title="Padel Trainer Tracker", lifespan=lifespan)
 app.add_exception_handler(RequestValidationError, validation_handler)  # erreurs de formulaire expliquées en français
-for r in (admin, auth, replace, players, sessions, payments, dashboard, booking, profile, clubs, reminders, promotions, me, exercises, timeoff):
+for r in (admin, auth, replace, players, sessions, payments, dashboard, booking, profile, clubs, reminders, promotions, me, exercises, timeoff, finance_router):
     app.include_router(r.router)
 
 

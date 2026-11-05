@@ -24,11 +24,11 @@ COACHES = [
         "clubs": [("Lac Padel Club", "71 965 410"), ("Tunis Padel Center", "71 860 200")],
         "prices": (80000, 50000, 35000), "durations": (60, 60, 90), "auto_confirm": True,
         "availability": [(d, "07:00", "11:00") for d in range(6)] + [(d, "17:00", "22:00") for d in range(6)],
-        "happy_hours": [(d, "07:00", "10:00", 25) for d in range(4)],
+        "happy_hours": [(d, "07:00", "10:00", 15000) for d in range(4)],  # heures creuses: -15 TND
         "players": [("Omar Ben Youssef", "M", "P500+"), ("Ahmed Kallel", "M", "P500-"), ("Fares Jemai", "M", "P1000-"),
                     ("Sarra Mabrouk", "F", "P500-"), ("Nizar Belaid", "M", "P250+"), ("Dorra Saidi", "F", "P250+")],
         "exercise": ("Smash par 4 en série", "5 lobs courts d'affilée: smash à plat puis smash par 4 dès que la balle est derrière la tête. Compter les points gagnants.", ["Smash", "Physique"], 1, 4, 15),
-        "promo": 30,
+        "promo": 15,  # réduction en TND par joueur
     },
     {
         "email": "coach.meriem@demo.tn", "name": "Meriem Ayari",
@@ -38,11 +38,11 @@ COACHES = [
         "clubs": [("Padel Club La Marsa", "71 745 100"), ("Hammamet Padel Club", "72 280 330")],
         "prices": (55000, 35000, 25000), "durations": (60, 75, 90), "auto_confirm": False,
         "availability": [(d, "09:00", "13:00") for d in range(1, 7)] + [(d, "15:00", "20:00") for d in range(1, 7)],
-        "happy_hours": [(d, "15:00", "17:00", 20) for d in (1, 2, 3)],
+        "happy_hours": [(d, "15:00", "17:00", 10000) for d in (1, 2, 3)],  # -10 TND
         "players": [("Leila Chebbi", "F", "P25+"), ("Hana Ben Romdhane", "F", "P50-"), ("Malek Toumi", "M", "P50+"),
                     ("Ons Gharsalli", "F", "P100-"), ("Bilel Sassi", "M", "P25-"), ("Asma Khelifi", "F", "P100+")],
         "exercise": ("Parcours volée-déplacement", "Trois cônes au filet: pas chassé, volée contrôlée sur la balle du coach, retour au centre. 4 passages.", ["Volée", "Déplacements"], 1, 4, 10),
-        "promo": 20,
+        "promo": 10,  # réduction en TND par joueur
     },
 ]
 NOTES = ["Belle séance, bonne énergie.", "Progrès nets sur la régularité.", "Un peu fatigué(e), séance plus courte.", "Très appliqué(e), à encourager."]
@@ -80,7 +80,7 @@ def seed_coach(cfg: dict, rng: random.Random) -> bool:
         "auto_confirm": cfg["auto_confirm"], "slot_minutes": di, "duration_duo": dd, "duration_groupe": dg,
         "price_individuel": pi, "price_duo": pd, "price_groupe": pg, "cancel_hours": 24,
         "availability": [{"weekday": d, "start_time": s, "end_time": e} for d, s, e in cfg["availability"]],
-        "happy_hours": [{"weekday": d, "start_time": s, "end_time": e, "discount_pct": p} for d, s, e, p in cfg["happy_hours"]],
+        "happy_hours": [{"weekday": d, "start_time": s, "end_time": e, "discount_millimes": p} for d, s, e, p in cfg["happy_hours"]],
         "bio": cfg["bio"], "specialties": cfg["specialties"],
     }).raise_for_status()
     c.put("/clubs/selection", json={"names": [], "new": [{"name": n, "phone": p} for n, p in cfg["clubs"]]}).raise_for_status()
@@ -125,7 +125,7 @@ def seed_coach(cfg: dict, rng: random.Random) -> bool:
     # Terrains déjà réservés et libres, et une promotion sur l'un d'eux
     free = [c.post("/court-bookings/manual", json={"club_id": clubs[i % 2]["id"], "start": at(day, hhmm), "duration_min": 120, "court_label": f"Terrain {i + 1}"}).json()
             for i, (day, hhmm) in enumerate([(1, "20:00"), (2, "09:00"), (6, "18:00")])]
-    c.post("/promotions", json={"court_booking_id": free[1]["id"], "discount_pct": cfg["promo"]})
+    c.post("/promotions", json={"court_booking_id": free[1]["id"], "discount_millimes": cfg["promo"] * 1000})  # promo en TND
 
     # Un exercice personnel
     name, desc, themes, mn, mx, dur = cfg["exercise"]

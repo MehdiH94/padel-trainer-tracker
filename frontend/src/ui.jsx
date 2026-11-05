@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import Icon from "./Icon.jsx";
-import { Modal } from "./feedback.jsx";
+import { Modal, toastError } from "./feedback.jsx";
+import { api } from "./api.js";
 
 const COLORS = ["#2563eb", "#7c3aed", "#0891b2", "#db2777", "#ea580c", "#0d9488", "#4f46e5", "#be123c"];
 
@@ -76,23 +77,23 @@ export function BarChart({ data, format = (v) => v, color = "var(--brand)" }) {
   );
 }
 
-// Graphique en araignée: skills = [{stroke, score, previous}], notes de 1 à 5.
+// Graphique en araignée: skills = [{stroke, score, previous}], notes de 0 à 10 (critères du coach, en nombre libre).
 export function RadarChart({ skills, size = 320 }) {
   const short = { "Défense fond de court": "Défense", "Retour de service": "Retour", "Sortie de vitre": "Vitre" };
   const items = skills.map((s) => ({ ...s, label: short[s.stroke] ?? s.stroke }));
   const n = items.length, c = size / 2, R = size / 2 - 58;
   const pt = (i, v) => {
     const a = -Math.PI / 2 + (2 * Math.PI * i) / n;
-    return [c + Math.cos(a) * R * (v / 5), c + Math.sin(a) * R * (v / 5)];
+    return [c + Math.cos(a) * R * (v / 10), c + Math.sin(a) * R * (v / 10)];
   };
   const poly = (vals) => vals.map((v, i) => pt(i, v ?? 0).join(",")).join(" ");
   const hasPrev = items.some((s) => s.previous != null);
   return (
     <svg viewBox={`0 0 ${size} ${size}`} width="100%" role="img" aria-label="Évaluation technique" className="radar">
-      {[1, 2, 3, 4, 5].map((lv) => (
-        <polygon key={lv} points={items.map((_, i) => pt(i, lv).join(",")).join(" ")} style={{ fill: lv % 2 ? "var(--soft)" : "none", stroke: "var(--line)" }} strokeWidth="1" />
+      {[2, 4, 6, 8, 10].map((lv) => (
+        <polygon key={lv} points={items.map((_, i) => pt(i, lv).join(",")).join(" ")} style={{ fill: lv % 4 === 2 ? "var(--soft)" : "none", stroke: "var(--line)" }} strokeWidth="1" />
       ))}
-      {items.map((_, i) => <line key={i} x1={c} y1={c} x2={pt(i, 5)[0]} y2={pt(i, 5)[1]} style={{ stroke: "var(--line)" }} />)}
+      {items.map((_, i) => <line key={i} x1={c} y1={c} x2={pt(i, 10)[0]} y2={pt(i, 10)[1]} style={{ stroke: "var(--line)" }} />)}
       {hasPrev && <polygon points={poly(items.map((s) => s.previous ?? s.score))} fill="#94a3b822" stroke="#94a3b8" strokeWidth="1.5" strokeDasharray="4 3" />}
       <polygon points={poly(items.map((s) => s.score))} fill="#f9731633" stroke="#f97316" strokeWidth="2.5" strokeLinejoin="round" />
       {items.map((s, i) => {
@@ -101,7 +102,7 @@ export function RadarChart({ skills, size = 320 }) {
         return <circle key={i} cx={x} cy={y} r="4" fill="#f97316" style={{ stroke: "var(--card)" }} strokeWidth="1.5" />;
       })}
       {items.map((s, i) => {
-        const [x, y] = pt(i, 5.95);
+        const [x, y] = pt(i, 11.9);
         const anchor = x < c - 8 ? "end" : x > c + 8 ? "start" : "middle";
         return <text key={s.stroke} x={x} y={y + 3} textAnchor={anchor} fontSize="11" fontWeight="600" style={{ fill: "var(--txt)" }}>{s.label}</text>;
       })}
@@ -342,3 +343,57 @@ export function compatible(a, b) {
 }
 // Paires de joueurs dont les niveaux ne sont pas censés se mélanger
 export const levelClashes = (ps) => ps.flatMap((a, i) => ps.slice(i + 1).filter((b) => !compatible(a, b)).map((b) => [a, b]));
+
+// Montant en dinars, court (« 20 TND », « 12,500 TND »): réductions, heures creuses
+export const dinars = (m) => (m % 1000 === 0 ? `${m / 1000} TND` : `${(m / 1000).toFixed(3).replace(".", ",")} TND`);
+// Réduction affichée: en dinars (heures creuses, promotions), ou en % pour les anciennes données
+export const reduction = (x) => (x.discount_millimes ? `−${dinars(x.discount_millimes)}` : x.discount_pct ? `−${x.discount_pct} %` : "");
+export const OFFS = [5000, 10000, 15000, 20000, 30000]; // réductions proposées (millimes)
+
+// Note sur 10 au demi-point (« 7,5 »)
+export const note10 = (v) => (v == null ? "–" : String(Math.round(v * 10) / 10).replace(".", ","));
+
+// Jauges de l'araignée: on glisse le doigt de 0 à 10 (pas de 0,5); la note est enregistrée quand on lâche.
+// skills = [{stroke, score, previous}] (critères du coach), onSaved: après chaque enregistrement.
+export function SkillSliders({ playerId, skills, onSaved }) {
+  const [vals, setVals] = useState(() => Object.fromEntries(skills.map((s) => [s.stroke, s.score])));
+  const [saved, setSaved] = useState(null); // dernier critère enregistré (petit « ✓ »)
+  useEffect(() => { setVals(Object.fromEntries(skills.map((s) => [s.stroke, s.score]))); }, [skills.map((s) => s.stroke + s.score).join()]); // eslint-disable-line react-hooks/exhaustive-deps
+  const commit = (stroke) => {
+    const v = vals[stroke];
+    if (v == null || v === skills.find((s) => s.stroke === stroke)?.score) return;
+    api(`/players/${playerId}/skills`, { method: "POST", body: { stroke, value: Math.round(v * 10) } })
+      .then(() => { setSaved(stroke); onSaved?.(); }).catch(toastError);
+  };
+  return (
+    <div className="sliders">
+      {skills.map((s) => {
+        const v = vals[s.stroke];
+        return (
+          <label key={s.stroke} className="slider-row">
+            <span className="slider-head"><b>{s.stroke}</b><span className={"slider-val" + (v == null ? " none" : "")}>{note10(v)}<small>/10</small>{saved === s.stroke && <Icon name="check" size={13} />}</span></span>
+            <input type="range" min="0" max="10" step="0.5" value={v ?? 0} aria-label={`${s.stroke} : note sur 10`}
+              className={v == null ? "unset" : ""} style={{ "--p": `${(v ?? 0) * 10}%` }}
+              onChange={(e) => { setVals({ ...vals, [s.stroke]: +e.target.value }); setSaved(null); }}
+              onPointerUp={() => commit(s.stroke)} onKeyUp={() => commit(s.stroke)} onBlur={() => commit(s.stroke)} />
+          </label>
+        );
+      })}
+    </div>
+  );
+}
+
+// Glisser le doigt horizontalement (téléphone): vers la gauche = suivant, vers la droite = précédent.
+// Retourne les gestionnaires à poser sur la zone; un défilement vertical ne déclenche rien.
+export function swipe(onNext, onPrev) {
+  let x0 = null, y0 = null;
+  return {
+    onTouchStart: (e) => { x0 = e.touches[0].clientX; y0 = e.touches[0].clientY; },
+    onTouchEnd: (e) => {
+      if (x0 == null) return;
+      const dx = e.changedTouches[0].clientX - x0, dy = e.changedTouches[0].clientY - y0;
+      x0 = null;
+      if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) (dx < 0 ? onNext : onPrev)?.();
+    },
+  };
+}

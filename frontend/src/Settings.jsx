@@ -105,20 +105,20 @@ export default function Settings({ onBack, sub }) {
         ))}
       </div>
 
-      <h2>Happy hours</h2>
+      <h2>Heures creuses</h2>
       <div className="card">
-        <div className="mut small-p" style={{ marginBottom: 8 }}>Remise automatique sur les nouvelles séances qui commencent dans ces plages (toutes formules).</div>
+        <div className="mut small-p" style={{ marginBottom: 8 }}>Réduction automatique, en dinars par joueur, sur les nouvelles séances qui commencent dans ces plages (toutes formules).</div>
         {s.happy_hours.map((h, i) => (
           <div className="happy" key={i}>
             <select aria-label="Jour" value={h.weekday} onChange={(e) => setHappy(i, { weekday: +e.target.value })}>{DAYS.map((d, j) => <option key={j} value={j}>{d}</option>)}</select>
-            <ClockPicker label="Happy hour · début" value={h.start_time} onChange={(v) => setHappy(i, { start_time: v })} />
-            <ClockPicker label="Happy hour · fin" value={h.end_time} onChange={(v) => setHappy(i, { end_time: v })} />
-            <span className="inputunit pct"><input type="number" min="1" max="90" aria-label="Remise" value={h.discount_pct} onChange={(e) => setHappy(i, { discount_pct: +e.target.value })} /><em>%</em></span>
-            <button className="small sec iconbtn" aria-label="Supprimer la happy hour" onClick={() => setS({ ...s, happy_hours: s.happy_hours.filter((_, j) => j !== i) })}><Icon name="trash" size={14} /></button>
+            <ClockPicker label="Heures creuses · début" value={h.start_time} onChange={(v) => setHappy(i, { start_time: v })} />
+            <ClockPicker label="Heures creuses · fin" value={h.end_time} onChange={(v) => setHappy(i, { end_time: v })} />
+            <span className="inputunit"><em>−</em><MoneyInput label="Réduction par joueur" value={h.discount_millimes || 0} onChange={(m) => setHappy(i, { discount_millimes: m, discount_pct: 0 })} /><em>TND</em></span>
+            <button className="small sec iconbtn" aria-label="Supprimer ces heures creuses" onClick={() => setS({ ...s, happy_hours: s.happy_hours.filter((_, j) => j !== i) })}><Icon name="trash" size={14} /></button>
           </div>
         ))}
-        {!s.happy_hours.length && <div className="mut">Aucune happy hour.</div>}
-        <button className="small sec" style={{ marginTop: 8 }} onClick={() => setS({ ...s, happy_hours: [...s.happy_hours, { weekday: 0, start_time: "10:00", end_time: "12:00", discount_pct: 20 }] })}><Icon name="plus" size={15} /> Ajouter une happy hour</button>
+        {!s.happy_hours.length && <div className="mut">Aucune heure creuse.</div>}
+        <button className="small sec" style={{ marginTop: 8 }} onClick={() => setS({ ...s, happy_hours: [...s.happy_hours, { weekday: 0, start_time: "10:00", end_time: "12:00", discount_millimes: 10000 }] })}><Icon name="plus" size={15} /> Ajouter des heures creuses</button>
       </div>
 
       <h2 id="reservation">Créneaux proposés aux joueurs</h2>
@@ -188,6 +188,46 @@ export default function Settings({ onBack, sub }) {
         })}
       </div>
       <button style={{ width: "100%" }} onClick={save}>{saved ? "Enregistré" : "Enregistrer les réglages"}</button>
+
+      <h2 id="araignee">Araignée : critères d'évaluation</h2>
+      <CriteriaEditor />
     </>
+  );
+}
+
+// Critères de l'araignée du coach: les standards (coups du padel) à garder, renommer, retirer ou compléter.
+// Les notes déjà données restent attachées au nom du critère.
+function CriteriaEditor() {
+  const [c, setC] = useState(() => peek("/criteria") ?? null);
+  const [names, setNames] = useState(() => peek("/criteria")?.names ?? []);
+  const [fresh, setFresh] = useState("");
+  const [dirty, setDirty] = useState(false);
+  useEffect(() => { api("/criteria").then((r) => { setC(r); setNames(r.names); }).catch(() => {}); }, []);
+  if (!c) return <Loading rows={1} />;
+  const edit = (next) => { setNames(next); setDirty(true); };
+  const add = () => { const n = fresh.trim(); if (n && !names.some((x) => x.toLowerCase() === n.toLowerCase())) edit([...names, n]); setFresh(""); };
+  const save = (list) => api("/criteria", { method: "PUT", body: { names: list } })
+    .then((r) => { setC(r); setNames(r.names); setDirty(false); toast(list.length ? "Critères enregistrés" : "Critères standards rétablis"); }).catch(toastError);
+  return (
+    <div className="card">
+      <div className="mut small-p" style={{ marginBottom: 8 }}>Ce que vous notez de 0 à 10 pour chaque joueur (3 à 12 critères). {c.custom ? "Vos critères personnalisés." : "Critères standards du padel."}</div>
+      {names.map((n, i) => (
+        <div className="crit-row" key={i}>
+          <input aria-label={`Critère ${i + 1}`} value={n} maxLength={40} onChange={(e) => edit(names.map((x, j) => (j === i ? e.target.value : x)))} />
+          <button type="button" className="small sec iconbtn" aria-label={`Retirer ${n}`} disabled={names.length <= 3} onClick={() => edit(names.filter((_, j) => j !== i))}><Icon name="trash" size={14} /></button>
+        </div>
+      ))}
+      {names.length < 12 && (
+        <div className="crit-row">
+          <input placeholder="Nouveau critère (ex. Mental, Déplacements…)" aria-label="Nouveau critère" value={fresh} maxLength={40}
+            onChange={(e) => setFresh(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); add(); } }} />
+          <button type="button" className="small sec iconbtn" aria-label="Ajouter le critère" disabled={!fresh.trim()} onClick={add}><Icon name="plus" size={14} /></button>
+        </div>
+      )}
+      <div className="actions">
+        {c.custom && <button type="button" className="sec" onClick={() => save([])}>Revenir aux standards</button>}
+        <button type="button" disabled={!dirty} onClick={() => save(names.map((x) => x.trim()).filter(Boolean))}>{dirty ? "Enregistrer les critères" : "Enregistré"}</button>
+      </div>
+    </div>
   );
 }

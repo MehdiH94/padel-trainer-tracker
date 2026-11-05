@@ -99,6 +99,7 @@ class SessionIn(BaseModel):
     # Prix fixé par les réglages du coach (prix par joueur de la formule), moins cette promotion en %.
     # None = ancien fonctionnement (prix saisi dans price_millimes).
     discount_pct: int | None = None
+    discount_millimes: int | None = None  # réduction en dinars par joueur (remplace discount_pct)
     player_ids: list[int] = []
     repeat_weeks: int = 1  # >1 crée une série hebdomadaire
 

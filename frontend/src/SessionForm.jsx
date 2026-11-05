@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { api, hhmm, tnd } from "./api.js";
 import Icon from "./Icon.jsx";
 import { confirmDialog } from "./feedback.jsx";
-import { Avatar, CATEGORIES, CategoryBadge, catLabel, catOption, KIND, DateSelect, levelClashes, TimeSelect } from "./ui.jsx";
+import { Avatar, CATEGORIES, CategoryBadge, catLabel, catOption, DateSelect, dinars, KIND, levelClashes, OFFS, TimeSelect } from "./ui.jsx";
 
 // Choix des joueurs: liste déroulante avec recherche, niveau de chacun; les joueurs choisis restent affichés au-dessus
 function PlayerPicker({ players, chosen, max, onToggle }) {
@@ -62,7 +62,7 @@ export default function SessionForm({ players, onDone, initial }) {
   const today = new Date().toLocaleDateString("fr-CA", { timeZone: "Africa/Tunis" });
   const [f, setF] = useState({
     date: today, time: "18:00", duration_min: 60, kind: "individuel", club_id: "", court_booked: false, court: "",
-    discount_pct: 0, repeat: false, repeat_weeks: 4, player_ids: [], open: false, level: "",
+    discount_millimes: 0, repeat: false, repeat_weeks: 4, player_ids: [], open: false, level: "",
     ...(initial ?? {}), // « Créer une séance sur ce terrain » (calendrier): date, heure, club et terrain déjà choisis
   });
   // Un de mes terrains réservés couvre-t-il ce créneau ? (au club choisi, ou ailleurs: proposer ce club)
@@ -90,7 +90,7 @@ export default function SessionForm({ players, onDone, initial }) {
   }, []);
   const DUR = { individuel: "slot_minutes", duo: "duration_duo", groupe: "duration_groupe" };
   const base = prefs ? prefs["price_" + f.kind] : 0; // prix par joueur de la formule (Réglages)
-  const price = Math.round(base * (100 - f.discount_pct) / 100);
+  const price = Math.max(base - f.discount_millimes, 0); // réduction en dinars par joueur
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
   const max = KIND[f.kind].cap;
   const club = clubs.find((c) => c.id === +f.club_id);
@@ -125,7 +125,7 @@ export default function SessionForm({ players, onDone, initial }) {
           start: `${f.date}T${f.time}:00+01:00`, // Tunisie: UTC+1 toute l'année
           duration_min: f.duration_min, kind: f.kind, club_id: f.club_id ? +f.club_id : null, court_booked: !!f.club_id && f.court_booked,
           court: f.court, level: f.open ? f.level : "", open: f.open && f.kind !== "individuel",
-          discount_pct: +f.discount_pct, // le prix vient des réglages (par joueur), moins la promotion
+          discount_millimes: +f.discount_millimes, // le prix vient des réglages (par joueur), moins la réduction
           repeat_weeks: f.repeat ? +f.repeat_weeks : 1, player_ids: f.player_ids,
         },
       });
@@ -223,14 +223,14 @@ export default function SessionForm({ players, onDone, initial }) {
       <div className="pricebox">
         <div className="row">
           <span className="mut">Prix par joueur</span>
-          <b>{prefs ? tnd(price) : "…"}{f.discount_pct > 0 && <s className="mut small-p" style={{ marginLeft: 6 }}>{tnd(base)}</s>}</b>
+          <b>{prefs ? tnd(price) : "…"}{f.discount_millimes > 0 && <s className="mut small-p" style={{ marginLeft: 6 }}>{tnd(base)}</s>}</b>
         </div>
         <div className="mut small-p">D'après vos réglages ({KIND[f.kind].label.toLowerCase()}). Pour le changer : Réglages › Formules.</div>
         {prefs && !base && <div className="err small-p">Vous n'avez pas encore fixé ce prix : Réglages › Formules.</div>}
-        <Field label="Promotion (facultatif)">
-          <select value={f.discount_pct} onChange={(e) => setF({ ...f, discount_pct: +e.target.value })}>
-            <option value={0}>Aucune promotion</option>
-            {[10, 15, 20, 25, 30, 40, 50].map((p) => <option key={p} value={p}>−{p} %</option>)}
+        <Field label="Réduction (facultatif)">
+          <select value={f.discount_millimes} onChange={(e) => setF({ ...f, discount_millimes: +e.target.value })}>
+            <option value={0}>Aucune réduction</option>
+            {OFFS.filter((v) => !base || v < base).map((v) => <option key={v} value={v}>−{dinars(v)} par joueur</option>)}
           </select>
         </Field>
       </div>

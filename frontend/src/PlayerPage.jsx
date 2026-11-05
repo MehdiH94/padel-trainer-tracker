@@ -1,23 +1,11 @@
 import { useEffect, useState } from "react";
-import { api, peek, dayLabel, hhmm, shortDate, tnd, useContactCheck } from "./api.js";
+import { actingAs, api, dayLabel, hhmm, peek, shortDate, tnd, useContactCheck } from "./api.js";
 import FeedbackEditor from "./FeedbackEditor.jsx";
 import Icon from "./Icon.jsx";
 import InviteLink from "./InviteLink.jsx";
 import { Modal, toast, toastError } from "./feedback.jsx";
-import { Avatar, CATEGORIES, catOption, CategoryBadge, ContactLinks, KIND, Loading, METHOD, MoneyInput, Progress, RadarChart, STATUS } from "./ui.jsx";
+import { Avatar, CATEGORIES, catOption, CategoryBadge, ContactLinks, KIND, Loading, METHOD, MoneyInput, note10, RadarChart, SkillSliders, STATUS } from "./ui.jsx";
 
-function Dots({ score, onPick }) {
-  return (
-    <span className="dots5">
-      {[1, 2, 3, 4, 5].map((n) => <i key={n} className={n <= (score ?? 0) ? "on lvl" + score : ""} onClick={() => onPick(n)} />)}
-    </span>
-  );
-}
-
-function Trend({ score, previous }) {
-  if (score == null || previous == null || score === previous) return null;
-  return <span className={score > previous ? "up" : "down"}>{score > previous ? "▲" : "▼"}</span>;
-}
 
 function InviteCard({ player }) {
   const [path, setPath] = useState(player.invite_path);
@@ -98,47 +86,71 @@ function AddToSession({ player, onClose }) {
   );
 }
 
+// Notes générales du coach sur ce joueur (pas par séance): enregistrées quand on quitte le champ ou avec le bouton
+function NotesTab({ player, onSaved }) {
+  const [txt, setTxt] = useState(player.notes ?? "");
+  const [state, setState] = useState("saved");
+  const save = () => api(`/players/${player.id}/notes`, { method: "PUT", body: { notes: txt } })
+    .then(() => { setState("saved"); toast("Notes enregistrées"); onSaved?.(); }).catch(toastError);
+  return (
+    <div className="card">
+      <div className="row"><b><Icon name="edit" size={15} /> Notes sur {player.name.split(" ")[0]}</b><span className="mut small-p">visibles par vous seul</span></div>
+      <textarea className="msg notes-area" rows={10} value={txt} placeholder="Caractère, objectifs, blessures, préférences, ce qui marche avec lui…"
+        onChange={(e) => { setTxt(e.target.value); setState("dirty"); }} onBlur={() => state === "dirty" && save()} />
+      <button style={{ width: "100%" }} className={state === "saved" ? "saved" : ""} disabled={state === "saved"} onClick={save}>
+        {state === "saved" ? <><Icon name="checkCircle" size={16} /> Enregistré</> : "Enregistrer les notes"}
+      </button>
+    </div>
+  );
+}
+
+// Administrateur seulement: ajouter ou retirer des crédits sans argent reçu (erreur de saisie, geste…)
+function Correction({ playerId, onDone }) {
+  const [amount, setAmount] = useState(0);
+  const go = (sign) => api(`/players/${playerId}/credits/correction`, { method: "POST", body: { amount_millimes: sign * amount } })
+    .then(() => { toast(sign > 0 ? `${tnd(amount)} de crédits ajoutés` : `${tnd(amount)} de crédits retirés`); setAmount(0); onDone(); }).catch(toastError);
+  return (
+    <div className="card admin-card">
+      <b><Icon name="shield" size={15} /> Corriger le solde (administrateur)</b>
+      <div className="mut small-p">Sans argent reçu : erreur de saisie, geste commercial…</div>
+      <div className="grid" style={{ marginTop: 8 }}>
+        <MoneyInput label="Montant de la correction (TND)" value={amount} onChange={setAmount} />
+        <div className="row" style={{ gap: 6 }}>
+          <button type="button" className="small sec" disabled={!amount} onClick={() => go(-1)}>− Retirer</button>
+          <button type="button" className="small" disabled={!amount} onClick={() => go(1)}>+ Ajouter</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function PlayerPage({ id, onBack }) {
   const [p, setP] = useState(() => peek(`/players/${id}/profile`) ?? null); // fiche déjà ouverte: tout de suite
-  const [strokes, setStrokes] = useState(() => peek("/strokes") ?? []);
+  const [strokes, setStrokes] = useState(() => peek("/criteria")?.names ?? []);
   const [tab, setTab] = useState("padel");
   const [edit, setEdit] = useState(null);
   const [editing, setEditing] = useState(false);
   // montants en millimes (MoneyInput: la virgule est acceptée, « 25,5 » = 25,500 TND)
-  const [pay, setPay] = useState({ amount: 0, method: "especes" });
   const [cr, setCr] = useState({ amount: 0, method: "especes" });
   const [adding, setAdding] = useState(false);
   const load = () => api(`/players/${id}/profile`).then(setP);
-  useEffect(() => { load(); api("/strokes").then(setStrokes); }, [id]);
+  useEffect(() => { load(); api("/criteria").then((c) => setStrokes(c.names)).catch(() => {}); }, [id]);
   if (!p) return <Loading rows={3} />;
   const { player, finance: fin, stats, skills, strengths, weaknesses, last_session: last } = p;
-  const rate = (stroke, score) => api(`/players/${id}/skills`, { method: "POST", body: { stroke, score } }).then(load);
-  const encaisser = async (e) => {
-    e.preventDefault();
-    if (!pay.amount) return toastError(new Error("Indiquez le montant reçu."));
-    try {
-      await api("/payments", { method: "POST", body: { player_id: id, amount_millimes: pay.amount, method: pay.method } });
-    } catch (x) {
-      return toastError(x);
-    }
-    toast(`Paiement de ${tnd(pay.amount)} enregistré`);
-    setPay({ ...pay, amount: 0 });
-    load();
-  };
   const recharger = async (e) => {
     e.preventDefault();
-    if (!cr.amount) return toastError(new Error("Indiquez le montant de la recharge."));
+    if (!cr.amount) return toastError(new Error("Indiquez le montant reçu."));
     try {
       await api(`/players/${id}/credits`, { method: "POST", body: { amount_millimes: cr.amount, method: cr.method } });
     } catch (x) {
       return toastError(x);
     }
-    toast(`Crédits rechargés : +${tnd(cr.amount)}`);
+    toast(`${tnd(cr.amount)} reçus de ${player.name.split(" ")[0]}`);
     setCr({ ...cr, amount: 0 });
     load();
   };
   const ratedCount = skills.filter((s) => s.score != null).length;
-  const avg = ratedCount ? (skills.reduce((a, s) => a + (s.score ?? 0), 0) / ratedCount).toFixed(1) : "–";
+  const avg = ratedCount ? note10(skills.reduce((a, s) => a + (s.score ?? 0), 0) / ratedCount) : "–";
 
   return (
     <>
@@ -173,7 +185,7 @@ export default function PlayerPage({ id, onBack }) {
       </div>
 
       <div className="seg" style={{ marginBottom: 12 }}>
-        {[["padel", "Padel"], ["fin", "Finances"], ["hist", "Historique"]].map(([k, l]) => (
+        {[["padel", "Padel"], ["notes", "Notes"], ["fin", "Finances"], ["hist", "Historique"]].map(([k, l]) => (
           <button key={k} className={tab === k ? "on" : ""} onClick={() => setTab(k)}>{l}</button>
         ))}
       </div>
@@ -181,7 +193,6 @@ export default function PlayerPage({ id, onBack }) {
       {tab === "padel" && (
         <>
           {player.goals && <div className="card"><div className="mut"><Icon name="target" size={14} /> Objectif</div><b>{player.goals}</b></div>}
-          {player.notes && <div className="card"><div className="mut"><Icon name="edit" size={14} /> Notes du coach</div>{player.notes}</div>}
 
           <div className="card">
             <div className="mut">Dernière séance travaillée</div>
@@ -206,16 +217,11 @@ export default function PlayerPage({ id, onBack }) {
           </div>
 
           <div className="card">
-            <div className="row"><b>Évaluation technique</b><span className="mut">Moyenne {avg}/5</span></div>
-            {ratedCount > 0 ? <RadarChart skills={skills} /> : <div className="mut">Notez les coups ci-dessous pour voir le graphique.</div>}
+            <div className="row"><b>Évaluation (araignée)</b><span className="mut">Moyenne {avg}/10</span></div>
+            {ratedCount > 0 ? <RadarChart skills={skills} /> : <div className="mut">Glissez les jauges ci-dessous pour noter : l'araignée apparaîtra.</div>}
             <div className="legend" style={{ justifyContent: "center" }}><span><i style={{ background: "#f97316" }} />Niveau actuel</span><span><i style={{ background: "#94a3b8" }} />Évaluation précédente</span></div>
-            <div className="mut" style={{ margin: "6px 0" }}>Touchez les points pour noter de 1 à 5</div>
-            {skills.map((s) => (
-              <div className="row skill" key={s.stroke}>
-                <span>{s.stroke}</span>
-                <span><Trend score={s.score} previous={s.previous} /> <Dots score={s.score} onPick={(n) => rate(s.stroke, n)} /></span>
-              </div>
-            ))}
+            <div className="mut small-p" style={{ margin: "6px 0" }}>Glissez le doigt sur chaque jauge (de 0 à 10). Critères modifiables dans Réglages › Araignée.</div>
+            <SkillSliders playerId={id} skills={skills} onSaved={load} />
           </div>
           {stats.upcoming_count > 0 && (
             <div className="card"><b>Prochaines séances</b>
@@ -225,54 +231,38 @@ export default function PlayerPage({ id, onBack }) {
         </>
       )}
 
+      {tab === "notes" && <NotesTab player={player} onSaved={load} />}
+
       {tab === "fin" && (
         <>
-          <div className="grid kpis">
-            <div className="kpi"><div className="mut">Facturé</div><div className="big sm">{tnd(fin.billed_millimes)}</div></div>
-            <div className="kpi"><div className="mut">Payé</div><div className="big sm" style={{ color: "var(--brand)" }}>{tnd(fin.paid_millimes)}</div></div>
-          </div>
-          <div className={"card " + (fin.due_millimes > 0 ? "bad" : "good")}>
-            <div className="row">
-              <div>
-                <div className="mut">{fin.due_millimes > 0 ? "Reste à payer" : fin.credit_millimes > 0 ? "Crédit" : "À jour"}</div>
-                <div className="big">{fin.due_millimes > 0 ? tnd(fin.due_millimes) : fin.credit_millimes > 0 ? tnd(fin.credit_millimes) : <Icon name="checkCircle" size={30} />}</div>
-              </div>
+          {/* Un seul solde chez vous: versé - séances. Négatif = il vous doit, positif = crédits d'avance */}
+          <div className={"card " + (fin.balance_millimes < 0 ? "bad" : "good")}>
+            <div className="mut">{fin.balance_millimes < 0 ? "Il vous doit" : fin.balance_millimes > 0 ? "Crédits d'avance" : "Solde"}</div>
+            <div className="big">{fin.balance_millimes ? tnd(Math.abs(fin.balance_millimes)) : "À jour"}</div>
+            <div className="fin-calc">
+              <span>Versé <b>{tnd(fin.given_millimes)}</b></span>
+              <span>− Séances <b>{tnd(fin.consumed_millimes)}</b></span>
             </div>
-            {/* écart expliqué: une séance payée en crédits au-delà du solde laisse des crédits « dans le rouge » */}
-            {fin.due_millimes > 0 && fin.credits_balance_millimes < 0 && (
-              <div className="mut small-p" style={{ marginTop: 4 }}>
-                Dont {tnd(-fin.credits_balance_millimes)} de séances payées en crédits sans solde suffisant
-                {fin.due_millimes + fin.credits_balance_millimes > 0 && ` et ${tnd(fin.due_millimes + fin.credits_balance_millimes)} de séances non réglées`}.
-              </div>
-            )}
-            {fin.billed_millimes > 0 && <Progress value={Math.min(fin.paid_millimes, fin.billed_millimes)} max={fin.billed_millimes} />}
-            {fin.due_millimes > 0 && (
+            {fin.balance_millimes < 0 && (
               <ContactLinks phone={player.phone} email={player.email} subject="Rappel de paiement"
-                message={`Bonjour ${player.name.split(" ")[0]}, petit rappel : il reste ${tnd(fin.due_millimes)} à régler pour vos séances de padel. Merci !`}
-                onSent={(ch) => api("/reminders/log", { method: "POST", body: { player_id: id, kind: "impaye", channel: ch } })} />
+                message={`Bonjour ${player.name.split(" ")[0]}, petit rappel : il reste ${tnd(-fin.balance_millimes)} à régler pour vos séances de padel. Merci !`} />
             )}
           </div>
           <form className="card" onSubmit={recharger}>
-            <div className="row"><b><Icon name="card" size={16} /> Crédits prépayés</b>{fin.credits_balance_millimes > 0 && <b>{tnd(fin.credits_balance_millimes)}</b>}</div>{/* négatif: déjà compté dans « Reste à payer » */}
-            <div className="mut">Les crédits paient automatiquement ses séances effectuées{player.has_account ? " et ses réservations" : ""}. Un paiement qui dépasse les séances dues devient des crédits.</div>
+            <b><Icon name="wallet" size={16} /> Argent reçu de {player.name.split(" ")[0]}</b>
+            <div className="mut small-p">Règle d'abord ce qu'il vous doit ; le reste devient des crédits pour ses prochaines séances{player.has_account ? " et réservations" : ""}.</div>
             <div className="grid" style={{ marginTop: 8 }}>
-              <MoneyInput label="Montant de la recharge (TND)" placeholder="Montant TND" value={cr.amount} onChange={(v) => setCr({ ...cr, amount: v })} />
-              <select value={cr.method} onChange={(e) => setCr({ ...cr, method: e.target.value })}><option value="especes">Espèces</option><option value="virement">Virement</option></select>
+              <MoneyInput label="Montant reçu (TND)" placeholder="Montant TND" value={cr.amount} onChange={(v) => setCr({ ...cr, amount: v })} />
+              <select aria-label="Moyen de paiement" value={cr.method} onChange={(e) => setCr({ ...cr, method: e.target.value })}><option value="especes">Espèces</option><option value="virement">Virement</option></select>
             </div>
-            <button className="sec" style={{ width: "100%" }}>Recharger les crédits</button>
-          </form>
-          <form className="card" onSubmit={encaisser}>
-            <b>Encaisser un paiement de séance</b>
-            <div className="grid" style={{ marginTop: 8 }}>
-              <MoneyInput label="Montant reçu (TND)" placeholder="Montant TND" value={pay.amount} onChange={(v) => setPay({ ...pay, amount: v })} />
-              <select value={pay.method} onChange={(e) => setPay({ ...pay, method: e.target.value })}><option value="especes">Espèces</option><option value="virement">Virement</option></select>
-            </div>
+            {fin.balance_millimes < 0 && !cr.amount && <button type="button" className="link" onClick={() => setCr({ ...cr, amount: -fin.balance_millimes })}>Il a tout réglé ({tnd(-fin.balance_millimes)})</button>}
             <button style={{ width: "100%" }}>Enregistrer</button>
           </form>
-          <h2>Paiements reçus</h2>
+          {actingAs() && <Correction playerId={id} onDone={load} />}
+          <h2>Argent reçu</h2>
           {fin.payments.length === 0 && <div className="card mut">Aucun paiement.</div>}
           {fin.payments.map((x) => (
-            <div className="card row" key={x.id}><span>{shortDate(x.paid_at)} · {METHOD[x.method] ?? x.method}{x.kind === "credit" && " · recharge"}</span><b>{tnd(x.amount_millimes)}</b></div>
+            <div className="card row" key={x.id}><span>{shortDate(x.paid_at)} · {METHOD[x.method] ?? x.method}</span><b>{tnd(x.amount_millimes)}</b></div>
           ))}
         </>
       )}
@@ -288,7 +278,7 @@ export default function PlayerPage({ id, onBack }) {
           {h.worked_on.length > 0 && <div className="chips" style={{ marginTop: 6 }}>{h.worked_on.map((t) => <span key={t} className="chip on small static">{t}</span>)}</div>}
           {h.note && <div style={{ marginTop: 4 }}>{h.note}</div>}
           {h.status === "effectuee" && !h.worked_on.length && !h.note && <div className="mut"><Icon name="edit" size={13} /> Touchez pour ajouter un retour</div>}
-          {edit === h.session_id && <FeedbackEditor h={h} playerId={id} strokes={strokes} onSaved={() => { setEdit(null); load(); }} />}
+          {edit === h.session_id && <FeedbackEditor h={h} playerId={id} name={player.name} strokes={strokes} onSaved={() => { setEdit(null); load(); }} />}
         </div>
       ))}
     </>

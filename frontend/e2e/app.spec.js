@@ -51,7 +51,26 @@ test("le coach parcourt tous ses écrans", async ({ page }) => {
   await expect(page.getByText("Sami Ben Ali")).toBeVisible();
   await nav(page, "Demandes").click();
   await expect(page.getByRole("heading", { name: "Demandes" })).toBeVisible();
-  await nav(page, "Relances").click();
+  // Finance remplace Relances: impayés, gagné, argent reçu
+  await nav(page, "Finance").click();
+  await expect(page.getByRole("heading", { name: "Finance" })).toBeVisible();
+  await expect(page.getByText("Impayés (aujourd'hui)")).toBeVisible();
+  await page.getByRole("button", { name: "Argent reçu" }).click();
+  await expect(page.getByRole("dialog", { name: "Argent reçu" })).toBeVisible();
+  await page.getByRole("dialog").getByRole("button", { name: "Fermer" }).click();
+  // accueil: les 4 indicateurs s'ouvrent sur un résumé
+  await nav(page, "Accueil").click();
+  await page.locator(".kpi-btn", { hasText: "Impayés" }).click();
+  await expect(page.getByRole("dialog", { name: "Résumé" })).toContainText("Impayés");
+  await page.getByRole("dialog").getByRole("button", { name: "Fermer" }).click();
+  // fiche joueur: notes générales et araignée en jauges
+  await nav(page, "Joueurs").click();
+  await page.getByText("Sami Ben Ali").click();
+  await expect(page.locator(".slider-row").first()).toBeVisible();
+  await page.getByRole("button", { name: "Notes", exact: true }).click();
+  await page.locator(".notes-area").fill("Très motivé, travailler la bandeja");
+  await page.getByRole("button", { name: "Enregistrer les notes" }).click();
+  await expect(page.getByText("Notes enregistrées")).toBeVisible();
   await page.getByRole("button", { name: "Réglages" }).click();
   await expect(page.getByRole("heading", { name: "Réglages" })).toBeVisible();
 });
@@ -265,7 +284,7 @@ test("nouvelle séance: le prix vient des réglages, seule une promotion peut le
   await expect(form.getByText("Prix par joueur")).toBeVisible();
   await expect(form.locator("input[type=number][step='0.001']")).toHaveCount(0); // plus de prix libre
   const before = await form.locator(".pricebox b").innerText();
-  await form.getByLabel("Promotion (facultatif)").selectOption("20");
+  await form.getByLabel("Réduction (facultatif)").selectOption("10000"); // −10 TND par joueur
   await expect(form.locator(".pricebox s")).toHaveText(before.trim()); // ancien prix barré
 });
 
@@ -328,7 +347,7 @@ test("nouvelle séance: joueurs choisis dans une liste avec leur niveau, avertis
   await expect(form).toHaveCount(0); // séance créée, formulaire fermé
 });
 
-test("terrain libre: prévenir ses joueurs avec une happy hour; absence du coach dans le calendrier", async ({ page, request }) => {
+test("terrain libre: prévenir ses joueurs en heures creuses (−20 TND); absence du coach dans le calendrier", async ({ page, request }) => {
   const { token } = await (await request.post("/api/auth/login", { data: { email: "demo@padel.tn", password: "demo1234" } })).json();
   const headers = { Authorization: `Bearer ${token}` };
   const [club] = await (await request.get("/api/clubs", { headers })).json();
@@ -344,14 +363,15 @@ test("terrain libre: prévenir ses joueurs avec une happy hour; absence du coach
   await page.locator(".cal-block.libre", { hasText: "7–9" }).click();
   await page.getByRole("dialog").getByRole("button", { name: /Prévenir mes joueurs/ }).click();
   const send = page.getByRole("dialog", { name: "Annoncer ce créneau" });
-  await send.getByRole("button", { name: "−20 %" }).click();
-  await expect(send.locator("textarea")).toHaveValue(/happy hour : -20 %/);
+  await send.getByRole("button", { name: "−20 TND" }).click();
+  await expect(send.locator("textarea")).toHaveValue(/heures creuses : -20 TND/);
   await send.getByRole("button", { name: /^Prévenir \d+ joueur/ }).click();
   await expect(page.getByText(/joueurs? prévenus?/)).toBeVisible();
 
   // absence: aujourd'hui, avec une raison, visible dans le calendrier
   await page.getByRole("button", { name: "Semaine", exact: true }).click();
-  await page.getByRole("button", { name: "Aujourd'hui" }).click();
+  const back = page.getByRole("button", { name: "Aujourd'hui" }); // seulement quand on n'est pas sur la semaine en cours
+  if (await back.count()) await back.click();
   await page.getByRole("button", { name: "Absence" }).click();
   await page.getByLabel("Raison (facultatif)").fill("Vacances");
   await page.getByRole("button", { name: "Enregistrer l'absence" }).click();

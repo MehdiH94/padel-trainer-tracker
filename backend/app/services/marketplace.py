@@ -59,7 +59,7 @@ def coach_profile(db: Session, coach: Coach, account: Player) -> dict:
     return coach_summary(db, coach, account) | {
         "slot_minutes": coach.slot_minutes, "cancel_hours": coach.cancel_hours,
         "durations": {k: duration_for(coach, k) for k in CAPACITY},
-        "happy_hours": [{"weekday": h.weekday, "start_time": h.start_time, "end_time": h.end_time, "discount_pct": h.discount_pct}
+        "happy_hours": [{"weekday": h.weekday, "start_time": h.start_time, "end_time": h.end_time, "discount_pct": h.discount_pct, "discount_millimes": h.discount_millimes}
                         for h in db.scalars(select(HappyHour).where(HappyHour.coach_id == coach.id).order_by(HappyHour.weekday, HappyHour.start_time))],
         "availability": [{"weekday": w.weekday, "start_time": w.start_time, "end_time": w.end_time} for w in windows],
         "stats": {"sessions_done": done or 0, "players": players or 0},
@@ -137,7 +137,8 @@ def offers(db: Session, account: Player, day: date, kinds: list[str], coach_id: 
             first = options[0]
             item = {"type": "slot", "coach": who, "start": start, "options": options, "kind": first["kind"],
                     "duration_min": first["duration_min"], "price_millimes": first["price_millimes"],
-                    "discount_pct": max(o["discount_pct"] for o in options), "reason": next((o["reason"] for o in options if o["reason"]), None),
+                    "discount_pct": max(o["discount_pct"] for o in options), "reduction_millimes": max(o["reduction_millimes"] for o in options),
+                    "reason": next((o["reason"] for o in options if o["reason"]), None),
                     "court": "reserve" if held else "a_confirmer",
                     "club": db.get(Club, held[0].club_id).name if held else (club or (clubs[0] if len(clubs) == 1 else ""))}
             (with_court if held else other).append(item)
@@ -149,7 +150,7 @@ def offers(db: Session, account: Player, day: date, kinds: list[str], coach_id: 
         return abs(local.hour + local.minute / 60 - hour) * 1e6 + aware(x["start"]).timestamp() / 1e6
 
     groups.sort(key=lambda g: (g.pop("_gap"), closeness(g)))
-    with_court.sort(key=lambda x: (-x["discount_pct"], closeness(x)))  # les promotions d'abord
+    with_court.sort(key=lambda x: (-x["reduction_millimes"], closeness(x)))  # les réductions d'abord
     other.sort(key=closeness)
     return {"groups": groups[:10], "slots_with_court": with_court[:20], "slots_other": other[:30], "other_kinds": other_kinds,
             "too_late": [k for k in CAPACITY if k in too_late]}

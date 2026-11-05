@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -19,7 +19,7 @@ from ..services import groups, isolation
 from ..services import finance
 from ..services.finance import session_payments, share
 from ..services.pricing import base_price
-from ..services.common import aware, quand
+from ..services.common import aware, dinars, quand
 from ..sms import get_sms_provider
 from ..sms.base import SmsProvider
 from .players import get_owned_player
@@ -60,6 +60,7 @@ def list_sessions(
     coach: Coach = Depends(current_coach),
     db: Session = Depends(get_db),
 ):
+    booking_svc.complete_finished(db, coach.id)  # séances terminées: effectuées automatiquement
     q = select(TrainingSession).where(TrainingSession.coach_id == coach.id)
     if start:
         q = q.where(TrainingSession.start >= start)
@@ -97,8 +98,13 @@ def create_sessions(
         if not club or club.coach_id != coach.id:
             raise HTTPException(404, "Club introuvable")
     rec = str(uuid.uuid4()) if body.repeat_weeks > 1 else None
-    data = body.model_dump(exclude={"player_ids", "repeat_weeks", "start", "court_booked", "discount_pct"})
-    if body.discount_pct is not None:  # prix des réglages (par joueur), promotion éventuelle
+    data = body.model_dump(exclude={"player_ids", "repeat_weeks", "start", "court_booked", "discount_pct", "discount_millimes"})
+    if body.discount_millimes is not None:  # prix des réglages (par joueur), moins une réduction en dinars
+        if body.discount_millimes < 0:
+            raise HTTPException(422, "Réduction invalide.")
+        data["price_millimes"] = max(base_price(coach, body.kind) - body.discount_millimes, 0)
+        data["price_mode"] = "par_joueur"
+    elif body.discount_pct is not None:  # prix des réglages (par joueur), promotion éventuelle
         if not 0 <= body.discount_pct <= 90:
             raise HTTPException(422, "Promotion : entre 0 et 90 %.")
         data["price_millimes"] = round(base_price(coach, body.kind) * (100 - body.discount_pct) / 100)
@@ -154,15 +160,17 @@ def patch_session(
     if body.status is not None:
         if body.status not in ("prevue", "effectuee", "annulee"):
             raise HTTPException(422, "Statut invalide")
+        past = aware(s.start) + timedelta(minutes=s.duration_min) <= datetime.now(timezone.utc)
         if s.status == "effectuee" and body.status != "effectuee":
-            # Retour arrière possible (« Annuler » juste après « Effectuée ») tant que rien n'a été encaissé pour cette séance
-            paid = db.scalar(select(Payment.id).where(Payment.session_id == s.id).limit(1))
-            if body.status != "prevue" or paid:
-                raise HTTPException(409, "Une séance effectuée et déjà réglée ne peut plus changer de statut")
+            # Séance passée finalement pas faite (effectuée automatiquement): on peut l'annuler, crédits rendus,
+            # tant qu'aucun paiement n'a été encaissé pour elle
+            if db.scalar(select(Payment.id).where(Payment.session_id == s.id).limit(1)):
+                raise HTTPException(409, "Un paiement a été encaissé pour cette séance : elle ne peut plus être annulée.")
             finance.unsettle(db, s)  # crédits débités pour cette séance rendus
         if body.status == "annulee" and s.status != "annulee":
-            booking_svc.coach_cancel_session(db, s)  # réservations payées en crédits: remboursement
-            courts.release_or_cancel(db, coach, s, sms)  # terrain manuel libéré, club prévenu sinon
+            booking_svc.coach_cancel_session(db, s, tell=not past)  # réservations payées en crédits: remboursement
+            if not past:
+                courts.release_or_cancel(db, coach, s, sms)  # terrain manuel libéré, club prévenu sinon
         was = s.status
         s.status = body.status
         if body.status == "effectuee" and was != "effectuee":
@@ -244,28 +252,28 @@ def invite_players(session_id: int, body: InviteIn, coach: Coach = Depends(curre
 
 # --- Séance incomplète: le coach écrit aux inscrits (« partants à deux ? »), avec une remise facultative ----------
 
-def default_low_message(coach: Coach, s: TrainingSession, pct: int = 0) -> str:
+def default_low_message(coach: Coach, s: TrainingSession, off: int = 0) -> str:
     n = len(s.attendances)
     what = "à deux" if n == 2 else "seul avec moi" if n == 1 else f"à {n}"
-    promo = f"Pour vous remercier, je vous fais -{pct} % sur cette séance." if pct else ""
+    promo = f"Pour vous remercier, je vous fais -{dinars(off)} sur cette séance." if off else ""
     return letter(None, "Malheureusement, nous n'arrivons pas à compléter cette séance :", booking_svc._details(s),
                   f"Est-ce que ça vous intéresse quand même de vous entraîner {what} ? {promo}".strip(),
                   "Répondez-moi, ou changez de formule dans l'application (sur votre séance).", sign=coach.name)
 
 
 @router.get("/{session_id}/message")
-def message_preview(session_id: int, discount_pct: int = 0, coach: Coach = Depends(current_coach), db: Session = Depends(get_db)):
+def message_preview(session_id: int, discount_millimes: int = 0, coach: Coach = Depends(current_coach), db: Session = Depends(get_db)):
     """Inscrits de la séance et message proposé."""
     s = get_owned_session(db, coach, session_id)
     players = [db.get(Player, a.player_id) for a in s.attendances]
     return {"players": [{"id": p.id, "name": p.name, "category": p.category, "gender": p.gender, "has_account": has_account(p)} for p in players],
-            "message": default_low_message(coach, s, discount_pct), "min_players": groups.min_needed(s)}
+            "message": default_low_message(coach, s, discount_millimes), "min_players": groups.min_needed(s)}
 
 
 class LowIn(BaseModel):
     player_ids: list[int]
     message: str = ""
-    discount_pct: int = 0  # remise sur la séance pour les inscrits (0 = aucune)
+    discount_millimes: int = 0  # réduction par joueur sur la séance, en millimes (0 = aucune)
 
 
 @router.post("/{session_id}/message")
@@ -273,18 +281,18 @@ def message_players(session_id: int, body: LowIn, coach: Coach = Depends(current
     """Écrit aux inscrits choisis. Avec une remise: le prix de chacun baisse (crédits déjà débités: la différence est rendue)."""
     from ..models import Booking
     s = get_owned_session(db, coach, session_id)
-    if not 0 <= body.discount_pct <= 90:
-        raise HTTPException(422, "La remise doit être entre 0 et 90 %")
+    if body.discount_millimes < 0:
+        raise HTTPException(422, "Réduction invalide.")
     inside = {a.player_id for a in s.attendances}
     chosen = [db.get(Player, pid) for pid in body.player_ids if pid in inside]
-    if body.discount_pct:
+    if body.discount_millimes:
         for b in db.scalars(select(Booking).where(Booking.session_id == s.id, Booking.status.in_(booking_svc.ACTIVE))):
-            if body.discount_pct > (b.discount_pct or 0):
-                b.discount_pct = body.discount_pct
+            if body.discount_millimes > (b.discount_millimes or 0):
+                b.discount_pct, b.discount_millimes = 0, body.discount_millimes
                 booking_svc._reprice(db, coach, s, b)
         if s.price_mode == "par_joueur":  # séance montée par le coach: prix par joueur
-            s.price_millimes = min(s.price_millimes, round(base_price(coach, s.kind) * (100 - body.discount_pct) / 100))
-    message = body.message.strip() or default_low_message(coach, s, body.discount_pct)
+            s.price_millimes = min(s.price_millimes, max(base_price(coach, s.kind) - body.discount_millimes, 0))
+    message = body.message.strip() or default_low_message(coach, s, body.discount_millimes)
     sent = booking_svc.notify(db, chosen, "Votre séance de padel", lambda _p: message)
     db.commit()
     return {"sent": sent}

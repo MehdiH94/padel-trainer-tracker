@@ -136,7 +136,7 @@ function Signups({ refreshSummary }) {
 }
 
 // Ouvrir l'espace d'un coach ou d'un joueur avec tous ses droits
-const open = (url) => api(url, { method: "POST" }).then(actAs).catch(toastError);
+const open = (url, hash) => api(url, { method: "POST" }).then((r) => actAs(r, hash)).catch(toastError);
 
 // Formulaire de modification (l'administrateur peut tout changer)
 function EditForm({ fields, initial, url, onDone, onCancel }) {
@@ -242,6 +242,7 @@ function AdminPlayers({ coaches }) {
             </div>
           </div>
           <div className="row" style={{ gap: 4, flex: "none" }}>
+          {p.coach_id && <button className="small sec iconbtn" title="Ouvrir sa fiche chez son coach (crédits, notes, araignée, séances)" aria-label={`Ouvrir la fiche de ${p.name} chez ${p.coach_name}`} onClick={() => open(`/admin/coaches/${p.coach_id}/act`, `players/${p.id}`)}><Icon name="user" size={15} /></button>}
           {p.has_account && <button className="small sec iconbtn" title="Ouvrir son espace joueur" aria-label={`Ouvrir l'espace de ${p.name}`} onClick={() => open(`/admin/players/${p.id}/act`)}><Icon name="arrowR" size={15} /></button>}
           <button className="small sec iconbtn" title="Modifier" aria-label={`Modifier ${p.name}`} onClick={() => setEditing(editing === p.id ? null : p.id)}><Icon name="edit" size={15} /></button>
           <button className="small sec iconbtn danger" aria-label={`Supprimer ${p.name}`} onClick={() => remove(`/admin/players/${p.id}`, `Supprimer ${p.name} chez ${p.coach_name} ?`,

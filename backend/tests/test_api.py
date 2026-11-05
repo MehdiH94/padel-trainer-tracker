@@ -150,7 +150,7 @@ def test_player_profile(client):
     assert prof["finance"]["due_millimes"] == 40000
     assert prof["last_session"]["worked_on"] == ["Bandeja", "Volée"]
     bandeja = next(s for s in prof["skills"] if s["stroke"] == "Bandeja")
-    assert (bandeja["score"], bandeja["previous"]) == (3, 2)
+    assert (bandeja["score"], bandeja["previous"]) == (6.0, 4.0)  # anciennes notes sur 5 ramenées sur 10
     assert prof["strengths"] == ["Service"] and prof["weaknesses"] == ["Smash"]
 
 
@@ -590,7 +590,8 @@ def test_session_feedback_listing(client):
 
 def test_completed_session_shows_what_each_player_paid(client):
     a, b = mkplayer(client, name="Ali")["id"], mkplayer(client, phone="22 000 111", name="Bea")["id"]
-    s = client.post("/sessions", json={"start": "2026-01-05T10:00:00Z", "kind": "duo", "player_ids": [a, b], "price_millimes": 40000}).json()[0]
+    future = (datetime.now(timezone.utc) + timedelta(days=2)).isoformat()  # pas encore passée (sinon effectuée d'office)
+    s = client.post("/sessions", json={"start": future, "kind": "duo", "player_ids": [a, b], "price_millimes": 40000}).json()[0]
     assert client.get("/sessions").json()[0]["payments"] == []  # pas encore effectuée
     client.patch(f"/sessions/{s['id']}", json={"status": "effectuee"})
     client.post("/payments", json={"player_id": a, "amount_millimes": 25000, "session_id": s["id"]})
@@ -688,14 +689,19 @@ def test_index_is_never_cached(tmp_path, monkeypatch):
 
 
 def test_undo_completed_session_until_paid(client):
+    """Ticket coach n°12: une séance passée devient effectuée toute seule (crédits débités); le coach peut quand
+    même l'annuler si elle n'a pas eu lieu (crédits rendus), sauf si un paiement a été encaissé pour elle."""
     p = mkplayer(client)["id"]
+    client.post(f"/players/{p}/credits", json={"amount_millimes": 100000, "method": "especes"})
     s = client.post("/sessions", json={"start": "2026-01-05T10:00:00Z", "player_ids": [p], "price_millimes": 60000}).json()[0]
-    client.patch(f"/sessions/{s['id']}", json={"status": "effectuee"})
-    assert client.patch(f"/sessions/{s['id']}", json={"status": "prevue"}).json()["status"] == "prevue"  # « Annuler »
-    client.patch(f"/sessions/{s['id']}", json={"status": "effectuee"})
-    assert client.patch(f"/sessions/{s['id']}", json={"status": "annulee"}).status_code == 409
-    client.post("/payments", json={"player_id": p, "amount_millimes": 60000, "session_id": s["id"]})
-    assert client.patch(f"/sessions/{s['id']}", json={"status": "prevue"}).status_code == 409  # déjà réglée
+    assert next(x for x in client.get("/sessions").json() if x["id"] == s["id"])["status"] == "effectuee"  # automatiquement
+    assert client.get(f"/players/{p}/credits").json()["balance_millimes"] == 40000
+    assert client.patch(f"/sessions/{s['id']}", json={"status": "annulee"}).json()["status"] == "annulee"  # pas eu lieu
+    assert client.get(f"/players/{p}/credits").json()["balance_millimes"] == 100000  # crédits rendus
+    s2 = client.post("/sessions", json={"start": "2026-01-06T10:00:00Z", "player_ids": [p], "price_millimes": 60000}).json()[0]
+    client.get("/sessions")
+    client.post("/payments", json={"player_id": p, "amount_millimes": 60000, "session_id": s2["id"], "method": "especes"})
+    assert client.patch(f"/sessions/{s2['id']}", json={"status": "annulee"}).status_code == 409  # déjà réglée
 
 
 def test_coach_adds_player_to_session(client):
@@ -833,10 +839,10 @@ def test_player_books_with_another_coach_and_sees_coach_page(client):
 def test_durations_happy_hours_and_multiple_kinds(client):
     open_week(client)
     st = client.get("/booking/settings").json()
-    hh = [{"weekday": d, "start_time": "09:00", "end_time": "12:00", "discount_pct": 25} for d in range(7)]
+    hh = [{"weekday": d, "start_time": "09:00", "end_time": "12:00", "discount_millimes": 15000} for d in range(7)]  # heures creuses: -15 TND
     st = client.put("/booking/settings", json={**st, "duration_groupe": 90, "happy_hours": hh}).json()
     assert (st["duration_duo"], st["duration_groupe"], len(st["happy_hours"])) == (60, 90, 7)
-    assert client.put("/booking/settings", json={**st, "happy_hours": [{**hh[0], "discount_pct": 95}]}).status_code == 422
+    assert client.put("/booking/settings", json={**st, "happy_hours": [{**hh[0], "discount_millimes": 0}]}).status_code == 422
     p, pc = player_client(client)
     day = _day_of(pc.get("/me/slots").json()[-1])
     off = pc.get(f"/me/offers?day={day}&kinds=individuel,groupe").json()
@@ -844,7 +850,7 @@ def test_durations_happy_hours_and_multiple_kinds(client):
     morning = next(x for x in slots if datetime.fromisoformat(x["start"].replace("Z", "+00:00")).astimezone(timezone.utc).hour == 8)  # 9h à Tunis
     opts = {o["kind"]: o for o in morning["options"]}
     assert opts["groupe"]["duration_min"] == 90 and opts["individuel"]["duration_min"] == 60
-    assert opts["individuel"]["price_millimes"] == 45000 and opts["individuel"]["reason"] == "happy_hour"  # 60 TND - 25 %
+    assert opts["individuel"]["price_millimes"] == 45000 and opts["individuel"]["reason"] == "happy_hour"  # 60 TND - 15 TND
     # grille commune: créneaux toutes les 30 min, mais un groupe de 90 min ne dépasse pas 21h
     last = [x for x in slots if any(o["kind"] == "groupe" for o in x["options"])][-1]
     assert datetime.fromisoformat(last["start"].replace("Z", "+00:00")).astimezone(timezone.utc).strftime("%H:%M") == "18:30"  # 19h30 à Tunis
@@ -862,7 +868,7 @@ def test_durations_happy_hours_and_multiple_kinds(client):
     assert datetime.fromisoformat(later[0]["start"].replace("Z", "+00:00")) == t0 + timedelta(minutes=90)  # juste après, sans trou
     r2 = pc2.post("/me/book", json={"kind": "groupe", "start": next(x for x in later if any(o["kind"] == "groupe" and o["reason"] == "happy_hour" for o in x["options"]))["start"], "kinds": ["groupe"]}).json()
     req2 = next(x for x in client.get("/booking/requests").json() if x["id"] == r2["id"])
-    assert (req2["kind"], req2["duration_min"], req2["price_millimes"]) == ("groupe", 90, 22500)
+    assert (req2["kind"], req2["duration_min"], req2["price_millimes"]) == ("groupe", 90, 15000)
     assert r["status"] == "en_attente" and r["charged_millimes"] == 0  # validation par le coach, rien de débité avant
 
 
@@ -875,10 +881,10 @@ def test_promotion_on_reserved_court_notifies_players(client, monkeypatch):
     slot = pc.get("/me/slots").json()[5]
     court = free_court(client, slot, minutes=60)
     Notifier.sent.clear()
-    assert client.get(f"/promotions/preview?court_booking_id={court['id']}&discount_pct=30").json()["recipients"] == 2
-    promo = client.post("/promotions", json={"court_booking_id": court["id"], "discount_pct": 30}).json()
+    assert client.get(f"/promotions/preview?court_booking_id={court['id']}&discount_millimes=18000").json()["recipients"] == 2
+    promo = client.post("/promotions", json={"court_booking_id": court["id"], "discount_millimes": 18000}).json()
     assert promo["notified_count"] == 2 and promo["prices"]["individuel"] == 42000
-    assert sorted(ch for ch, _, _ in Notifier.sent) == ["sms", "whatsapp"] and "-30 %" in Notifier.sent[0][2]
+    assert sorted(ch for ch, _, _ in Notifier.sent) == ["sms", "whatsapp"] and "-18 TND" in Notifier.sent[0][2]
     assert [x["id"] for x in pc.get("/me/promotions").json()] == [promo["id"]]
     off = pc.get(f"/me/offers?day={_day_of(slot)}&kinds=individuel").json()
     top = off["slots_with_court"][0]
@@ -887,7 +893,7 @@ def test_promotion_on_reserved_court_notifies_players(client, monkeypatch):
     assert pc.get("/me/promotions").json() == []  # terrain pris: la promotion s'arrête
     assert client.get("/sessions").json()[0]["price_millimes"] == 42000
     other = free_court(client, pc.get("/me/slots").json()[8], minutes=60)
-    assert client.post("/promotions", json={"court_booking_id": other["id"], "discount_pct": 2}).status_code == 422
+    assert client.post("/promotions", json={"court_booking_id": other["id"], "discount_millimes": 0}).status_code == 422
 
 
 def test_coach_chooses_clubs(client):
@@ -1695,12 +1701,12 @@ def test_coach_session_price_comes_from_settings_with_optional_promo(client):
     open_week(client)  # prix: 60 / 40 / 30 TND par joueur
     a, b = mkplayer(client, name="A"), mkplayer(client, name="B")
     start = (datetime.now(timezone.utc) + timedelta(days=3)).isoformat()
-    s = client.post("/sessions", json={"start": start, "kind": "duo", "player_ids": [a["id"], b["id"]], "discount_pct": 0, "price_millimes": 999000}).json()[0]
+    s = client.post("/sessions", json={"start": start, "kind": "duo", "player_ids": [a["id"], b["id"]], "discount_millimes": 0, "price_millimes": 999000}).json()[0]
     assert (s["price_millimes"], s["price_mode"]) == (40000, "par_joueur")  # le prix saisi est ignoré
     later = (datetime.now(timezone.utc) + timedelta(days=3, hours=3)).isoformat()  # pas deux séances en même temps
-    s = client.post("/sessions", json={"start": later, "kind": "individuel", "player_ids": [a["id"]], "discount_pct": 25}).json()[0]
-    assert s["price_millimes"] == 45000  # 60 TND - 25 %
-    assert client.post("/sessions", json={"start": start, "kind": "individuel", "discount_pct": 95}).status_code == 422
+    s = client.post("/sessions", json={"start": later, "kind": "individuel", "player_ids": [a["id"]], "discount_millimes": 15000}).json()[0]
+    assert s["price_millimes"] == 45000  # 60 TND - 15 TND
+    assert client.post("/sessions", json={"start": start, "kind": "individuel", "discount_millimes": -1}).status_code == 422
 
 
 def test_new_session_tells_if_a_court_is_already_booked(client):
@@ -1778,20 +1784,20 @@ def test_time_off_hides_slots_and_free_court_happy_hour_and_low_session_message(
     # terrain libre annoncé en happy hour
     start = (datetime.now(timezone.utc) + timedelta(days=4)).replace(minute=0, second=0, microsecond=0)
     cb = free_court(client, start.isoformat(), minutes=120)
-    msg = client.get(f"/court-bookings/{cb['id']}/announce?discount_pct=20").json()["message"]
-    assert "happy hour : -20 %" in msg
+    msg = client.get(f"/court-bookings/{cb['id']}/announce?discount_millimes=20000").json()["message"]
+    assert "heures creuses : -20 TND" in msg
     OUTBOX.clear()
-    assert client.post(f"/court-bookings/{cb['id']}/announce", json={"player_ids": [p["id"]], "discount_pct": 20}).json()["sent"] == 1
+    assert client.post(f"/court-bookings/{cb['id']}/announce", json={"player_ids": [p["id"]], "discount_millimes": 20000}).json()["sent"] == 1
     [promo] = [x for x in client.get("/promotions").json()["items"] if x["active"]]
-    assert (promo["court_booking_id"], promo["discount_pct"]) == (cb["id"], 20)
+    assert (promo["court_booking_id"], promo["discount_millimes"]) == (cb["id"], 20000)
     # séance en groupe à deux: le coach demande s'ils sont partants à deux, avec -10 %
     q = mkplayer(client, name="Rim", phone="20 111 222")
-    s = client.post("/sessions", json={"start": (start + timedelta(days=1)).isoformat(), "kind": "groupe", "player_ids": [p["id"], q["id"]], "discount_pct": 0}).json()[0]
-    pre = client.get(f"/sessions/{s['id']}/message?discount_pct=10").json()
-    assert {x["name"] for x in pre["players"]} == {"Sami", "Rim"} and "à deux" in pre["message"] and "-10 %" in pre["message"]
+    s = client.post("/sessions", json={"start": (start + timedelta(days=1)).isoformat(), "kind": "groupe", "player_ids": [p["id"], q["id"]], "discount_millimes": 0}).json()[0]
+    pre = client.get(f"/sessions/{s['id']}/message?discount_millimes=3000").json()
+    assert {x["name"] for x in pre["players"]} == {"Sami", "Rim"} and "à deux" in pre["message"] and "-3 TND" in pre["message"]
     OUTBOX.clear()
-    assert client.post(f"/sessions/{s['id']}/message", json={"player_ids": [p["id"], q["id"]], "discount_pct": 10}).json()["sent"] == 2
-    assert next(x for x in client.get("/sessions").json() if x["id"] == s["id"])["price_millimes"] == 27000  # 30 TND - 10 %
+    assert client.post(f"/sessions/{s['id']}/message", json={"player_ids": [p["id"], q["id"]], "discount_millimes": 3000}).json()["sent"] == 2
+    assert next(x for x in client.get("/sessions").json() if x["id"] == s["id"])["price_millimes"] == 27000  # 30 TND - 3 TND
 
 
 def test_one_court_at_a_time_and_sessions_go_on_the_free_court(client):
@@ -1928,14 +1934,14 @@ def test_messages_stay_in_their_world(two_worlds):
     cb = free_court(tc, start, club=tc.get("/clubs").json()[0])
     assert [x["name"] for x in tc.get(f"/court-bookings/{cb['id']}/announce").json()["players"]] == ["Sami"]
     assert tc.get(f"/promotions/preview?court_booking_id={cb['id']}").json()["recipients"] == 1
-    assert tc.post("/promotions", json={"court_booking_id": cb["id"], "discount_pct": 20}).json()["notified_count"] == 1
+    assert tc.post("/promotions", json={"court_booking_id": cb["id"], "discount_millimes": 20000}).json()["notified_count"] == 1
     assert len(tpc.get("/me/promotions").json()) == 1
     s = tc.post("/sessions", json={"start": _in(5), "kind": "groupe", "open": True}).json()[0]
     assert [x["name"] for x in tc.get(f"/sessions/{s['id']}/invitable").json()["players"]] == ["Sami"]
     # le vrai coach n'écrit jamais au compte test, qui ne voit ni ses promotions ni ses propositions
     rcb = free_court(real, start, club=real.get("/clubs").json()[0])
     assert [x["name"] for x in real.get(f"/court-bookings/{rcb['id']}/announce").json()["players"]] == ["Sami"]
-    real.post("/promotions", json={"court_booking_id": rcb["id"], "discount_pct": 20})
+    real.post("/promotions", json={"court_booking_id": rcb["id"], "discount_millimes": 20000})
     assert old.get("/me/promotions").json() == [] and old.get("/me/coaches").json()[0]["name"] == "Coach Test"
     rs = real.post("/sessions", json={"start": _in(5, 15), "kind": "groupe", "open": True}).json()[0]
     ancien = next(p["id"] for p in real.get("/players").json() if p["name"] == "Ancien")
@@ -1990,3 +1996,60 @@ def test_payment_after_recharge_debt_keeps_finances_consistent(client):
     f = fin()
     assert f["due_millimes"] == 0 and f["paid_millimes"] <= f["billed_millimes"] and f["credits_balance_millimes"] == 0
     assert all(u["player_id"] != p["id"] for u in client.get("/dashboard").json()["unpaid"])
+
+
+def test_spider_criteria_editable_and_precise_ratings(client):
+    """Araignée: jauge de 0 à 10 au dixième (value 0-100), critères standards modifiables par le coach."""
+    p = mkplayer(client)
+    c = client.get("/criteria").json()
+    assert c["names"] == c["standard"] and not c["custom"]
+    assert client.post(f"/players/{p['id']}/skills", json={"stroke": "Bandeja", "value": 73}).status_code == 201
+    assert client.post(f"/players/{p['id']}/skills", json={"stroke": "Bandeja", "value": 101}).status_code == 422
+    names = ["Service", "Bandeja", "Mental", "Déplacements"]
+    c = client.put("/criteria", json={"names": names + ["  mental "]}).json()  # doublon ignoré
+    assert c["names"] == names and c["custom"]
+    assert client.put("/criteria", json={"names": ["A", "B"]}).status_code == 422  # au moins 3
+    assert client.post(f"/players/{p['id']}/skills", json={"stroke": "Mental", "value": 85}).status_code == 201
+    prof = client.get(f"/players/{p['id']}/profile").json()
+    assert [s["stroke"] for s in prof["skills"]] == names
+    sk = {s["stroke"]: s["score"] for s in prof["skills"]}
+    assert (sk["Bandeja"], sk["Mental"], sk["Service"]) == (7.3, 8.5, None) and prof["strengths"] == ["Mental"]
+    assert client.put("/criteria", json={"names": []}).json()["custom"] is False  # retour aux critères standards
+
+
+def test_finance_tab_notes_and_coach_absence_for_players(client):
+    """Onglet Finance: gagné (séances effectuées), encaissé (argent reçu), impayés, crédits d'avance, journal.
+    Notes générales du coach sur un joueur. Absence du coach visible à l'accueil de ses joueurs."""
+    from app.services.common import TUNIS
+    p, pc = player_client(client, name="Sami")
+    q = mkplayer(client, name="Rim", phone="20 111 222")
+    today = datetime.now(TUNIS).date()
+    at = lambda d, h: datetime.combine(today - timedelta(days=d), datetime.min.time().replace(hour=h), TUNIS).isoformat()  # noqa: E731
+    client.post(f"/players/{p['id']}/credits", json={"amount_millimes": 100000, "method": "especes"})  # versement de Sami
+    for d, pid in ((2, p["id"]), (1, q["id"])):
+        client.post("/sessions", json={"start": at(d, 9), "kind": "individuel", "player_ids": [pid], "price_millimes": 60000})
+    f = client.get(f"/finance?start={today - timedelta(days=6)}&end={today}").json()
+    assert (f["earned_millimes"], f["cashed_millimes"], f["sessions"]) == (120000, 100000, 2)
+    assert [u["name"] for u in f["unpaid"]] == ["Rim"] and f["unpaid_total_millimes"] == 60000
+    assert [c["name"] for c in f["credits"]] == ["Sami"] and f["credits_total_millimes"] == 40000
+    assert f["journal"][0]["name"] == "Sami" and len(f["series"]) == 7 and f["group"] == "day"
+    fin = client.get(f"/players/{p['id']}/profile").json()["finance"]
+    assert (fin["given_millimes"], fin["consumed_millimes"], fin["balance_millimes"]) == (100000, 60000, 40000)
+    assert client.put(f"/players/{p['id']}/notes", json={"notes": "Travailler le mental"}).json()["notes"] == "Travailler le mental"
+    assert client.get(f"/players/{p['id']}/profile").json()["player"]["notes"] == "Travailler le mental"
+    client.post("/time-off", json={"start_date": (today + timedelta(days=7)).isoformat(), "end_date": (today + timedelta(days=37)).isoformat(), "reason": "Vacances"})
+    [a] = pc.get("/me").json()["absences"]
+    assert a["coach_name"] == "Coach Test" and a["reason"] == "Vacances" and a["now"] is False
+
+
+def test_admin_corrects_credits_coach_cannot(client, monkeypatch):
+    """Administrateur: retirer ou ajouter des crédits sans argent reçu; un coach ordinaire ne peut pas."""
+    p = mkplayer(client)
+    assert client.post(f"/players/{p['id']}/credits/correction", json={"amount_millimes": -10000}).status_code == 403
+    monkeypatch.setenv("ADMIN_EMAILS", "boss@padel.tn")
+    boss = register("boss@padel.tn")
+    coach_id = next(c["id"] for c in boss.get("/admin/coaches").json() if c["email"] == "a@b.tn")
+    acting = login_as(TestClient(app), boss.post(f"/admin/coaches/{coach_id}/act").json()["token"])
+    acting.post(f"/players/{p['id']}/credits", json={"amount_millimes": 50000, "method": "especes"})
+    assert acting.post(f"/players/{p['id']}/credits/correction", json={"amount_millimes": -20000}).json()["balance_millimes"] == 30000
+    assert acting.post(f"/players/{p['id']}/credits/correction", json={"amount_millimes": 0}).status_code == 422

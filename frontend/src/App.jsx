@@ -10,7 +10,7 @@ import Invite from "./Invite.jsx";
 import PlayerApp from "./PlayerApp.jsx";
 import Planning from "./Planning.jsx";
 import Players from "./Players.jsx";
-import Reminders from "./Reminders.jsx";
+import Finance from "./Finance.jsx";
 import Requests from "./Requests.jsx";
 import SessionPlan from "./SessionPlan.jsx";
 import Settings from "./Settings.jsx";
@@ -92,7 +92,7 @@ const TABS = [
   ["planning", "calendar", "Planning", Planning],
   ["players", "users", "Joueurs", Players],
   ["requests", "inbox", "Demandes", Requests],
-  ["reminders", "send", "Relances", Reminders],
+  ["finance", "wallet", "Finance", Finance],
 ];
 const PAGES = { admin: Admin, courts: Courts, settings: Settings, exercises: Exercises, session: SessionPlan };
 
@@ -126,7 +126,7 @@ function CoachApp() {
   useEffect(() => {
     // puis les autres onglets (demandes, relances, réglages, exercices): chacun s'ouvre déjà rempli
     const t = setTimeout(() => prefetch(["/sessions", "/players", "/court-bookings", "/clubs", "/promotions", "/time-off", "/booking/requests",
-      "/reminders?base=" + encodeURIComponent(location.origin), "/booking/settings", "/clubs/catalog", "/exercise-themes", "/exercises", "/strokes", "/dashboard"]), 1500);
+      "/finance", "/booking/settings", "/criteria", "/clubs/catalog", "/exercise-themes", "/exercises", "/strokes", "/dashboard"]), 1500);
     return () => clearTimeout(t);
   }, []);
   useEffect(() => {

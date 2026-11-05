@@ -15,6 +15,8 @@ router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 
 @router.get("")
 def dashboard(coach: Coach = Depends(current_coach), db: Session = Depends(get_db)):
+    from ..services.booking import complete_finished
+    complete_finished(db, coach.id)  # séances terminées: effectuées automatiquement
     now = datetime.now(TUNIS)
     week = (now - timedelta(days=now.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
     month = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)

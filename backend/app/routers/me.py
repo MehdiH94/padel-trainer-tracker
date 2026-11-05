@@ -44,7 +44,23 @@ def me(player: Player = Depends(current_player), db: Session = Depends(get_db)):
         "signup_status": player.signup_status,
         # Un solde par coach (pas de solde global): soit des crédits, soit un impayé, jamais les deux
         "wallets": [_wallet(db, p) for p in linked(db, player) if p.coach_id],
+        "absences": _absences(db, player),
     }
+
+
+def _absences(db: Session, player: Player) -> list[dict]:
+    """Absences à venir (dans les 30 jours) des coachs chez qui le joueur s'entraîne: petit message à l'accueil."""
+    from datetime import timedelta
+    from ..models import TimeOff
+    from ..services.common import TUNIS
+    today = datetime.now(TUNIS).date()
+    coach_ids = {p.coach_id for p in linked(db, player) if p.coach_id}
+    out = []
+    for t in db.scalars(select(TimeOff).where(TimeOff.coach_id.in_(coach_ids), TimeOff.end_date >= today,
+                                              TimeOff.start_date <= today + timedelta(days=30)).order_by(TimeOff.start_date)):
+        out.append({"coach_name": db.get(Coach, t.coach_id).name, "start_date": t.start_date.isoformat(), "end_date": t.end_date.isoformat(),
+                    "reason": t.reason, "now": t.start_date <= today})
+    return out
 
 
 def _main_coach(db: Session, player: Player) -> Coach | None:
@@ -321,7 +337,13 @@ def progress(player: Player = Depends(current_player), db: Session = Depends(get
     stats = {k: sum(pr["stats"][k] for pr in profiles) for k in ("done_count", "cancelled_count", "upcoming_count")}
     stats["hours"] = round(sum(pr["stats"]["hours"] for pr in profiles), 1)
     stats["since"] = min((pr["stats"]["since"] for pr in profiles if pr["stats"]["since"]), default=None)
-    skills = skills_of(db, [p.id for p in rows] or [player.id])
+    # critères des coachs du joueur (dans l'ordre de ses fiches), sans doublon
+    from ..models import Coach as _Coach
+    from .profile import criteria_of
+    crit: list[str] = []
+    for p in rows:
+        crit += [c for c in criteria_of(db.get(_Coach, p.coach_id)) if c not in crit]
+    skills = skills_of(db, [p.id for p in rows] or [player.id], crit or None)
     lasts = [pr["last_session"] for pr in profiles if pr["last_session"]]
     return {"stats": stats, **skills, "last_session": max(lasts, key=lambda h: aware(h["start"]), default=None), "goals": player.goals}
 

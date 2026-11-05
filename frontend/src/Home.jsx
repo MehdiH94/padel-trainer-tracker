@@ -1,12 +1,12 @@
 import { useEffect, useState } from "react";
 import { api, dayKey, dayLabel, hhmm, peek, shortDate, tnd, toDate, useLive } from "./api.js";
+import { Modal } from "./feedback.jsx";
 import FeedbackEditor from "./FeedbackEditor.jsx";
 import SessionPayments from "./SessionPayments.jsx";
 import Icon from "./Icon.jsx";
 import { guideHidden, guideSteps, hideGuide } from "./guide.js";
-import { toast, toastError } from "./feedback.jsx";
 import { sessionStatus } from "./sessionActions.js";
-import { Avatar, AvatarStack, BarChart, COURT_STATUS, InstallCard, KIND, Loading, PlayerTag, PlayerTags, Where } from "./ui.jsx";
+import { Avatar, AvatarStack, BarChart, ContactLinks, COURT_STATUS, InstallCard, KIND, Loading, PlayerTag, PlayerTags, Where } from "./ui.jsx";
 
 const TZ = "Africa/Tunis";
 const ymd = (d) => d.toLocaleDateString("fr-CA", { timeZone: TZ });
@@ -55,47 +55,7 @@ function DonePanel({ s, name, byId, strokes, onSaved, onClose }) {
         </div>
       )}
       {list.length === 1 && <div className="mut" style={{ margin: "4px 0" }}><PlayerTag p={byId?.(cur.player_id) ?? cur} /></div>}
-      {cur && <FeedbackEditor key={cur.player_id} h={cur} playerId={cur.player_id} strokes={strokes} onSaved={() => { load(); onSaved(); }} />}
-    </div>
-  );
-}
-
-// Impayé: encaisser sur place ou relancer
-function UnpaidRow({ u, openPlayer, go, onPaid }) {
-  const [f, setF] = useState(null);
-  async function save(e) {
-    e.preventDefault();
-    try {
-      await api("/payments", { method: "POST", body: { player_id: u.player_id, amount_millimes: Math.round(Number(String(f.amount).replace(",", ".")) * 1000), method: f.method } });
-      toast(`Paiement de ${u.name.split(" ")[0]} enregistré`);
-      setF(null);
-      onPaid();
-    } catch (x) {
-      toastError(x);
-    }
-  }
-  return (
-    <div className="card">
-      <div className="row">
-        <button className="row g10 plain" onClick={() => openPlayer(u.player_id)}>
-          <Avatar name={u.name} />
-          <span style={{ textAlign: "left" }}><b>{u.name}</b><span className="red" style={{ display: "block" }}>{tnd(u.amount_millimes)}</span></span>
-        </button>
-        {!f && (
-          <div className="row" style={{ gap: 6 }}>
-            <button className="small" onClick={() => setF({ amount: (u.amount_millimes / 1000).toFixed(3), method: "especes" })}>Encaisser</button>
-            <button className="small sec iconbtn" title="Relancer" aria-label={`Relancer ${u.name}`} onClick={() => go("reminders")}><Icon name="send" size={15} /></button>
-          </div>
-        )}
-      </div>
-      {f && (
-        <form className="payform" style={{ marginTop: 10 }} onSubmit={save}>
-          <span className="inputunit"><input inputMode="decimal" aria-label="Montant" value={f.amount} onChange={(e) => setF({ ...f, amount: e.target.value })} required /><em>TND</em></span>
-          <select aria-label="Moyen de paiement" value={f.method} onChange={(e) => setF({ ...f, method: e.target.value })}><option value="especes">Espèces</option><option value="virement">Virement</option></select>
-          <button className="small">OK</button>
-          <button type="button" className="small sec iconbtn" aria-label="Annuler" onClick={() => setF(null)}><Icon name="x" size={14} /></button>
-        </form>
-      )}
+      {cur && <FeedbackEditor key={cur.player_id} h={cur} playerId={cur.player_id} name={byId?.(cur.player_id)?.name} strokes={strokes} rate onSaved={() => { load(); onSaved(); }} />}
     </div>
   );
 }
@@ -126,76 +86,101 @@ function Onboarding({ settings, players, sessions, go }) {
   );
 }
 
+// Indicateur de l'accueil: un chiffre, un libellé; un clic ouvre son résumé
+function Kpi({ icon, value, label, warn, small, onClick }) {
+  return (
+    <button className="kpi kpi-btn" onClick={onClick}>
+      <span className={"ico" + (warn ? " warn" : "")}><Icon name={icon} size={18} /></span>
+      <div className={"big" + (small ? " sm" : "") + (warn ? " red" : "")}>{value}</div>
+      <div className="mut">{label}</div>
+      <Icon name="chevR" size={15} />
+    </button>
+  );
+}
+
+// Séance du jour encore à venir: une ligne courte; un clic montre avec qui, où, et les actions
+function TodayRow({ s, now, byId, go, openPlayer, onCancel }) {
+  const [open, setOpen] = useState(false);
+  const ph = phase(s, now);
+  const ps = s.player_ids.map(byId).filter(Boolean);
+  return (
+    <div className={"card today-row " + ph.key}>
+      <button className="row plain today-head" aria-expanded={open} onClick={() => setOpen(!open)}>
+        <span className="row g10">
+          <i className="kind-dot" style={{ background: KIND[s.kind]?.color }} />
+          <b>{hhmm(s.start)}</b>
+          <span className="mut">{KIND[s.kind]?.label} · {ps.length ? ps.map((p) => p.name.split(" ")[0]).join(", ") : "sans joueur"}</span>
+        </span>
+        <span className={"chip-state " + ph.key}>{ph.label}</span>
+      </button>
+      {open && (
+        <div className="today-body">
+          <div className="mut">{hhmm(s.start)} → {hhmm(endOf(s).toISOString())} · {dur(s.duration_min)}</div>
+          <Where s={s} />
+          {s.court_status && <span className={"court-badge " + COURT_STATUS[s.court_status].cls}><Icon name="pin" size={12} /> {COURT_STATUS[s.court_status].label}</span>}
+          <div className="row" style={{ justifyContent: "flex-start", flexWrap: "wrap", gap: 6, marginTop: 8 }}>
+            {ps.map((p) => <button key={p.id} className="who-btn dark" onClick={() => openPlayer(p.id)}><Avatar name={p.name} size={26} /><PlayerTag p={p} /></button>)}
+          </div>
+          <div className="actions">
+            <button className="small sec" onClick={() => go(`session/${s.id}`)}><Icon name={s.has_plan ? "checkCircle" : "sparkles"} size={15} /> {s.has_plan ? "Plan prêt" : "Préparer"}</button>
+            {ps[0] && <a className="btnlink" href={`tel:${ps[0].phone}`}><Icon name="phone" size={15} /> Appeler</a>}
+            <button className="small sec" onClick={() => onCancel(s.id)}>Annuler</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+const dayNum = (key) => +key.slice(8, 10);
+
 export default function Home({ go, openPlayer, summary }) {
   // données du dernier passage affichées tout de suite (peek), mises à jour ensuite
-  const [d, setD] = useState(() => peek("/dashboard") ?? null);
+  const [fin, setFin] = useState(() => peek("/finance") ?? null); // mois en cours: heures, gagné, impayés
   const [sessions, setSessions] = useState(() => peek("/sessions") ?? null); // null = pas encore chargées
   const [players, setPlayers] = useState(() => peek("/players") ?? []);
-  const [pays, setPays] = useState(() => peek("/payments") ?? []);
-  const [strokes, setStrokes] = useState(() => peek("/strokes") ?? []);
-  const [metric, setMetric] = useState("hours");
+  const [strokes, setStrokes] = useState(() => peek("/criteria")?.names ?? []);
   const [now, setNow] = useState(new Date());
   const [openDone, setOpenDone] = useState(null);
+  const [detail, setDetail] = useState(null); // résumé d'un indicateur: hours / earned / today / unpaid
   const [settings, setSettings] = useState(() => peek("/booking/settings") ?? null);
   const [playersLoaded, setPlayersLoaded] = useState(() => !!peek("/players"));
   const load = () => {
     api("/booking/settings").then(setSettings).catch(() => {});
-    api("/dashboard").then(setD);
+    api("/finance").then(setFin);
     api("/sessions").then(setSessions);
     api("/players").then((p) => { setPlayers(p); setPlayersLoaded(true); });
-    api("/payments").then(setPays);
   };
-  useEffect(() => { load(); api("/strokes").then(setStrokes); }, []);
+  useEffect(() => { load(); api("/criteria").then((c) => setStrokes(c.names)).catch(() => {}); }, []);
   useLive(load);
   useEffect(() => {
     const t = setInterval(() => setNow(new Date()), 30000);
     return () => clearInterval(t);
   }, []);
-  if (!d) return <Loading hero rows={3} />;
+  if (!fin) return <Loading hero rows={3} />;
   const all = sessions ?? [];
 
   const byId = (id) => players.find((p) => p.id === id);
   const name = (id) => byId(id)?.name ?? "?";
   const todayAll = all.filter((s) => dayKey(s.start) === ymd(now) && s.status !== "annulee");
-  const toDo = todayAll.filter((s) => s.status === "prevue"); // les séances terminées n'encombrent plus l'accueil
-  const done = todayAll.length - toDo.length;
-  const hoursToday = todayAll.reduce((a, s) => a + s.duration_min, 0);
-  const expected = todayAll.reduce((a, s) => a + (s.price_mode === "groupe" ? s.price_millimes : s.price_millimes * s.player_ids.length), 0);
-  const focus = toDo.find((s) => ["live", "validate"].includes(phase(s, now).key)) || toDo.find((s) => phase(s, now).key === "soon");
-  const finished = all.filter((s) => s.status === "effectuee").sort((a, b) => toDate(b.start) - toDate(a.start)).slice(0, 14);
-  const missing = finished.filter((s) => s.feedback_missing).length;
-  const totalUnpaid = d.unpaid.reduce((a, u) => a + u.amount_millimes, 0);
+  const left = todayAll.filter((s) => s.status === "prevue" && endOf(s) > now); // séances du jour encore à venir (ou en cours)
+  // Séances effectuées à noter (retour du coach): celles des 7 derniers jours
+  const weekAgo = Date.now() - 7 * 86400000;
+  const toRate = all.filter((s) => s.status === "effectuee" && s.feedback_missing && toDate(s.start).getTime() > weekAgo).sort((a, b) => toDate(b.start) - toDate(a.start));
   const setStatus = sessionStatus(all, load);
   const alerts = (summary?.pending ?? 0) + (summary?.to_notify ?? 0);
-
-  const weeks = Array.from({ length: 8 }, (_, i) => weekStart(new Date(Date.now() - (7 - i) * 7 * 86400000).toISOString()));
-  const chart = weeks.map((w) => ({
-    label: new Date(w + "T12:00:00Z").toLocaleDateString("fr-FR", { day: "numeric", month: "numeric", timeZone: "UTC" }),
-    value: metric === "hours"
-      ? all.filter((s) => s.status === "effectuee" && weekStart(s.start) === w).reduce((a, s) => a + s.duration_min, 0) / 60
-      : pays.filter((p) => weekStart(p.paid_at) === w).reduce((a, p) => a + p.amount_millimes, 0) / 1000,
-  }));
+  const monthName = now.toLocaleDateString("fr-FR", { month: "long", timeZone: TZ });
 
   return (
     <>
       <div className="hero">
         <div className="hero-top">{dayLabel(now.toISOString())}</div>
         <h1>Bonjour coach</h1>
-        {todayAll.length === 0 ? (
-          <div className="next">Aucune séance aujourd'hui. Profitez-en.</div>
-        ) : (
-          <div className="next">
-            <div className="row">
-              <b style={{ fontSize: "1.15rem" }}>{todayAll.length} séance{todayAll.length > 1 ? "s" : ""} aujourd'hui</b>
-              <span>{dur(hoursToday)}</span>
-            </div>
-            <div className="bar light"><div style={{ width: `${(done / todayAll.length) * 100}%` }} /></div>
-            <div className="row" style={{ marginTop: 6, fontSize: ".9rem", opacity: 0.9 }}>
-              <span>{done}/{todayAll.length} terminée{done > 1 ? "s" : ""}</span>
-              <span>≈ {tnd(expected)}</span>
-            </div>
-          </div>
-        )}
+        <div className="next">
+          {left.length === 0
+            ? (todayAll.length ? "Toutes vos séances du jour sont terminées." : "Aucune séance aujourd'hui. Profitez-en.")
+            : <>Encore <b>{left.length} séance{left.length > 1 ? "s" : ""}</b> aujourd'hui, prochaine à <b>{hhmm(left[0].start)}</b>.</>}
+        </div>
       </div>
 
       {alerts > 0 && (
@@ -217,97 +202,77 @@ export default function Home({ go, openPlayer, summary }) {
       {settings && playersLoaded && sessions && <Onboarding settings={settings} players={players} sessions={sessions} go={go} />}
       <InstallCard />
 
-      {focus && (() => {
-        const ph = phase(focus, now);
-        const ps = focus.player_ids.map(byId).filter(Boolean);
-        return (
-          <div className={"focus " + ph.key}>
-            <div className="row">
-              <span className="pill">{ph.key === "live" ? "● En cours" : ph.key === "validate" ? "À valider" : "Prochaine séance"}</span>
-              <span>{ph.label}</span>
-            </div>
-            <div className="time" style={{ fontSize: "1.7rem", margin: "6px 0 2px" }}>{hhmm(focus.start)} <span style={{ opacity: 0.7, fontSize: "1rem" }}>→ {hhmm(endOf(focus).toISOString())}</span></div>
-            <div style={{ opacity: 0.9 }}>{KIND[focus.kind]?.label}</div>
-            <Where s={focus} light />
-            <div className="row" style={{ marginTop: 10, justifyContent: "flex-start", flexWrap: "wrap" }}>
-              {ps.map((p) => (
-                <button key={p.id} className="who-btn" onClick={() => openPlayer(p.id)}><Avatar name={p.name} size={28} /><PlayerTag p={p} first /></button>
-              ))}
-            </div>
-            {ps[0] && <div className="actions"><a className="btnlink light" href={`tel:${ps[0].phone}`}><Icon name="phone" size={16} /> Appeler</a><button className="small light" onClick={() => setStatus(focus.id, "effectuee")}><Icon name="check" size={15} /> Terminée</button></div>}
-          </div>
-        );
-      })()}
-
-      {toDo.length > 0 && <h2>Reste à faire aujourd'hui</h2>}
-      {toDo.length === 0 && todayAll.length > 0 && <div className="card empty"><Icon name="checkCircle" size={28} /><b>Toutes les séances du jour sont terminées</b></div>}
-      <div className="timeline">
-        {toDo.map((s) => {
-          const ph = phase(s, now);
-          return (
-            <div className={"tl " + ph.key} key={s.id}>
-              <div className="tl-time"><b>{hhmm(s.start)}</b><span className="mut">{dur(s.duration_min)}</span></div>
-              <div className="tl-dot" style={{ background: KIND[s.kind]?.color }} />
-              <div className="card tl-card">
-                <div className="row">
-                  <b><PlayerTags ids={s.player_ids} byId={byId} empty="Sans joueur" /></b>
-                  <span className={"chip-state " + ph.key}>{ph.label}</span>
-                </div>
-                <div className="mut">{KIND[s.kind]?.label}</div>
-                <Where s={s} />
-                {s.court_status && <span className={"court-badge " + COURT_STATUS[s.court_status].cls}><Icon name="pin" size={12} /> {COURT_STATUS[s.court_status].label}</span>}
-                <div className="actions">
-                  <button className="small sec" onClick={() => go(`session/${s.id}`)}><Icon name={s.has_plan ? "checkCircle" : "sparkles"} size={15} /> {s.has_plan ? "Plan prêt" : "Préparer"}</button>
-                  <button className="small" onClick={() => setStatus(s.id, "effectuee")}><Icon name="check" size={15} /> Effectuée</button>
-                  <button className="small sec" onClick={() => setStatus(s.id, "annulee")}>Annuler</button>
-                </div>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-
-      {finished.length > 0 && (
-        <>
-          <h2>Séances terminées{missing > 0 && <span className="red"> · {missing} à noter</span>}</h2>
-          <div className="donestrip">
-            {finished.map((s) => (
+      {/* Séances effectuées (automatiquement, à la fin de l'heure) qui attendent le retour du coach */}
+      {toRate.length > 0 && (
+        <div className="card torate">
+          <div className="row"><b><Icon name="edit" size={16} /> {toRate.length} séance{toRate.length > 1 ? "s" : ""} à noter</b><span className="mut small-p">retour et araignée</span></div>
+          <div className="donestrip" style={{ marginTop: 8 }}>
+            {toRate.map((s) => (
               <button key={s.id} className={"donechip" + (openDone === s.id ? " on" : "")} onClick={() => setOpenDone(openDone === s.id ? null : s.id)}>
-                {s.feedback_missing && <i className="todo" />}
+                <i className="todo" />
                 <AvatarStack names={s.player_ids.map(name)} size={24} />
                 <b>{hhmm(s.start)}</b>
-                <small>{shortDate(s.start)}</small>
+                <small>{dayKey(s.start) === ymd(now) ? "aujourd'hui" : shortDate(s.start)}</small>
               </button>
             ))}
           </div>
-          {openDone && finished.find((s) => s.id === openDone) && (
-            <DonePanel s={finished.find((s) => s.id === openDone)} name={name} byId={byId} strokes={strokes} onSaved={load} onClose={() => setOpenDone(null)} />
-          )}
-        </>
+        </div>
+      )}
+      {openDone && toRate.find((s) => s.id === openDone) && (
+        <DonePanel s={toRate.find((s) => s.id === openDone)} name={name} byId={byId} strokes={strokes} onSaved={load} onClose={() => setOpenDone(null)} />
       )}
 
-      <h2>Vue d'ensemble</h2>
       <div className="grid kpis">
-        <div className="kpi"><span className="ico"><Icon name="clock" size={18} /></span><div className="big">{d.hours.week} h</div><div className="mut">Cette semaine</div></div>
-        <div className="kpi"><span className="ico"><Icon name="wallet" size={18} /></span><div className="big sm">{tnd(d.revenue_millimes.month)}</div><div className="mut">Encaissé ce mois</div></div>
-        <div className="kpi"><span className="ico"><Icon name="calendar" size={18} /></span><div className="big">{d.upcoming_count}</div><div className="mut">Séances à venir</div></div>
-        <div className="kpi"><span className="ico warn"><Icon name="alert" size={18} /></span><div className="big sm red">{tnd(totalUnpaid)}</div><div className="mut">Impayés</div></div>
+        <Kpi icon="clock" value={`${fin.hours} h`} label={`Heures en ${monthName}`} onClick={() => setDetail("hours")} />
+        <Kpi icon="wallet" value={tnd(fin.earned_millimes)} small label={`Gagné en ${monthName}`} onClick={() => setDetail("earned")} />
+        <Kpi icon="calendar" value={left.length} label="Séances restantes aujourd'hui" onClick={() => setDetail("today")} />
+        <Kpi icon="alert" value={tnd(fin.unpaid_total_millimes)} small warn={fin.unpaid_total_millimes > 0} label="Impayés" onClick={() => setDetail("unpaid")} />
       </div>
 
-      <div className="card">
-        <div className="row">
-          <b>Activité</b>
-          <div className="seg mini">
-            <button className={metric === "hours" ? "on" : ""} onClick={() => setMetric("hours")}>Heures</button>
-            <button className={metric === "money" ? "on" : ""} onClick={() => setMetric("money")}>Revenus</button>
-          </div>
-        </div>
-        <div className="mut">8 dernières semaines</div>
-        {chart.every((c) => !c.value) ? <div className="empty"><Icon name="calendar" size={26} /><div>Vos heures et revenus apparaîtront ici après vos premières séances.</div></div> : <BarChart data={chart} format={(v) => (metric === "hours" ? `${Math.round(v * 10) / 10}h` : Math.round(v))} color={metric === "hours" ? "var(--brand)" : "var(--green)"} />}
-      </div>
+      <h2>Aujourd'hui</h2>
+      {sessions === null && <Loading rows={1} />}
+      {sessions && left.length === 0 && <div className="card empty"><Icon name="sun" size={26} /><b>{todayAll.length ? "Toutes les séances du jour sont terminées" : "Aucune séance aujourd'hui"}</b></div>}
+      {left.map((s) => <TodayRow key={s.id} s={s} now={now} byId={byId} go={go} openPlayer={openPlayer} onCancel={(id) => setStatus(id, "annulee")} />)}
 
-      {d.unpaid.length > 0 && <h2>À relancer</h2>}
-      {d.unpaid.slice(0, 3).map((u) => <UnpaidRow key={u.player_id} u={u} openPlayer={openPlayer} go={go} onPaid={load} />)}
+      {detail && (
+        <Modal onClose={() => setDetail(null)} label="Résumé">
+          <div className="row"><b className="sheet-title">{{ hours: `Heures en ${monthName}`, earned: `Gagné en ${monthName}`, today: "Séances restantes aujourd'hui", unpaid: "Impayés" }[detail]}</b>
+            <button className="small sec iconbtn" aria-label="Fermer" onClick={() => setDetail(null)}><Icon name="x" size={15} /></button></div>
+          {detail === "hours" && (
+            <>
+              <p className="mut small-p">{fin.hours} h sur {fin.sessions} séance{fin.sessions > 1 ? "s" : ""} effectuée{fin.sessions > 1 ? "s" : ""}, jour par jour.</p>
+              <BarChart data={fin.series.map((x) => ({ label: dayNum(x.key) % 5 === 1 ? String(dayNum(x.key)) : "", value: x.hours }))} format={(v) => (v >= 1 ? `${Math.round(v)}` : "")} />
+            </>
+          )}
+          {detail === "earned" && (
+            <>
+              <p className="mut small-p">Ce que vous ont rapporté vos séances effectuées ce mois-ci (payées en crédits ou à régler). Argent réellement reçu ce mois : <b>{tnd(fin.cashed_millimes)}</b>.</p>
+              <BarChart data={fin.series.map((x) => ({ label: dayNum(x.key) % 5 === 1 ? String(dayNum(x.key)) : "", value: x.earned_millimes / 1000 }))} format={(v) => (v >= 1 ? Math.round(v) : "")} color="var(--green)" />
+              {fin.top_players.length > 0 && <div className="mut small-p" style={{ marginTop: 6 }}>Meilleurs clients : {fin.top_players.slice(0, 3).map((t) => `${t.name.split(" ")[0]} (${tnd(t.earned_millimes)})`).join(", ")}</div>}
+              <button className="sec" style={{ width: "100%", marginTop: 10 }} onClick={() => go("finance")}><Icon name="wallet" size={15} /> Ouvrir Finance</button>
+            </>
+          )}
+          {detail === "today" && (left.length ? left.map((s) => (
+            <div key={s.id} className="sumrow">
+              <b>{hhmm(s.start)} → {hhmm(endOf(s).toISOString())}</b>
+              <div className="mut small-p">{KIND[s.kind]?.label}{s.club && ` · ${s.club}`}{s.court && ` · ${s.court}`}</div>
+              <div className="small-p"><PlayerTags ids={s.player_ids} byId={byId} empty="Sans joueur" /></div>
+            </div>
+          )) : <p className="mut">Plus aucune séance aujourd'hui.</p>)}
+          {detail === "unpaid" && (fin.unpaid.length ? (
+            <>
+              {fin.unpaid.slice(0, 6).map((u) => (
+                <div key={u.player_id} className="sumrow">
+                  <div className="row"><button className="plain" onClick={() => { setDetail(null); openPlayer(u.player_id); }}><b>{u.name}</b></button><b className="red">{tnd(-u.balance_millimes)}</b></div>
+                  <ContactLinks phone={u.phone} email={u.email} subject="Rappel de paiement"
+                    message={`Bonjour ${u.name.split(" ")[0]}, petit rappel : il reste ${tnd(-u.balance_millimes)} à régler pour vos séances de padel. Merci !`} />
+                </div>
+              ))}
+              <button className="sec" style={{ width: "100%", marginTop: 10 }} onClick={() => go("finance")}><Icon name="wallet" size={15} /> Tous les impayés dans Finance</button>
+            </>
+          ) : <p className="mut">Aucun impayé : tout le monde est à jour.</p>)}
+        </Modal>
+      )}
     </>
   );
 }

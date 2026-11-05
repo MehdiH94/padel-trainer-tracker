@@ -3,7 +3,7 @@ import { api, peek, dayLabel, hhmm, useLive } from "./api.js";
 import Icon from "./Icon.jsx";
 import { confirmDialog, Modal, toast, toastError } from "./feedback.jsx";
 import InvitePlayers from "./InvitePlayers.jsx";
-import { COURT_STATUS, DateSelect, Loading, TimeSelect } from "./ui.jsx";
+import { COURT_STATUS, DateSelect, dinars, Loading, OFFS, reduction, TimeSelect } from "./ui.jsx";
 
 const PLACEHOLDERS = "{date} {debut} {fin} {duree} {joueurs} {coach} {club}";
 const toDate = (iso) => new Date(iso + (iso.endsWith("Z") || /[+-]\d\d:\d\d$/.test(iso) ? "" : "Z"));
@@ -163,17 +163,17 @@ function CourtCard({ cb, reload }) {
 
 // Promotion sur un terrain libre: remise, message, envoi à tous les joueurs du coach
 export function PromoForm({ cb, onClose, onDone }) {
-  const [pct, setPct] = useState(20);
+  const [off, setOff] = useState(10000); // réduction par joueur, en millimes
   const [preview, setPreview] = useState(null);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   useEffect(() => {
-    api(`/promotions/preview?court_booking_id=${cb.id}&discount_pct=${pct}`).then((p) => { setPreview(p); setMessage(p.message); }).catch(toastError);
-  }, [pct]);
+    api(`/promotions/preview?court_booking_id=${cb.id}&discount_millimes=${off}`).then((p) => { setPreview(p); setMessage(p.message); }).catch(toastError);
+  }, [off]);
   const send = async () => {
     setBusy(true);
     try {
-      const r = await api("/promotions", { method: "POST", body: { court_booking_id: cb.id, discount_pct: pct, message } });
+      const r = await api("/promotions", { method: "POST", body: { court_booking_id: cb.id, discount_millimes: off, message } });
       toast(`Promotion envoyée à ${r.notified_count} joueur${r.notified_count > 1 ? "s" : ""}`);
       onDone();
     } catch (x) {
@@ -185,8 +185,8 @@ export function PromoForm({ cb, onClose, onDone }) {
     <Modal onClose={onClose} label="Proposer une promotion">
       <b className="sheet-title">Proposer une promotion</b>
       <p className="mut cap1">{dayLabel(cb.start)} · {hhmm(cb.start)}–{endTime(cb)} · {cb.club_name}</p>
-      <div className="field"><span className="mut">Remise sur le prix par joueur</span>
-        <div className="chips">{[10, 15, 20, 30, 40, 50].map((v) => <button key={v} type="button" className={"chip" + (pct === v ? " on" : "")} aria-pressed={pct === v} onClick={() => setPct(v)}>−{v} %</button>)}</div>
+      <div className="field"><span className="mut">Réduction par joueur (heures creuses)</span>
+        <div className="chips">{OFFS.map((v) => <button key={v} type="button" className={"chip" + (off === v ? " on" : "")} aria-pressed={off === v} onClick={() => setOff(v)}>−{dinars(v)}</button>)}</div>
       </div>
       <label className="field"><span className="mut">Message envoyé aux joueurs</span><textarea className="msg" rows={4} value={message} onChange={(e) => setMessage(e.target.value)} /></label>
       <div className="mut small-p"><Icon name="send" size={13} /> {preview ? `${preview.recipients} joueur${preview.recipients > 1 ? "s" : ""} prévenu${preview.recipients > 1 ? "s" : ""} par WhatsApp, SMS ou e-mail selon leur choix. La promotion apparaît aussi dans leur appli.` : "…"}</div>
@@ -232,7 +232,7 @@ function PromoLine({ cb, promo, onPromo, onStopPromo }) {
   );
   return promo ? (
     <div className="promo-on">
-      <span className="promo-tag">−{promo.discount_pct} %</span>
+      <span className="promo-tag">{reduction(promo)}</span>
       <span>Promotion en cours · {promo.notified_count} joueur{promo.notified_count > 1 ? "s" : ""} prévenu{promo.notified_count > 1 ? "s" : ""}</span>
       <button className="small sec" onClick={() => onStopPromo(promo)}>Arrêter</button>
     </div>
@@ -283,7 +283,7 @@ function SeriesCard({ g, promos, onRemove, onRemoveSeries, onPromo, onStopPromo 
             const promo = promos.find((p) => p.court_booking_id === cb.id && p.active);
             return (
               <div key={cb.id} className="series-row">
-                <span className="cap1" style={{ flex: 1 }}>{dayLabel(cb.start)}{promo && <span className="promo-tag" style={{ marginLeft: 6 }}>−{promo.discount_pct} %</span>}</span>
+                <span className="cap1" style={{ flex: 1 }}>{dayLabel(cb.start)}{promo && <span className="promo-tag" style={{ marginLeft: 6 }}>{reduction(promo)}</span>}</span>
                 {!promo && <button className="small sec iconbtn" title="Promotion" aria-label="Proposer une promotion" onClick={() => onPromo(cb)}><Icon name="sparkles" size={14} /></button>}
                 {promo && <button className="small sec" onClick={() => onStopPromo(promo)}>Arrêter</button>}
                 <button className="small sec iconbtn" title="Supprimer cette date" aria-label="Supprimer cette date" onClick={() => onRemove(cb)}><Icon name="trash" size={14} /></button>

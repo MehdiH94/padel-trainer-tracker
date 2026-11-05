@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { api } from "./api.js";
 import Icon from "./Icon.jsx";
 import { Modal, toast, toastError } from "./feedback.jsx";
-import { Avatar, CategoryBadge } from "./ui.jsx";
+import { Avatar, CategoryBadge, dinars } from "./ui.jsx";
 
 // Séance incomplète: le coach écrit aux inscrits (« on n'arrive pas à être complet, partants quand même à deux ? »),
 // avec une remise facultative sur la séance (crédits déjà débités: la différence est rendue).
@@ -19,14 +19,14 @@ export default function MessagePlayers({ sessionId, onClose, onDone }) {
   }, [url]);
   const choosePct = (v) => {
     setPct(v);
-    if (!edited) api(`${url}?discount_pct=${v}`).then((d) => setMessage(d.message)).catch(() => {});
+    if (!edited) api(`${url}?discount_millimes=${v}`).then((d) => setMessage(d.message)).catch(() => {});
   };
   const toggle = (id) => setChosen(chosen.includes(id) ? chosen.filter((x) => x !== id) : [...chosen, id]);
   const send = async () => {
     setBusy(true);
     try {
-      const r = await api(url, { method: "POST", body: { player_ids: chosen, message, discount_pct: pct } });
-      toast(`Message envoyé à ${r.sent} joueur${r.sent > 1 ? "s" : ""}${pct ? ` · remise de ${pct} % appliquée` : ""}`);
+      const r = await api(url, { method: "POST", body: { player_ids: chosen, message, discount_millimes: pct } });
+      toast(`Message envoyé à ${r.sent} joueur${r.sent > 1 ? "s" : ""}${pct ? ` · réduction de ${dinars(pct)} appliquée` : ""}`);
       onDone?.();
     } catch (x) {
       toastError(x);
@@ -50,9 +50,9 @@ export default function MessagePlayers({ sessionId, onClose, onDone }) {
             ))}
           </div>
           <div className="field" style={{ marginTop: 8 }}>
-            <span className="mut">Remise sur la séance (facultatif)</span>
+            <span className="mut">Réduction par joueur (facultatif)</span>
             <div className="seg mini">
-              {[0, 10, 20, 30].map((v) => <button type="button" key={v} className={pct === v ? "on" : ""} onClick={() => choosePct(v)}>{v ? `−${v} %` : "Aucune"}</button>)}
+              {[0, 5000, 10000, 20000].map((v) => <button type="button" key={v} className={pct === v ? "on" : ""} onClick={() => choosePct(v)}>{v ? `−${dinars(v)}` : "Aucune"}</button>)}
             </div>
           </div>
           <label className="field" style={{ marginTop: 8 }}><span className="mut">Message</span><textarea className="msg" rows={6} value={message} onChange={(e) => { setMessage(e.target.value); setEdited(true); }} /></label>

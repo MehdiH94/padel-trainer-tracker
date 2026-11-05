@@ -35,7 +35,7 @@ class HappyIn(BaseModel):
     weekday: int
     start_time: str
     end_time: str
-    discount_pct: int
+    discount_millimes: int  # heures creuses: réduction en dinars par joueur, en millimes
 
 
 class Settings(BaseModel):
@@ -63,7 +63,7 @@ def settings_out(db: Session, coach: Coach) -> dict:
         "availability": [{"weekday": r.weekday, "start_time": r.start_time, "end_time": r.end_time} for r in rows],
         "bio": coach.bio, "specialties": [x for x in coach.specialties.split(",") if x], "name": coach.name,
         "duration_duo": duration_for(coach, "duo"), "duration_groupe": duration_for(coach, "groupe"), "booking_mode": coach.booking_mode,
-        "happy_hours": [{"weekday": h.weekday, "start_time": h.start_time, "end_time": h.end_time, "discount_pct": h.discount_pct}
+        "happy_hours": [{"weekday": h.weekday, "start_time": h.start_time, "end_time": h.end_time, "discount_pct": h.discount_pct, "discount_millimes": h.discount_millimes}
                         for h in db.scalars(select(HappyHour).where(HappyHour.coach_id == coach.id).order_by(HappyHour.weekday, HappyHour.start_time))],
         # pour le guide « Bien démarrer » de l'accueil
         "clubs_count": db.scalar(select(func.count(Club.id)).where(Club.coach_id == coach.id, Club.active.is_(True), Club.removed.is_(False))),
@@ -86,8 +86,8 @@ def put_settings(body: Settings, coach: Coach = Depends(current_coach), db: Sess
     for w in [*body.availability, *(body.happy_hours or [])]:
         if not (0 <= w.weekday <= 6 and w.start_time < w.end_time):
             raise HTTPException(422, "Plage horaire invalide")
-    if any(not 1 <= h.discount_pct <= 90 for h in body.happy_hours or []):
-        raise HTTPException(422, "La remise d'une happy hour doit être entre 1 et 90 %")
+    if any(h.discount_millimes <= 0 for h in body.happy_hours or []):
+        raise HTTPException(422, "Heures creuses : indiquez la réduction en dinars (plus de 0).")
     if any(d is not None and not 15 <= d <= 240 for d in (body.duration_duo, body.duration_groupe)):
         raise HTTPException(422, "Durée invalide")
     coach.duration_duo, coach.duration_groupe = body.duration_duo, body.duration_groupe

@@ -8,7 +8,7 @@ LABELS = {
     "name": "Nom", "phone": "Téléphone", "email": "E-mail", "password": "Mot de passe", "gender": "Genre",
     "category": "Niveau", "level": "Niveau", "start": "Date et heure", "duration_min": "Durée", "kind": "Formule",
     "price_millimes": "Prix", "amount_millimes": "Montant", "club_id": "Club", "coach_id": "Coach", "player_id": "Joueur",
-    "player_ids": "Joueurs", "message": "Message", "discount_pct": "Remise", "court_label": "Terrain", "until": "Date de fin",
+    "player_ids": "Joueurs", "message": "Message", "discount_pct": "Remise", "discount_millimes": "Réduction", "court_label": "Terrain", "until": "Date de fin",
     "start_time": "Heure de début", "end_time": "Heure de fin", "slot_minutes": "Durée d'une séance", "contact_channel": "Moyen de contact",
 }
 

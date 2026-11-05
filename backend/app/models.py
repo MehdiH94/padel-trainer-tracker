@@ -32,6 +32,8 @@ class Coach(Base):
     bio: Mapped[str] = mapped_column(Text, default="")
     specialties: Mapped[str] = mapped_column(String(255), default="")  # thèmes séparés par des virgules
     phone: Mapped[str] = mapped_column(String(20), default="")
+    # Critères de l'araignée (liste JSON); None = critères standards (coups du padel)
+    criteria: Mapped[str | None] = mapped_column(Text, nullable=True)
     # Administrateurs: e-mails de ADMIN_EMAILS (toujours) + coachs nommés par un administrateur
     is_admin: Mapped[bool] = mapped_column(default=False)
     # Coach inscrit lui-même: « a_valider » tant qu'un administrateur n'a pas confirmé (rien n'est possible avant),
@@ -78,13 +80,15 @@ class Player(Base):
 
 
 class SkillRating(Base):
-    """Historique des évaluations techniques (1 à 5) par coup."""
+    """Historique des évaluations (araignée) par critère: value de 0 à 100 = note de 0 à 10 au dixième.
+    score = ancienne note de 1 à 5 (données d'avant), recopiée dans value (×20) au démarrage."""
 
     __tablename__ = "skill_ratings"
     id: Mapped[int] = mapped_column(primary_key=True)
     player_id: Mapped[int] = mapped_column(ForeignKey("players.id"), index=True)
     stroke: Mapped[str] = mapped_column(String(40))
-    score: Mapped[int] = mapped_column(Integer)
+    score: Mapped[int] = mapped_column(Integer, default=0)
+    value: Mapped[int | None] = mapped_column(Integer, nullable=True)
     rated_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
 
 
@@ -218,6 +222,7 @@ class Booking(Base):
     charged_millimes: Mapped[int] = mapped_column(Integer, default=0)  # débité des crédits (0 = à régler sur place)
     price_millimes: Mapped[int] = mapped_column(Integer, default=0)  # prix actuel (formule réellement jouée, remise comprise)
     discount_pct: Mapped[int] = mapped_column(Integer, default=0)
+    discount_millimes: Mapped[int] = mapped_column(Integer, default=0)  # réduction en dinars (heures creuses / promotion)
     replace_token: Mapped[str | None] = mapped_column(String(40), nullable=True, unique=True)  # lien « remplacez-moi » (après le délai d'annulation)  # remise obtenue à la réservation (happy hour / promotion)
     session_id: Mapped[int | None] = mapped_column(ForeignKey("sessions.id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
@@ -285,7 +290,8 @@ class HappyHour(Base):
     weekday: Mapped[int] = mapped_column(Integer)  # 0 = lundi
     start_time: Mapped[str] = mapped_column(String(5))  # HH:MM, heure de Tunis
     end_time: Mapped[str] = mapped_column(String(5))
-    discount_pct: Mapped[int] = mapped_column(Integer)
+    discount_pct: Mapped[int] = mapped_column(Integer, default=0)  # ancien fonctionnement (en %)
+    discount_millimes: Mapped[int] = mapped_column(Integer, default=0)  # heures creuses: réduction en dinars par joueur
 
 
 class Promotion(Base):
@@ -295,7 +301,8 @@ class Promotion(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     coach_id: Mapped[int] = mapped_column(ForeignKey("coaches.id"), index=True)
     court_booking_id: Mapped[int] = mapped_column(ForeignKey("court_bookings.id"), index=True)
-    discount_pct: Mapped[int] = mapped_column(Integer)
+    discount_pct: Mapped[int] = mapped_column(Integer, default=0)  # ancien fonctionnement (en %)
+    discount_millimes: Mapped[int] = mapped_column(Integer, default=0)  # réduction en dinars par joueur
     message: Mapped[str] = mapped_column(Text, default="")
     notified_count: Mapped[int] = mapped_column(Integer, default=0)
     active: Mapped[bool] = mapped_column(default=True)

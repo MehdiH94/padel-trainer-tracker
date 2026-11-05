@@ -5,7 +5,7 @@ import { confirmDialog, Modal, toast, toastError } from "./feedback.jsx";
 import { Book, CoachPage } from "./PlayerBook.jsx";
 import { VerifyBanner } from "./VerifyEmail.jsx";
 import { useRoute } from "./router.js";
-import { Avatar, CategoryBadge, InstallCard, KIND, Loading, OfflineBar, RadarChart } from "./ui.jsx";
+import { Avatar, CategoryBadge, InstallCard, KIND, Loading, OfflineBar, RadarChart, reduction } from "./ui.jsx";
 
 const TZ = "Africa/Tunis";
 const REASONS = { recharge: "Recharge", reservation: "Réservation", remboursement: "Remboursement", ajustement: "Ajustement", seance: "Séance effectuée", seance_annulee: "Séance effectuée" };
@@ -128,6 +128,9 @@ function CancelBox({ s, reload }) {
   );
 }
 
+// « 12 décembre » à partir de « 2026-12-12 »
+const shortDay = (ymd) => new Date(ymd + "T12:00:00Z").toLocaleDateString("fr-FR", { day: "numeric", month: "long", timeZone: "UTC" });
+
 function Home({ me, sessions, progress, credits, proposals, promos, go, reload }) {
   const next = sessions.upcoming[0];
   // Pas de solde global: chaque coach a ses crédits (avance versée) et ses impayés (en rouge)
@@ -163,6 +166,13 @@ function Home({ me, sessions, progress, credits, proposals, promos, go, reload }
       <div className="mut small-p"><Icon name="bell" size={14} /> Rappels et confirmations par e-mail{me.email ? ` (${me.email})` : ""}</div>
 
       <VerifyBanner me={me} />
+      {/* Absences prochaines de ses coachs (vacances…): un petit message, sans prendre de place */}
+      {(me.absences ?? []).map((a, i) => (
+        <div key={i} className="note warn absence-note" role="status">
+          <Icon name="sun" size={15} />
+          <span><b>{a.coach_name}</b> {a.now ? "est absent jusqu'au" : `sera absent ${a.start_date === a.end_date ? "le" : "du"} ${a.start_date === a.end_date ? "" : shortDay(a.start_date) + " au"}`} {shortDay(a.end_date)}{a.reason && ` (${a.reason})`}.</span>
+        </div>
+      ))}
       <InstallCard />
       {!me.coach_name && (
         <div className="card" style={{ marginBottom: 10 }}>
@@ -205,7 +215,7 @@ function Home({ me, sessions, progress, credits, proposals, promos, go, reload }
               <div className="row g10" style={{ alignItems: "flex-start" }}>
                 <DateBlock iso={p.start} />
                 <div style={{ flex: 1 }}>
-                  <div className="row"><b>{hhmm(p.start)} · {p.club}</b><span className="promo-tag">−{p.discount_pct} %</span></div>
+                  <div className="row"><b>{hhmm(p.start)} · {p.club}</b><span className="promo-tag">{reduction(p)}</span></div>
                   <div className="mut"><Icon name="user" size={13} /> {p.coach_name} · terrain déjà réservé</div>
                   <div className="mut small-p">Seul {tnd(p.prices.individuel)} · à deux {tnd(p.prices.duo)} · en groupe {tnd(p.prices.groupe)} par joueur</div>
                 </div>

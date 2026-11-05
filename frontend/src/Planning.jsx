@@ -9,7 +9,7 @@ import SessionCard from "./SessionCard.jsx";
 import SessionForm from "./SessionForm.jsx";
 import SessionPayments, { PaySummary } from "./SessionPayments.jsx";
 import { duplicateNextWeek, sessionStatus } from "./sessionActions.js";
-import { DateSelect, KIND, Loading, PlayerTags } from "./ui.jsx";
+import { DateSelect, KIND, Loading, PlayerTags, swipe } from "./ui.jsx";
 
 const TZ = "Africa/Tunis";
 const ymd = (d) => d.toLocaleDateString("fr-CA", { timeZone: TZ });
@@ -120,7 +120,11 @@ export default function Planning({ go, summary }) {
     setMonday(m);
     setSel(ymd(m));
   };
-  const monthLabel = week[0].toLocaleDateString("fr-FR", { month: "long", year: "numeric", timeZone: TZ });
+  const fmtDay = (d, opt) => d.toLocaleDateString("fr-FR", { timeZone: TZ, ...opt });
+  const sameMonth = fmtDay(week[0], { month: "long" }) === fmtDay(week[6], { month: "long" });
+  const weekRange = `${fmtDay(week[0], { day: "numeric", ...(sameMonth ? {} : { month: "short" }) })} – ${fmtDay(week[6], { day: "numeric", month: "long" })}`;
+  const isThisWeek = ymd(monday) === ymd(mondayOf(new Date()));
+  const swipeWeek = swipe(() => shift(1), () => shift(-1)); // glisser: semaine suivante / précédente
 
   return (
     <>
@@ -131,16 +135,22 @@ export default function Planning({ go, summary }) {
           <button className="small sec" onClick={() => go("courts")}>
             <Icon name="pin" size={15} /> Mes terrains{summary?.waiting_court > 0 && <b className="pillcount" aria-label={`${summary.waiting_court} en attente`}>{summary.waiting_court}</b>}
           </button>
-          <button className="small sec iconbtn" aria-label="Semaine précédente" onClick={() => shift(-1)}><Icon name="chevL" size={16} /></button>
-          <button className="small sec" onClick={() => { setMonday(mondayOf(new Date())); setSel(today); }}>Aujourd'hui</button>
-          <button className="small sec iconbtn" aria-label="Semaine suivante" disabled={ymd(monday) >= ymd(maxMonday)} onClick={() => shift(1)}><Icon name="chevR" size={16} /></button>
         </div>
       </div>
-      <p className="mut cap1" style={{ margin: "6px 0 10px" }}>{monthLabel}</p>
 
-      <div className="seg mini" role="tablist" aria-label="Affichage" style={{ marginBottom: 10 }}>
+      <div className="seg mini" role="tablist" aria-label="Affichage" style={{ margin: "10px 0" }}>
         <button role="tab" aria-selected={view === "calendrier"} className={view === "calendrier" ? "on" : ""} onClick={() => setView("calendrier")}><Icon name="calendar" size={14} /> Calendrier</button>
         <button role="tab" aria-selected={view === "liste"} className={view === "liste" ? "on" : ""} onClick={() => setView("liste")}><Icon name="list" size={14} /> Jour par jour</button>
+      </div>
+
+      {/* Semaine affichée: flèches de part et d'autre, ou glisser le doigt sur le planning */}
+      <div className="weekbar">
+        <button className="small sec iconbtn" aria-label="Semaine précédente" onClick={() => shift(-1)}><Icon name="chevL" size={18} /></button>
+        <div className="weekbar-label">
+          <b>{weekRange}</b>
+          {isThisWeek ? <small>Cette semaine</small> : <button className="link small-p" onClick={() => { setMonday(mondayOf(new Date())); setSel(today); }}>Aujourd'hui</button>}
+        </div>
+        <button className="small sec iconbtn" aria-label="Semaine suivante" disabled={ymd(monday) >= ymd(maxMonday)} onClick={() => shift(1)}><Icon name="chevR" size={18} /></button>
       </div>
 
       {view === "calendrier" && (
@@ -161,7 +171,7 @@ export default function Planning({ go, summary }) {
       )}
 
       {view === "liste" && <>
-      <div className="weekstrip">
+      <div className="weekstrip" {...swipeWeek}>
         {week.map((d) => {
           const k = ymd(d);
           const items = (byDay[k] || []).filter((s) => s.status !== "annulee");
@@ -201,7 +211,10 @@ export default function Planning({ go, summary }) {
                 {openDone === s.id && (
                   <>
                     <SessionPayments s={s} name={name} byId={byId} onPaid={load} />
-                    <div className="paylist" style={{ paddingTop: 0 }}><button className="small sec" onClick={() => duplicate(s)}><Icon name="copy" size={14} /> Copier à la semaine suivante</button></div>
+                    <div className="paylist" style={{ paddingTop: 0 }}>
+                      <button className="small sec" onClick={() => duplicate(s)}><Icon name="copy" size={14} /> Copier à la semaine suivante</button>
+                      <button className="small sec" onClick={() => setStatus(s.id, "annulee")}>Pas eu lieu ? Annuler</button>
+                    </div>
                   </>
                 )}
               </div>

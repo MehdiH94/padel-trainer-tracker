@@ -34,10 +34,10 @@ def _plain(t: str) -> str:
 
 
 def player_weaknesses(db: Session, player: Player) -> dict:
-    """Dernière note de chaque coup (1 à 5) et notes « à retravailler » des dernières séances."""
-    latest: dict[str, int] = {}
+    """Dernière note de chaque critère (ramenée sur 5) et notes « à retravailler » des dernières séances."""
+    latest: dict[str, float] = {}
     for r in db.scalars(select(SkillRating).where(SkillRating.player_id == player.id).order_by(SkillRating.rated_at, SkillRating.id)):
-        latest[r.stroke] = r.score
+        latest[r.stroke] = round((r.value if r.value is not None else r.score * 20) / 20, 1)
     notes = [a.to_improve for a in db.scalars(
         select(Attendance).join(TrainingSession, TrainingSession.id == Attendance.session_id)
         .where(Attendance.player_id == player.id, Attendance.to_improve != "", TrainingSession.status == "effectuee")
@@ -55,7 +55,8 @@ def recommend(players: list[dict], limit: int = 3) -> list[str]:
     weight: dict[str, float] = {}
     for p in players:
         for w in p["weak"]:
-            weight[w["theme"]] = weight.get(w["theme"], 0) + {1: 3, 2: 2, 3: 1}.get(w["score"], 0)
+            sc = w["score"]
+            weight[w["theme"]] = weight.get(w["theme"], 0) + (3 if sc <= 1 else 2 if sc <= 2 else 1 if sc <= 3 else 0)
         text = _plain(" ".join(p["to_improve"]))
         for t in WORK_THEMES:
             if _plain(t) in text:

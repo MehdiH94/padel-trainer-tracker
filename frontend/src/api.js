@@ -42,11 +42,11 @@ export function refreshSession() {
 
 // Administrateur: ouvrir l'espace d'un coach ou d'un joueur (tous ses droits), puis revenir
 export const actingAs = () => localStorage.getItem("admin_label");
-export function actAs(r) {
+export function actAs(r, hash = "") {
   if (!localStorage.getItem("admin_token")) localStorage.setItem("admin_token", getToken());
   localStorage.setItem("admin_label", r.label);
   setSession(r);
-  location.hash = "";
+  location.hash = hash; // ex. « players/12 »: la fiche du joueur chez ce coach
   location.reload();
 }
 export function stopActing() {

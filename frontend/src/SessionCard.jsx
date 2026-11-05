@@ -62,10 +62,10 @@ export default function SessionCard({ s, name, byId, onStatus, onDuplicate, onPr
       )}
       {writing && <MessagePlayers sessionId={s.id} onClose={() => setWriting(false)} onDone={() => { setWriting(false); onChanged?.(); }} />}
       {inviting && <InvitePlayers sessionId={s.id} onClose={() => setInviting(false)} onDone={() => { setInviting(false); onChanged?.(); }} />}
-      {s.status === "prevue" && onStatus && (
+      {/* plus de bouton « Effectuée »: la séance passe effectuée toute seule à la fin; une séance passée peut être annulée si elle n'a pas eu lieu */}
+      {(s.status === "prevue" || s.status === "effectuee") && onStatus && (
         <div className="actions">
-          <button className="small" onClick={() => onStatus(s.id, "effectuee")}><Icon name="check" size={15} /> Effectuée</button>
-          <button className="small sec" onClick={() => onStatus(s.id, "annulee")}>Annuler</button>
+          <button className="small sec" onClick={() => onStatus(s.id, "annulee")}>{s.status === "effectuee" ? "Pas eu lieu ? Annuler" : "Annuler"}</button>
           {onDuplicate && <button className="small sec iconbtn" title="Copier à la semaine suivante" aria-label="Copier à la semaine suivante" onClick={() => onDuplicate(s)}><Icon name="copy" size={15} /></button>}
         </div>
       )}

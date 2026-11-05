@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { api } from "./api.js";
 import Icon from "./Icon.jsx";
 import { Modal, toast, toastError } from "./feedback.jsx";
-import { Avatar, CategoryBadge } from "./ui.jsx";
+import { Avatar, CategoryBadge, dinars } from "./ui.jsx";
 
 // Le coach prévient ses joueurs qu'il reste de la place: joueurs déjà entraînés chez lui, de niveau compatible,
 // tous cochés au départ (il décoche ceux qu'il veut exclure). Chacun reçoit un message et une proposition dans son appli.
@@ -14,20 +14,20 @@ export default function InvitePlayers({ sessionId, courtId, onClose, onDone }) {
   const [chosen, setChosen] = useState([]);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
-  const [pct, setPct] = useState(0); // terrain libre: happy hour facultative
+  const [pct, setPct] = useState(0); // terrain libre: heures creuses facultatives (réduction en millimes)
   const [edited, setEdited] = useState(false); // message modifié à la main: on ne le remplace plus
   useEffect(() => {
     api(list).then((d) => { setData(d); setChosen(d.players.filter((p) => !courtId || p.has_account).map((p) => p.id)); setMessage(d.message); }).catch(toastError);
   }, [list]);
   const choosePct = (v) => {
     setPct(v);
-    if (!edited) api(`${list}?discount_pct=${v}`).then((d) => setMessage(d.message)).catch(() => {});
+    if (!edited) api(`${list}?discount_millimes=${v}`).then((d) => setMessage(d.message)).catch(() => {});
   };
   const toggle = (id) => setChosen(chosen.includes(id) ? chosen.filter((x) => x !== id) : [...chosen, id]);
   const send = async () => {
     setBusy(true);
     try {
-      const r = await api(sendTo, { method: "POST", body: { player_ids: chosen, message, ...(courtId && { discount_pct: pct }) } });
+      const r = await api(sendTo, { method: "POST", body: { player_ids: chosen, message, ...(courtId && { discount_millimes: pct }) } });
       toast(`${r.sent} joueur${r.sent > 1 ? "s" : ""} prévenu${r.sent > 1 ? "s" : ""}`);
       onDone?.();
     } catch (x) {
@@ -62,11 +62,11 @@ export default function InvitePlayers({ sessionId, courtId, onClose, onDone }) {
           </div>
           {courtId && (
             <div className="field" style={{ marginTop: 8 }}>
-              <span className="mut">Happy hour (facultatif)</span>
+              <span className="mut">Heures creuses (facultatif)</span>
               <div className="seg mini">
-                {[0, 10, 20, 30].map((v) => <button type="button" key={v} className={pct === v ? "on" : ""} onClick={() => choosePct(v)}>{v ? `−${v} %` : "Aucune"}</button>)}
+                {[0, 5000, 10000, 20000].map((v) => <button type="button" key={v} className={pct === v ? "on" : ""} onClick={() => choosePct(v)}>{v ? `−${dinars(v)}` : "Aucune"}</button>)}
               </div>
-              {pct > 0 && <div className="mut small-p" style={{ marginTop: 4 }}>La remise s'applique à toutes les réservations sur ce créneau.</div>}
+              {pct > 0 && <div className="mut small-p" style={{ marginTop: 4 }}>La réduction s'applique à chaque joueur qui réserve ce créneau.</div>}
             </div>
           )}
           <label className="field" style={{ marginTop: 8 }}><span className="mut">Message{!courtId && " (expliquez l'entraînement prévu)"}</span><textarea className="msg" rows={5} value={message} onChange={(e) => { setMessage(e.target.value); setEdited(true); }} /></label>

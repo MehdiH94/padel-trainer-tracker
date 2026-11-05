@@ -13,7 +13,7 @@ from . import groups
 from ..notify import letter
 from .common import TUNIS, aware, quand
 from .finance import credit_balance
-from .pricing import duration_for, quote
+from .pricing import duration_for, quote, reduced
 
 HORIZON_DAYS = 14
 MIN_NOTICE_H = 2
@@ -267,12 +267,13 @@ def request_new(db: Session, coach: Coach, player: Player, kind: str, start: dat
     kind = groups.smallest(accepted)  # s'il reste seul (ou au minimum voulu), c'est cette formule qui est jouée
     if not groups.can_open(kind, start):
         raise BookingError("Pour ouvrir une séance à deux ou en groupe, elle doit avoir lieu dans plus de 24 h (le temps de compléter le groupe)")
-    q = quote(db, coach, kind, start)  # durée de la formule, prix avec happy hour / promotion
+    q = quote(db, coach, kind, start)  # durée de la formule, prix avec heures creuses / promotion
     if aware(start) not in free_slots(db, coach, minutes=q["duration_min"]):
         raise BookingError("Ce créneau n'est plus disponible")
     price = q["price_millimes"]
     b = Booking(coach_id=coach.id, player_id=player.id, kind=kind, start=aware(start), duration_min=q["duration_min"], charged_millimes=0,
-                accepted_kinds=",".join(accepted), price_millimes=price, discount_pct=q["discount_pct"])
+                accepted_kinds=",".join(accepted), price_millimes=price, discount_pct=q["discount_pct"],
+                discount_millimes=q["discount_millimes"])
     db.add(b)
     db.flush()
     held = courts.held_covering(db, coach, b.start, b.duration_min)
@@ -452,7 +453,7 @@ def refresh(db: Session, s: TrainingSession) -> None:
 def _reprice(db: Session, coach: Coach, s: TrainingSession, b: Booking) -> None:
     """Prix de la formule réellement jouée (taille de la séance), avec la remise obtenue à la réservation.
     Déjà débité: la différence est rendue ou débitée (« ajustement »)."""
-    price = round(price_for(coach, s.kind) * (100 - (b.discount_pct or 0)) / 100)
+    price = reduced(price_for(coach, s.kind), b.discount_pct, b.discount_millimes)
     b.kind = s.kind
     if price == b.price_millimes:
         return
@@ -486,7 +487,7 @@ def reconsider(db: Session, coach: Coach, b: Booking, kind: str) -> None:
         refresh(db, s)
     else:  # pas encore validée par le coach: formule de départ et prix mis à jour
         b.kind = groups.smallest(mine)
-        b.price_millimes = round(price_for(coach, b.kind) * (100 - (b.discount_pct or 0)) / 100)
+        b.price_millimes = reduced(price_for(coach, b.kind), b.discount_pct, b.discount_millimes)
 
 
 def remind_incomplete(db: Session, now: datetime | None = None) -> int:
@@ -617,7 +618,7 @@ def replace(db: Session, b: Booking, newcomer: Player) -> Booking:
     if others and not all(compatible(newcomer.category, newcomer.gender, o.category, o.gender) for o in others):
         raise BookingError("Votre niveau n'est pas compatible avec celui des autres joueurs de cette séance")
     nb = Booking(coach_id=b.coach_id, player_id=newcomer.id, kind=b.kind, start=b.start, duration_min=b.duration_min, status=b.status,
-                 session_id=b.session_id, accepted_kinds=b.accepted_kinds, price_millimes=b.price_millimes, discount_pct=b.discount_pct,
+                 session_id=b.session_id, accepted_kinds=b.accepted_kinds, price_millimes=b.price_millimes, discount_pct=b.discount_pct, discount_millimes=b.discount_millimes,
                  charged_millimes=0, notified_at=b.notified_at)
     db.add(nb)
     db.flush()
@@ -639,14 +640,39 @@ def replace(db: Session, b: Booking, newcomer: Player) -> Booking:
     return nb
 
 
-def coach_cancel_session(db: Session, s: TrainingSession) -> None:
+def complete_finished(db: Session, coach_id: int | None = None, now: datetime | None = None) -> int:
+    """Une séance prévue dont l'heure de fin est passée devient « effectuée » toute seule (les crédits la paient):
+    le coach n'a plus à la valider. Pas les séances sans joueur, ni celles dont le groupe n'a jamais été formé
+    (réservations encore en attente de joueurs ou du coach)."""
+    from . import finance
+    now = now or datetime.now(timezone.utc)
+    q = select(TrainingSession).where(TrainingSession.status == "prevue", TrainingSession.start < now)
+    if coach_id:
+        q = q.where(TrainingSession.coach_id == coach_id)
+    done = 0
+    for s in db.scalars(q):
+        if aware(s.start) + timedelta(minutes=s.duration_min) > now or not s.attendances:
+            continue
+        if db.scalar(select(Booking.id).where(Booking.session_id == s.id, Booking.status.in_(("en_attente", "attente_joueurs"))).limit(1)):
+            continue
+        s.status = "effectuee"
+        db.flush()
+        finance.settle(db, s.coach_id, [a.player_id for a in s.attendances])
+        done += 1
+    if done:
+        db.commit()
+    return done
+
+
+def coach_cancel_session(db: Session, s: TrainingSession, tell: bool = True) -> None:
     """Le coach annule une séance: toutes les réservations payées avec des crédits sont remboursées,
-    les joueurs sont prévenus."""
+    les joueurs sont prévenus (pas pour une séance déjà passée, annulée après coup)."""
     coach = db.get(Coach, s.coach_id)
-    notify(db, [db.get(Player, a.player_id) for a in s.attendances], "Séance de padel annulée", lambda p: letter(
-        p.name, f"{coach.name} a dû annuler cette séance :", _details(s),
-        "Si vous l'aviez payée avec vos crédits, ils vous ont été rendus. Vous pouvez réserver un autre créneau dans l'application.",
-        sign=coach.name))
+    if tell:
+        notify(db, [db.get(Player, a.player_id) for a in s.attendances], "Séance de padel annulée", lambda p: letter(
+            p.name, f"{coach.name} a dû annuler cette séance :", _details(s),
+            "Si vous l'aviez payée avec vos crédits, ils vous ont été rendus. Vous pouvez réserver un autre créneau dans l'application.",
+            sign=coach.name))
     for b in db.scalars(select(Booking).where(Booking.session_id == s.id, Booking.status.in_(ACTIVE))):
         b.status = "annulee"
         _refund(db, b)

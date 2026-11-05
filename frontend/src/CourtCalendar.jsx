@@ -4,7 +4,7 @@ import Icon from "./Icon.jsx";
 import InvitePlayers from "./InvitePlayers.jsx";
 import SessionCard from "./SessionCard.jsx";
 import { Modal } from "./feedback.jsx";
-import { clubCodes } from "./ui.jsx";
+import { clubCodes, reduction, swipe } from "./ui.jsx";
 
 const TZ = "Africa/Tunis";
 const PX_WEEK = 46, PX_DAY = 76; // hauteur d'une heure: semaine, et un seul jour (club, terrain et joueurs en clair)
@@ -63,7 +63,7 @@ function Details({ cb, session, promo, cardProps, onClose, onRemove, onStopPromo
         {cb.state === "libre" && <p className="mut small-p" style={{ margin: "0 0 4px" }}>Ce terrain est libre. Vous pouvez :</p>}
         {cb.state === "libre" && (
           <button className="sec choice" onClick={() => setInviting("court")}>
-            <Icon name="send" size={18} /><span><b>Prévenir mes joueurs</b><small>« Ce créneau est disponible, venez vous entraîner ! », avec une happy hour si vous voulez. Chacun réserve sa formule (seul, à deux, en groupe) et vous confirmez comme d'habitude.</small></span>
+            <Icon name="send" size={18} /><span><b>Prévenir mes joueurs</b><small>« Ce créneau est disponible, venez vous entraîner ! », en heures creuses si vous voulez (réduction en dinars). Chacun réserve sa formule (seul, à deux, en groupe) et vous confirmez comme d'habitude.</small></span>
           </button>
         )}
         {cb.state === "libre" && onCreateAt && (
@@ -72,7 +72,7 @@ function Details({ cb, session, promo, cardProps, onClose, onRemove, onStopPromo
           </button>
         )}
         {!session && cb.state === "incomplet" && cb.session_id && <button onClick={() => setInviting(true)}><Icon name="users" size={15} /> Compléter la séance</button>}
-        {cb.state === "libre" && promo && <button className="sec" onClick={() => { onStopPromo(promo); onClose(); }}>Arrêter la happy hour −{promo.discount_pct} %</button>}
+        {cb.state === "libre" && promo && <button className="sec" onClick={() => { onStopPromo(promo); onClose(); }}>Arrêter les heures creuses {reduction(promo)}</button>}
         {cb.state === "libre" && cb.source === "manuel" && onRemove && <button className="sec danger" onClick={() => { onRemove(cb); onClose(); }}><Icon name="trash" size={15} /> Supprimer ce terrain</button>}
       </div>
       {inviting === true && <InvitePlayers sessionId={cb.session_id} onClose={() => setInviting(false)} onDone={() => { setInviting(false); onChanged(); onClose(); }} />}
@@ -128,6 +128,9 @@ export default function CourtCalendar({ list, promos = [], sessions = [], offs =
     setMonday(mondayOf(new Date(d + "T12:00:00Z")));
   };
   const removeOff = (o) => onRemoveOff?.(o);
+  // Glisser le doigt: semaine (ou jour) suivante vers la gauche, précédente vers la droite
+  const nextWeek = () => { const m = addDays(monday, 7); if (!maxMonday || ymd(m) <= ymd(maxMonday)) setMonday(m); };
+  const swipeCal = swipe(day ? () => moveDay(1) : nextWeek, day ? () => moveDay(-1) : () => setMonday(addDays(monday, -7)));
   return (
     <>
       {!weekStart && !day && (
@@ -163,7 +166,7 @@ export default function CourtCalendar({ list, promos = [], sessions = [], offs =
           {onRemoveOff && <div><button className="link" onClick={() => removeOff(dayOff)}>Supprimer cette absence</button></div>}
         </div>
       )}
-      <div className={"cal card" + (day ? " one" : "")} role="grid" aria-label={day ? "Calendrier du jour" : "Calendrier de la semaine : séances et terrains"}>
+      <div className={"cal card" + (day ? " one" : "")} {...swipeCal} role="grid" aria-label={day ? "Calendrier du jour" : "Calendrier de la semaine : séances et terrains"}>
         <div className="cal-head">
           <span />
           {days.map((d) => {

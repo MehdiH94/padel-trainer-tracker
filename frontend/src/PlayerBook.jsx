@@ -3,7 +3,7 @@ import { api, peek, dayLabel, hhmm, tnd } from "./api.js";
 import Icon from "./Icon.jsx";
 import { toastError } from "./feedback.jsx";
 import { VerifyBanner } from "./VerifyEmail.jsx";
-import { Avatar, CategoryBadge, KIND, Loading } from "./ui.jsx";
+import { Avatar, CategoryBadge, KIND, Loading, reduction } from "./ui.jsx";
 
 const TZ = "Africa/Tunis";
 const fmt = (d, o) => d.toLocaleDateString("fr-FR", { ...o, timeZone: TZ });
@@ -27,9 +27,9 @@ function Price({ o, open }) {
   const base = opt.base_millimes;
   return (
     <span className="offer-price">
-      {opt.discount_pct > 0 && <span className="promo-tag">{opt.reason === "promo" ? "Promo" : "Happy hour"} −{opt.discount_pct} %</span>}
+      {opt.reduction_millimes > 0 && <span className="promo-tag">{opt.reason === "promo" ? "Promo" : "Heures creuses"} {reduction(opt)}</span>}
       <span>{!open && opts.length > 1 && <small className="mut">dès </small>}{tnd(opt.price_millimes)}</span>
-      {opt.discount_pct > 0 && base > opt.price_millimes && <span className="old-price">{tnd(base)}</span>}
+      {opt.reduction_millimes > 0 && base > opt.price_millimes && <span className="old-price">{tnd(base)}</span>}
     </span>
   );
 }
@@ -305,9 +305,9 @@ export function CoachPage({ id, go, onBack }) {
       </div>
       {c.happy_hours.length > 0 && (
         <>
-          <h2>Happy hours</h2>
+          <h2>Heures creuses</h2>
           <div className="card">
-            {c.happy_hours.map((h, i) => <div key={i} className="row avail"><span>{DAYS[h.weekday]} · {h.start_time}–{h.end_time}</span><span className="promo-tag">−{h.discount_pct} %</span></div>)}
+            {c.happy_hours.map((h, i) => <div key={i} className="row avail"><span>{DAYS[h.weekday]} · {h.start_time}–{h.end_time}</span><span className="promo-tag">{reduction(h)}</span></div>)}
           </div>
         </>
       )}

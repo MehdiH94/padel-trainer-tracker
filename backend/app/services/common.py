@@ -25,3 +25,8 @@ def quand(start: datetime, minutes: int | None = None) -> str:
         from datetime import timedelta
         return f"{day}, de {heure(t)} à {heure(t + timedelta(minutes=minutes))}"
     return f"{day} à {heure(t)}"
+
+
+def dinars(m: int) -> str:
+    """Montant en toutes lettres pour les messages: 20000 -> « 20 TND », 12500 -> « 12,500 TND »."""
+    return (f"{m // 1000}" if m % 1000 == 0 else f"{m / 1000:.3f}".replace(".", ",")) + " TND"

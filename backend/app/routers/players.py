@@ -6,7 +6,9 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from ..auth import current_coach
+from fastapi.security import HTTPAuthorizationCredentials
+
+from ..auth import _decode, bearer, current_coach
 from ..db import get_db
 from ..models import Coach, CreditTx, Payment, Player
 from ..schemas import PlayerIn, PlayerOut
@@ -136,3 +138,40 @@ def credits(player_id: int, coach: Coach = Depends(current_coach), db: Session =
         "balance_millimes": credit_balance(db, p.id),
         "transactions": [{"id": t.id, "amount_millimes": t.amount_millimes, "reason": t.reason, "created_at": t.created_at} for t in rows],
     }
+
+
+class NotesIn(BaseModel):
+    notes: str
+
+
+@router.put("/{player_id}/notes")
+def set_notes(player_id: int, body: NotesIn, coach: Coach = Depends(current_coach), db: Session = Depends(get_db)):
+    """Notes générales du coach sur ce joueur (privées, propres à ce coach)."""
+    p = get_owned_player(db, coach, player_id)
+    p.notes = body.notes[:5000]
+    db.commit()
+    return {"notes": p.notes}
+
+
+class CorrectionIn(BaseModel):
+    amount_millimes: int  # positif: crédits ajoutés, négatif: crédits retirés
+    reason: str = ""
+
+
+@router.post("/{player_id}/credits/correction", status_code=201)
+def correct_credits(player_id: int, body: CorrectionIn, coach: Coach = Depends(current_coach), db: Session = Depends(get_db),
+                    creds: HTTPAuthorizationCredentials | None = Depends(bearer)):
+    """Administrateur seulement (dans l'espace du coach): ajoute ou retire des crédits sans mouvement d'argent
+    (erreur de saisie, geste commercial…). Le solde peut devenir négatif (= impayé)."""
+    from ..services import signups
+    if not (_decode(creds).get("admin") or signups.is_admin(coach)):
+        raise HTTPException(403, "Réservé à l'administrateur.")
+    p = get_owned_player(db, coach, player_id)
+    if not body.amount_millimes:
+        raise HTTPException(422, "Indiquez un montant (positif pour ajouter, négatif pour retirer).")
+    db.add(CreditTx(coach_id=coach.id, player_id=p.id, amount_millimes=body.amount_millimes, reason="correction"))
+    db.flush()
+    if body.amount_millimes > 0:
+        settle(db, coach.id, [p.id])
+    db.commit()
+    return {"balance_millimes": credit_balance(db, p.id)}
