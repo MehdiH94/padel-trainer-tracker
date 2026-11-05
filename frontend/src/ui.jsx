@@ -114,6 +114,50 @@ export function RadarChart({ skills, size = 320 }) {
   );
 }
 
+// Plusieurs araignées superposées (une par coach, couleurs --s1…--s4) et, au besoin, leur moyenne
+export const SERIES = ["var(--s1)", "var(--s2)", "var(--s3)", "var(--s4)"];
+export function averageSkills(list) {
+  const names = [...new Set(list.flatMap((x) => x.skills.map((s) => s.stroke)))];
+  return names.map((stroke) => {
+    const v = list.map((x) => x.skills.find((s) => s.stroke === stroke)?.score).filter((v) => v != null);
+    return { stroke, score: v.length ? v.reduce((a, b) => a + b, 0) / v.length : null };
+  });
+}
+export function MultiRadar({ series, size = 320 }) {
+  const short = { "Défense fond de court": "Défense", "Retour de service": "Retour", "Sortie de vitre": "Vitre" };
+  const names = [...new Set(series.flatMap((x) => x.skills.map((s) => s.stroke)))];
+  const n = Math.max(names.length, 3), c = size / 2, R = size / 2 - 58;
+  const pt = (i, v) => {
+    const a = -Math.PI / 2 + (2 * Math.PI * i) / n;
+    return [c + Math.cos(a) * R * (v / 10), c + Math.sin(a) * R * (v / 10)];
+  };
+  const score = (x, st) => x.skills.find((s) => s.stroke === st)?.score;
+  return (
+    <svg viewBox={`0 0 ${size} ${size}`} width="100%" role="img" aria-label={"Évaluation technique : " + series.map((x) => x.label).join(", ")} className="radar">
+      {[2, 4, 6, 8, 10].map((lv) => (
+        <polygon key={lv} points={names.map((_, i) => pt(i, lv).join(",")).join(" ")} style={{ fill: lv % 4 === 2 ? "var(--soft)" : "none", stroke: "var(--line)" }} strokeWidth="1" />
+      ))}
+      {names.map((_, i) => <line key={i} x1={c} y1={c} x2={pt(i, 10)[0]} y2={pt(i, 10)[1]} style={{ stroke: "var(--line)" }} />)}
+      {series.map((x) => (
+        <g key={x.label}>
+          <polygon points={names.map((st, i) => pt(i, score(x, st) ?? 0).join(",")).join(" ")} style={{ fill: x.color, stroke: x.color }} fillOpacity={series.length > 1 ? 0.1 : 0.2} strokeWidth={x.dashed ? 2 : 2.5} strokeDasharray={x.dashed ? "5 4" : undefined} strokeLinejoin="round" />
+          {names.map((st, i) => {
+            const v = score(x, st);
+            if (v == null) return null;
+            const [px, py] = pt(i, v);
+            return <circle key={st} cx={px} cy={py} r="3.5" style={{ fill: x.color, stroke: "var(--card)" }} strokeWidth="1.5" />;
+          })}
+        </g>
+      ))}
+      {names.map((st, i) => {
+        const [x, y] = pt(i, 11.9);
+        const anchor = x < c - 8 ? "end" : x > c + 8 ? "start" : "middle";
+        return <text key={st} x={x} y={y + 3} textAnchor={anchor} fontSize="11" fontWeight="600" style={{ fill: "var(--txt)" }}>{short[st] ?? st}</text>;
+      })}
+    </svg>
+  );
+}
+
 export function Progress({ value, max, danger }) {
   return (
     <div className="bar"><div style={{ width: `${Math.min(100, (value / max) * 100)}%`, background: danger ? "var(--red)" : "var(--brand)" }} /></div>

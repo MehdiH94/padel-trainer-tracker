@@ -95,14 +95,50 @@ function NotesTab({ player, onSaved }) {
     .then(() => { setState("saved"); toast("Notes enregistrées"); onSaved?.(); }).catch(toastError);
   return (
     <div className="card">
-      <div className="row"><b><Icon name="edit" size={15} /> Notes sur {player.name.split(" ")[0]}</b><span className="mut small-p">visibles par vous seul</span></div>
-      <textarea className="msg notes-area" rows={10} value={txt} placeholder="Caractère, objectifs, blessures, préférences, ce qui marche avec lui…"
+      <div className="row"><b><Icon name="edit" size={15} /> Notes sur {player.name.split(" ")[0]}</b><span className="mut small-p">visibles aussi par {player.name.split(" ")[0]}</span></div>
+      <textarea className="msg notes-area" rows={10} value={txt} placeholder="Objectifs, conseils, points à travailler… (le joueur les lit dans « Ma progression »)"
         onChange={(e) => { setTxt(e.target.value); setState("dirty"); }}
         onBlur={(e) => state === "dirty" && !e.relatedTarget?.dataset.save && save()} />{/* le bouton enregistre lui-même: pas deux fois */}
       <button data-save="1" style={{ width: "100%" }} className={state === "saved" ? "saved" : ""} disabled={state === "saved"} onClick={save}>
         {state === "saved" ? <><Icon name="checkCircle" size={16} /> Enregistré</> : "Enregistrer les notes"}
       </button>
     </div>
+  );
+}
+
+// Matchs amicaux et tournois où le joueur indique avoir été coaché par ce coach: son résultat, et le retour du coach
+function MatchFeedback({ m, onSaved }) {
+  const [txt, setTxt] = useState(m.coach_feedback);
+  const [state, setState] = useState(m.coach_feedback ? "saved" : "idle");
+  const save = () => api(`/matches/${m.id}/feedback`, { method: "PUT", body: { feedback: txt } })
+    .then(() => { setState("saved"); toast("Retour enregistré"); onSaved?.(); }).catch(toastError);
+  return (
+    <div className="card">
+      <div className="row">
+        <span className={"ev-kind " + m.kind}><Icon name={m.kind === "tournoi" ? "trophy" : "swords"} size={13} /> {m.kind === "tournoi" ? "Tournoi" : "Match amical"}</span>
+        {m.result && <span className={"ev-result " + m.result}>{m.result === "victoire" ? "Victoire" : "Défaite"}{m.score && ` · ${m.score}`}</span>}
+      </div>
+      <div className="cap1" style={{ marginTop: 4 }}><b>{dayLabel(m.start)}</b> <span className="mut">· {hhmm(m.start)}</span></div>
+      {(m.title || m.place) && <div className="mut">{[m.title, m.place].filter(Boolean).join(" · ")}</div>}
+      {m.rating != null && <div className="small-p">Sa note : <b>{note10(m.rating)} / 10</b></div>}
+      {m.comment && <div className="small-p" style={{ whiteSpace: "pre-line" }}>« {m.comment} »</div>}
+      <textarea className="msg" rows={3} value={txt} placeholder="Votre retour sur ce match" aria-label="Votre retour sur ce match" onChange={(e) => { setTxt(e.target.value); setState("dirty"); }} style={{ marginTop: 8 }} />
+      <button style={{ width: "100%" }} className={state === "saved" ? "saved" : ""} disabled={state !== "dirty"} onClick={save}>
+        {state === "saved" ? <><Icon name="checkCircle" size={16} /> Retour enregistré</> : "Enregistrer mon retour"}
+      </button>
+    </div>
+  );
+}
+
+function CoachedMatches({ playerId, name }) {
+  const [list, setList] = useState(() => peek(`/players/${playerId}/matches`) ?? []);
+  useEffect(() => { api(`/players/${playerId}/matches`).then(setList).catch(() => {}); }, [playerId]);
+  if (!list.length) return null;
+  return (
+    <>
+      <h2><Icon name="swords" size={15} /> Matchs où vous avez coaché {name}</h2>
+      {list.map((m) => <MatchFeedback key={m.id} m={m} />)}
+    </>
   );
 }
 
@@ -240,6 +276,7 @@ export default function PlayerPage({ id, onBack }) {
         </>
       )}
 
+      {tab === "padel" && <CoachedMatches playerId={player.id} name={player.name.split(" ")[0]} />}
       {tab === "notes" && <NotesTab player={player} onSaved={load} />}
 
       {tab === "fin" && (

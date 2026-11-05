@@ -111,7 +111,7 @@ test("le coach ajoute un élève, qui s'inscrit avec le lien pré-rempli", async
   await player.getByLabel("Votre e-mail").fill("lina.test@demo.tn");
   await player.getByLabel(/Mot de passe/).fill("secret1");
   await player.getByRole("button", { name: "Créer mon compte" }).click();
-  await expect(player.getByText("Mes crédits, coach par coach")).toBeVisible();
+  await expect(player.getByRole("heading", { name: "Ma prochaine séance" })).toBeVisible();
   await player.close();
 
   await page.reload();
@@ -120,8 +120,8 @@ test("le coach ajoute un élève, qui s'inscrit avec le lien pré-rempli", async
 
 test("le joueur ne peut plus annuler hors délai mais peut se faire remplacer", async ({ page }) => {
   await login(page, "sami@demo.tn");
-  await expect(page.getByText("Mes crédits, coach par coach")).toBeVisible();
-  await page.getByRole("button", { name: "Mes séances" }).click();
+  await expect(page.getByRole("heading", { name: "Ma prochaine séance" })).toBeVisible();
+  await page.locator("nav").getByRole("button", { name: "Planning" }).click();
   await page.locator(".late-btn").first().click();
   const dialog = page.getByRole("dialog");
   await expect(dialog.getByText("Trop tard pour annuler")).toBeVisible();
@@ -131,7 +131,7 @@ test("le joueur ne peut plus annuler hors délai mais peut se faire remplacer", 
 
 test("la validation du coach arrive chez le joueur sans recharger la page", async ({ page, browser }) => {
   await login(page, "sami@demo.tn");
-  await page.getByRole("button", { name: "Mes séances" }).click();
+  await page.locator("nav").getByRole("button", { name: "Planning" }).click();
   await expect(page.getByText("En attente du coach").first()).toBeVisible();
   const waiting = await page.getByText("En attente du coach").count();
 
@@ -207,8 +207,7 @@ test("inscription par le lien public: compte sans coach, qui choisit ensuite son
   await page.getByRole("button", { name: "Vérifier maintenant" }).click();
   await expect(page.getByText("Choisissez votre coach")).toBeVisible();
   await page.getByRole("button", { name: "Réserver", exact: true }).click();
-  const coachs = page.locator("select", { has: page.locator("option", { hasText: "Tous les coachs" }) });
-  await expect(coachs).toContainText("Coach Démo"); // tous les coachs sont proposés
+  await expect(page.getByRole("group", { name: "Coachs" })).toContainText("Coach Démo"); // tous les coachs sont proposés
 });
 
 test("nouveau coach: confirmé par l'administrateur, puis le guide « Bien démarrer » mène à chaque réglage", async ({ page, browser }) => {
@@ -406,4 +405,40 @@ test("installation sur l'écran d'accueil: manifeste avec icônes 192 et 512 (do
   await page.goto("/");
   const apple = await page.locator('link[rel="apple-touch-icon"]').getAttribute("href");
   expect((await request.get(apple)).ok()).toBeTruthy();
+});
+
+test("planning du joueur: il ajoute un match coaché, note son résultat, et son coach y répond", async ({ page, browser }) => {
+  await login(page, "sami@demo.tn");
+  await page.locator("nav").getByRole("button", { name: "Planning" }).click();
+  await page.getByRole("button", { name: "Match amical" }).click();
+  const form = page.getByRole("dialog");
+  await form.getByLabel("Jour", { exact: true }).selectOption({ index: 88 }); // il y a deux jours: déjà joué
+  await form.getByPlaceholder(/avec Karim/).fill("Match du jeudi e2e");
+  await form.getByRole("combobox", { name: "Coaché par" }).selectOption({ label: "Coach Démo" });
+  await form.getByRole("button", { name: "Victoire" }).click();
+  await form.getByLabel("Score").fill("6-3 6-4");
+  await form.getByLabel("Mon commentaire").fill("Bon jeu au filet");
+  await form.getByRole("button", { name: "Enregistrer" }).click();
+  await expect(page.getByText("Match amical ajouté à votre planning")).toBeVisible();
+  await page.getByRole("button", { name: /Passé/ }).click();
+  await expect(page.getByText("Match du jeudi e2e")).toBeVisible();
+
+  const coach = await (await browser.newContext()).newPage();
+  await login(coach, "demo@padel.tn");
+  await nav(coach, "Joueurs").click();
+  await coach.getByText("Sami Ben Ali").first().click();
+  const match = coach.locator(".card", { hasText: "Match du jeudi e2e" });
+  await match.getByLabel("Votre retour sur ce match").fill("Super placement, continue");
+  await match.getByRole("button", { name: "Enregistrer mon retour" }).click();
+  await expect(match.getByText("Retour enregistré")).toBeVisible();
+  await coach.close();
+
+  await page.reload();
+  await page.locator("nav").getByRole("button", { name: "Planning" }).click();
+  await page.getByRole("button", { name: /Passé/ }).click();
+  await expect(page.getByText("Super placement, continue")).toBeVisible();
+  await page.locator("nav").getByRole("button", { name: "Progression" }).click();
+  await expect(page.getByRole("heading", { name: "Mon temps de jeu" })).toBeVisible();
+  await page.locator("nav").getByRole("button", { name: "Crédits" }).click();
+  await expect(page.getByRole("heading", { name: "Historique" })).toBeVisible();
 });

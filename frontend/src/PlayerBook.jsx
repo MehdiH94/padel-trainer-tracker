@@ -53,7 +53,8 @@ function Offer({ o, me, kinds, onBooked, openCoach }) {
   const book = async () => {
     setBusy(true);
     try {
-      const body = o.type === "group" ? { session_id: o.session_id, kinds } : { kind: pick, start: o.start, coach_id: o.coach.id, kinds };
+      // durée du créneau proposé (souple: 1 h 30 si c'est ce qui reste de libre), prix au prorata
+      const body = o.type === "group" ? { session_id: o.session_id, kinds } : { kind: pick, start: o.start, coach_id: o.coach.id, kinds, minutes: start?.duration_min };
       onBooked({ ...(await api("/me/book", { method: "POST", body })), start: o.start });
     } catch (x) {
       toastError(x);
@@ -113,7 +114,9 @@ export function Book({ me, reload, go, coachParam }) {
   const k0 = kept();
   const [coaches, setCoaches] = useState(() => peek("/me/coaches") ?? []);
   const [clubs, setClubs] = useState(() => peek("/me/clubs") ?? []);
-  const [coachId, setCoachId] = useState(coachParam ? +coachParam : k0.coachId ?? "");
+  // un, plusieurs ou tous les coachs (liste vide = tous)
+  const [coachIds, setCoachIds] = useState(coachParam ? [+coachParam] : k0.coachIds ?? (k0.coachId ? [k0.coachId] : []));
+  const toggleCoach = (id) => setCoachIds(coachIds.includes(id) ? coachIds.filter((x) => x !== id) : [...coachIds, id]);
   const [club, setClub] = useState(k0.club ?? "");
   const [day, setDay] = useState(k0.day && k0.day >= ymd(new Date()) ? k0.day : null);
   const [period, setPeriod] = useState(k0.hour ? "" : k0.period ?? ""); // heure précise choisie: pas de période en plus
@@ -123,23 +126,23 @@ export function Book({ me, reload, go, coachParam }) {
   const solo = kinds.length === 1 && kinds[0] === "individuel";
   const [more, setMore] = useState(false);
   useEffect(() => {
-    try { sessionStorage.setItem(KEEP, JSON.stringify({ coachId, club, day, period, hour, kinds })); } catch { /* stockage indisponible */ }
+    try { sessionStorage.setItem(KEEP, JSON.stringify({ coachIds, club, day, period, hour, kinds })); } catch { /* stockage indisponible */ }
     setMore(false);
-  }, [coachId, club, day, period, hour, kinds.join(",")]);
+  }, [coachIds.join(","), club, day, period, hour, kinds.join(",")]);
   const [offers, setOffers] = useState(null);
   const [done, setDone] = useState(null);
   useEffect(() => { api("/me/coaches").then(setCoaches); api("/me/clubs").then(setClubs); }, []);
   useEffect(() => {
     if (!day) return;
-    const q = new URLSearchParams({ day, kinds: kinds.join(","), ...(coachId && { coach_id: coachId }), ...(club && { club }), ...(period && { period }), ...(hour !== "" && { hour }) });
+    const q = new URLSearchParams({ day, kinds: kinds.join(","), ...(coachIds.length && { coach_ids: coachIds.join(",") }), ...(club && { club }), ...(period && { period }), ...(hour !== "" && { hour }) });
     setOffers(peek("/me/offers?" + q) ?? null); // même recherche déjà faite: affichée tout de suite, puis mise à jour
     api("/me/offers?" + q).then(setOffers).catch(toastError);
-  }, [day, kinds.join(","), coachId, club, period, hour]);
+  }, [day, kinds.join(","), coachIds.join(","), club, period, hour]);
 
   const days = Array.from({ length: 14 }, (_, i) => new Date(Date.now() + i * 86400000));
   const openCoach = (id) => go(`coach/${id}`);
   const booked = (r) => { setDone(r); reload(); };
-  const coach = coaches.find((c) => c.id === coachId);
+  const coach = coachIds.length === 1 ? coaches.find((c) => c.id === coachIds[0]) : null;
 
   if (done) {
     const confirmed = done.status === "confirmee";
@@ -152,7 +155,7 @@ export function Book({ me, reload, go, coachParam }) {
           {confirmed ? `${done.coach_name} vous attend.` : `${done.coach_name} doit valider votre demande et confirmer le terrain.`}{" "}
           {done.charged_millimes ? `${tnd(done.charged_millimes)} débités de vos crédits.` : `${tnd(done.price_millimes)} seront débités de vos crédits à la validation.`}
         </p>
-        <button onClick={() => go("mine")}>Voir mes séances</button>
+        <button onClick={() => go("planning")}>Voir mon planning</button>
       </div>
     );
   }
@@ -165,13 +168,16 @@ export function Book({ me, reload, go, coachParam }) {
       <VerifyBanner me={me} />
 
       <h2 className="step"><span>1</span> Avec qui, où ?</h2>
+      <div className="mut small-p">Coachs (un ou plusieurs)</div>
+      <div className="coach-chips" role="group" aria-label="Coachs">
+        <button className={"chip small" + (coachIds.length === 0 ? " on" : "")} aria-pressed={coachIds.length === 0} onClick={() => setCoachIds([])}>Tous</button>
+        {coaches.map((c) => (
+          <button key={c.id} className={"chip small" + (coachIds.includes(c.id) ? " on" : "")} aria-pressed={coachIds.includes(c.id)} onClick={() => toggleCoach(c.id)}>
+            {coachIds.includes(c.id) && <Icon name="check" size={13} />} {c.name}{c.mine ? " ★" : ""}
+          </button>
+        ))}
+      </div>
       <div className="grid">
-        <label className="field"><span className="mut">Coach</span>
-          <select value={coachId} onChange={(e) => setCoachId(e.target.value ? +e.target.value : "")}>
-            <option value="">Tous les coachs</option>
-            {coaches.map((c) => <option key={c.id} value={c.id}>{c.name}{c.mine ? " (mon coach)" : ""}</option>)}
-          </select>
-        </label>
         <label className="field"><span className="mut">Club</span>
           <select value={club} onChange={(e) => setClub(e.target.value)}>
             <option value="">Tous les clubs</option>

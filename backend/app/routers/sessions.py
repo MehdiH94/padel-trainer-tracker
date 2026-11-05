@@ -102,7 +102,7 @@ def create_sessions(
     if body.discount_millimes is not None:  # prix des réglages (par joueur), moins une réduction en dinars
         if body.discount_millimes < 0:
             raise HTTPException(422, "Réduction invalide.")
-        data["price_millimes"] = max(base_price(coach, body.kind) - body.discount_millimes, 0)
+        data["price_millimes"] = max(base_price(coach, body.kind, body.duration_min) - body.discount_millimes, 0)  # au prorata de la durée
         data["price_mode"] = "par_joueur"
     elif body.discount_pct is not None:  # prix des réglages (par joueur), promotion éventuelle
         if not 0 <= body.discount_pct <= 90:

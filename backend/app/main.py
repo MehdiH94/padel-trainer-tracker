@@ -12,6 +12,7 @@ from sqlalchemy import inspect, select, text
 from .db import Base, SessionLocal, engine
 from .constants import TIERS
 from .routers import admin, auth, replace, booking, clubs, dashboard, exercises, me, payments, players, profile, promotions, reminders, sessions, timeoff
+from .routers import events
 from .routers import finance as finance_router  # onglet Finance (le module services.finance garde son nom)
 from .notify import Notifier
 from .services import booking as booking_svc
@@ -118,7 +119,7 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(title="Padel Trainer Tracker", lifespan=lifespan)
 app.add_exception_handler(RequestValidationError, validation_handler)  # erreurs de formulaire expliquées en français
-for r in (admin, auth, replace, players, sessions, payments, dashboard, booking, profile, clubs, reminders, promotions, me, exercises, timeoff, finance_router):
+for r in (admin, auth, replace, players, sessions, payments, dashboard, booking, profile, clubs, reminders, promotions, me, exercises, timeoff, finance_router, events):
     app.include_router(r.router)
 
 

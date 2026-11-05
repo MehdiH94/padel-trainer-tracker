@@ -25,8 +25,10 @@ class BookingError(Exception):
     pass
 
 
-def price_for(coach: Coach, kind: str) -> int:
-    return {"individuel": coach.price_individuel, "duo": coach.price_duo, "groupe": coach.price_groupe}[kind]
+def price_for(coach: Coach, kind: str, minutes: int | None = None) -> int:
+    """Prix par joueur de la formule, au prorata de la durée si elle n'est pas la durée préférée du coach."""
+    from .pricing import base_price
+    return base_price(coach, kind, minutes)
 
 
 def attendee_ids(s: TrainingSession) -> list[int]:
@@ -58,8 +60,8 @@ def join_target(db: Session, s: TrainingSession, kinds: list[str] | None) -> int
 def join_price(coach: Coach, s: TrainingSession, target: int) -> int:
     """Séance formée par les joueurs: prix de la formule visée; séance du coach: son prix."""
     if groups.is_dynamic(s):
-        return price_for(coach, groups.kind_for_size(target))
-    return s.price_millimes or price_for(coach, s.kind)
+        return price_for(coach, groups.kind_for_size(target), s.duration_min)
+    return s.price_millimes or price_for(coach, s.kind, s.duration_min)
 
 
 # --- Créneaux libres ----------------------------------------------------
@@ -76,11 +78,11 @@ def _busy(db: Session, coach: Coach) -> list[tuple[datetime, datetime]]:
     busy = []
     for s in db.scalars(select(TrainingSession).where(TrainingSession.coach_id == coach.id, TrainingSession.status != "annulee")):
         minutes = s.duration_min
-        if s.status == "prevue" and groups.is_dynamic(s):
+        if s.status == "prevue" and groups.is_dynamic(s) and s.duration_min == duration_for(coach, s.kind):
             minutes = _longest(coach, [groups.kind_for_size(n) for n in groups.allowed(s)], s.duration_min)
         busy.append((aware(s.start), aware(s.start) + timedelta(minutes=minutes)))
     for b in db.scalars(select(Booking).where(Booking.coach_id == coach.id, Booking.status == "en_attente", Booking.session_id.is_(None))):
-        minutes = _longest(coach, groups.split(b.accepted_kinds), b.duration_min)
+        minutes = _longest(coach, groups.split(b.accepted_kinds), b.duration_min) if b.duration_min == duration_for(coach, b.kind) else b.duration_min
         busy.append((aware(b.start), aware(b.start) + timedelta(minutes=minutes)))
     return busy
 
@@ -133,6 +135,58 @@ def days_off(db: Session, coach: Coach) -> list[tuple]:
 def is_day_off(offs: list[tuple], when: datetime) -> bool:
     d = aware(when).astimezone(TUNIS).date()
     return any(a <= d <= b for a, b in offs)
+
+
+def free_windows(db: Session, coach: Coach, now: datetime | None = None) -> list[tuple[datetime, datetime]]:
+    """Plages libres (terrains libres ou disponibilités, moins les séances et demandes), à partir du préavis,
+    hors jours d'absence."""
+    now = now or datetime.now(timezone.utc)
+    earliest = now + timedelta(hours=MIN_NOTICE_H)
+    horizon = now + timedelta(days=HORIZON_DAYS + 1)
+    base = []
+    if coach.booking_mode != "disponibilites":
+        for cb in db.scalars(select(CourtBooking).where(CourtBooking.coach_id == coach.id, CourtBooking.session_id.is_(None),
+                                                       CourtBooking.status == "confirmee", CourtBooking.start.is_not(None))):
+            base.append((aware(cb.start), aware(cb.start) + timedelta(minutes=cb.duration_min)))
+    else:
+        today = now.astimezone(TUNIS).date()
+        for w in db.scalars(select(Availability).where(Availability.coach_id == coach.id)):
+            for off in range(HORIZON_DAYS + 1):
+                day = today + timedelta(days=off)
+                if day.weekday() == w.weekday:
+                    base.append((datetime.combine(day, time.fromisoformat(w.start_time), TUNIS).astimezone(timezone.utc),
+                                 datetime.combine(day, time.fromisoformat(w.end_time), TUNIS).astimezone(timezone.utc)))
+    busy = sorted(_busy(db, coach))
+    offs = days_off(db, coach)
+    out = []
+    for lo, hi in base:
+        cur = lo
+        for b_start, b_end in busy:
+            if b_end <= cur or b_start >= hi:
+                continue
+            if b_start > cur:
+                out.append((cur, b_start))
+            cur = max(cur, b_end)
+        if cur < hi:
+            out.append((cur, hi))
+    return sorted((a, b) for a, b in out if a >= earliest and a < horizon and not is_day_off(offs, a))
+
+
+def slot_choices(db: Session, coach: Coach, kind: str, now: datetime | None = None) -> list[tuple[datetime, int]]:
+    """Débuts et durées proposés pour une formule. La durée préférée du coach (Réglages) d'abord; mais quand une
+    plage libre n'a pas de place pour elle sans laisser de trou, la plage entière est proposée à toutes les formules,
+    au prorata du prix: 1 h restante = un groupe peut y jouer 1 h; 1 h 30 restante = un joueur seul y joue 1 h 30
+    (pas de demi-heure perdue)."""
+    pref = duration_for(coach, kind)
+    _, shortest = _grid(coach)
+    starts = free_slots(db, coach, now, minutes=pref)
+    out = {(s, pref) for s in starts}
+    for lo, hi in free_windows(db, coach, now):
+        length = int((hi - lo).total_seconds() // 60)
+        if any(lo <= s < hi for s in starts) or length < shortest.total_seconds() // 60 or length > 2 * pref:
+            continue
+        out.add((lo, length))
+    return sorted(out)
 
 
 def free_slots(db: Session, coach: Coach, now: datetime | None = None, minutes: int | None = None) -> list[datetime]:
@@ -258,7 +312,7 @@ def request_join(db: Session, coach: Coach, player: Player, s: TrainingSession, 
 
 
 def request_new(db: Session, coach: Coach, player: Player, kind: str, start: datetime, sms: SmsProvider | None = None,
-                accepted_kinds: list[str] | None = None) -> Booking:
+                accepted_kinds: list[str] | None = None, minutes: int | None = None) -> Booking:
     """Le joueur demande un nouveau créneau (séance de ce type, ouverte aux autres joueurs si duo/groupe).
     accepted_kinds: toutes les formules qu'il accepte (seul, duo, groupe), montrées au coach."""
     if kind not in CAPACITY:
@@ -267,9 +321,12 @@ def request_new(db: Session, coach: Coach, player: Player, kind: str, start: dat
     kind = groups.smallest(accepted)  # s'il reste seul (ou au minimum voulu), c'est cette formule qui est jouée
     if not groups.can_open(kind, start):
         raise BookingError("Pour ouvrir une séance à deux ou en groupe, elle doit avoir lieu dans plus de 24 h (le temps de compléter le groupe)")
-    q = quote(db, coach, kind, start)  # durée de la formule, prix avec heures creuses / promotion
-    if aware(start) not in free_slots(db, coach, minutes=q["duration_min"]):
+    choices = slot_choices(db, coach, kind)
+    if minutes is None:  # durée de la formule, sinon celle du créneau restant à ce début
+        minutes = next((m for s, m in choices if s == aware(start)), duration_for(coach, kind))
+    if (aware(start), minutes) not in choices:
         raise BookingError("Ce créneau n'est plus disponible")
+    q = quote(db, coach, kind, start, minutes)  # prix au prorata de la durée, heures creuses / promotion
     price = q["price_millimes"]
     b = Booking(coach_id=coach.id, player_id=player.id, kind=kind, start=aware(start), duration_min=q["duration_min"], charged_millimes=0,
                 accepted_kinds=",".join(accepted), price_millimes=price, discount_pct=q["discount_pct"],
@@ -321,11 +378,11 @@ def accept(db: Session, coach: Coach, b: Booking, sms: SmsProvider | None = None
         elif club and courts.overlapping(db, coach, b.start, b.duration_min):
             raise BookingError(courts.busy_message(db, courts.overlapping(db, coach, b.start, b.duration_min)[0]))
     if not b.price_millimes:
-        b.price_millimes = price_for(coach, b.kind)
+        b.price_millimes = price_for(coach, b.kind, b.duration_min)
     _debit(db, b)
     s = TrainingSession(
         coach_id=coach.id, start=b.start, duration_min=b.duration_min, kind=b.kind, level=player.category,
-        price_millimes=b.price_millimes or b.charged_millimes or price_for(coach, b.kind), price_mode="par_joueur", open=b.kind != "individuel",
+        price_millimes=b.price_millimes or b.charged_millimes or price_for(coach, b.kind, b.duration_min), price_mode="par_joueur", open=b.kind != "individuel",
     )
     # toutes les formules cochées: la plus petite = taille minimale voulue, les autres restent possibles
     mine = groups.split(b.accepted_kinds) or [b.kind]
@@ -453,7 +510,7 @@ def refresh(db: Session, s: TrainingSession) -> None:
 def _reprice(db: Session, coach: Coach, s: TrainingSession, b: Booking) -> None:
     """Prix de la formule réellement jouée (taille de la séance), avec la remise obtenue à la réservation.
     Déjà débité: la différence est rendue ou débitée (« ajustement »)."""
-    price = reduced(price_for(coach, s.kind), b.discount_pct, b.discount_millimes)
+    price = reduced(price_for(coach, s.kind, s.duration_min), b.discount_pct, b.discount_millimes)
     b.kind = s.kind
     if price == b.price_millimes:
         return
@@ -487,7 +544,7 @@ def reconsider(db: Session, coach: Coach, b: Booking, kind: str) -> None:
         refresh(db, s)
     else:  # pas encore validée par le coach: formule de départ et prix mis à jour
         b.kind = groups.smallest(mine)
-        b.price_millimes = reduced(price_for(coach, b.kind), b.discount_pct, b.discount_millimes)
+        b.price_millimes = reduced(price_for(coach, b.kind, b.duration_min), b.discount_pct, b.discount_millimes)
 
 
 def remind_incomplete(db: Session, now: datetime | None = None) -> int:

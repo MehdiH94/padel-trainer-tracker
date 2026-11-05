@@ -17,14 +17,14 @@ Application de gestion pour un coach de padel indépendant (Tunisie) + espace jo
 # Backend (depuis backend/)
 python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
-python -m pytest -q                                  # 131 tests, doivent rester verts
+python -m pytest -q                                  # 133 tests, doivent rester verts
 uvicorn app.main:app --port 8000
 python seed_demo.py                                  # données de démo (base vide): coach demo@padel.tn / demo1234, joueur sami@demo.tn / demo1234
 python seed_more_coaches.py                          # + 2 coachs fictifs (coach.youssef@demo.tn, coach.meriem@demo.tn / demo1234), sans effet s'ils existent
 # Frontend (depuis frontend/)
 npm install && npm run dev                           # http://localhost:5173
 npm run build
-npx playwright test                                  # parcours de bout en bout (15), sur l'appli construite (npm run build avant)
+npx playwright test                                  # parcours de bout en bout (16), sur l'appli construite (npm run build avant)
 ```
 Tests de bout en bout (`frontend/e2e/`, Playwright): l'application est servie comme en production (`e2e/serve.sh`, `app.web`) sur une base neuve avec les données de démo (`e2e/setup.js`); en local, `PYTHON=../backend/.venv/bin/python npx playwright test`. Sur GitHub, le job `e2e` tourne à chaque push et le déploiement attend qu'il soit vert (rapport et captures en artefact si échec). Ajouter un parcours à chaque nouvelle fonctionnalité visible.
 Le schéma est créé par `create_all`: après un changement de modèle, supprimer `backend/padel.db` et relancer le seed.
@@ -78,4 +78,6 @@ Le schéma est créé par `create_all`: après un changement de modèle, supprim
 - Planning: semaine affichée entre deux flèches (`weekbar`, « Aujourd'hui » quand on n'est pas sur la semaine en cours), glisser le doigt pour changer de semaine (ou de jour en vue jour; `swipe` de `ui.jsx`).
 - Accueil joueur: absences à venir (30 jours) de ses coachs en petit message (`/me` → `absences`). Administration › Joueurs: ouvrir directement la fiche d'un joueur chez son coach (`actAs(r, "players/<id>")`).
 - Comptes test des agents de test quotidiens (DP-004, `services/isolation.py`): e-mails listés dans `TEST_ACCOUNT_EMAILS` (`deploy/.env`, rien en base, pas modifiable depuis l'appli). Deux mondes étanches (`same_world`): un vrai joueur ne voit ni ne réserve jamais un coach test (`/me/coaches`, page du coach, `/me/clubs`, `offers`, `/me/book`), un joueur test seulement les coachs test (aussi propositions, promotions, remplacement); promotions / annonces / invitations d'un coach seulement aux joueurs de son monde (`promotions.recipients`, `invitable`); `is_test` dans Administration › Coachs / Joueurs (badge « test »), à exclure des statistiques.
+- Durées souples (`booking.free_windows`, `slot_choices`): les durées des formules sont des préférences; s'il reste moins que la durée préférée mais au moins la plus courte, toutes les formules peuvent prendre ce qui reste (groupe 1 h si seulement 1 h libre); si un créneau libre ne peut pas être découpé sans trou, la séance le remplit entièrement (1 h 30 libre = un joueur seul joue 1 h 30). Prix toujours au prorata (`pricing.base_price(coach, kind, minutes)`: 100 TND/h → 150 TND pour 1 h 30); `/me/book` reçoit `minutes`; une séance de durée non standard garde sa durée dans `_busy`.
+- Espace joueur, 5 onglets (`PlayerApp.jsx`): Accueil (prochaine séance, mes coachs avec leurs absences, araignée résumée, objectif, temps de jeu), Progression (`PlayerProgress.jsx`: temps de jeu, une araignée par coach superposée en couleurs `--s1…--s4` + moyenne en option, `MultiRadar` de `ui.jsx`; notes de chaque coach = onglet Notes de la fiche, visibles par le joueur; `/me/progress` → `by_coach`, `play`), Réserver (un, plusieurs ou tous les coachs: `/me/offers?coach_ids=1,2`), Planning (`PlayerPlanning.jsx`: entraînements réservés + matchs amicaux et tournois `PlayerEvent`, `/me/events`; après coup: résultat, score, note 0-10, commentaire, coaché par; le coach voit ces matchs sur la fiche, `/players/{id}/matches`, et y répond, `PUT /matches/{id}/feedback`), Crédits (solde par coach + historique: date, séance, coach, montant; jamais de bilan ni de total).
 - Garder le code simple, commentaires en français, pas de dépendances inutiles.

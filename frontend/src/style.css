@@ -9,6 +9,7 @@
   --bg: #f3f4f6; --card: #fff; --txt: #0f172a; --mut: #475569; --line: #e2e8f0; --soft: #f1f5f9;
   --red: #dc2626; --red-l: #fee2e2; --green: #16a34a; --green-l: #dcfce7; --ok-txt: #15803d;
   --amber: #d97706; --amber-l: #fef3c7; --warn-txt: #92400e;
+  --s1: #ea580c; --s2: #2563eb; --s3: #16a34a; --s4: #9333ea; --s-avg: #0f172a; /* une couleur par coach (araignées superposées) */
   --shadow: 0 1px 2px #0f172a0d, 0 4px 14px #0f172a0f; --glow: 0 8px 20px #c2410c40;
   --font: "Barlow", system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-display: "Barlow Condensed", "Barlow", system-ui, sans-serif;
@@ -20,6 +21,7 @@
     --bg: #0f1623; --card: #1b2433; --txt: #f8fafc; --mut: #cbd5e1; --line: #334155; --soft: #253042;
     --red: #f87171; --red-l: #3f1717; --green: #4ade80; --green-l: #14301f; --ok-txt: #86efac;
     --amber: #fbbf24; --amber-l: #3a2a0a; --warn-txt: #fcd34d;
+    --s1: #fb923c; --s2: #60a5fa; --s3: #4ade80; --s4: #c084fc; --s-avg: #f8fafc;
     --shadow: 0 1px 2px #0006, 0 4px 14px #0004; --glow: 0 8px 20px #f9731633;
   }
 }
@@ -729,3 +731,32 @@ button.saved { background: var(--green); border-color: var(--green); color: #fff
 .stepper-dots i.on { background: var(--brand); width: 14px; border-radius: 4px; }
 .stepper-name { font-size: 1.05rem; }
 .stepper.done { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; color: var(--ok-txt); }
+
+/* --- Espace joueur: planning, progression, crédits --- */
+.series-legend { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; margin-top: 6px; }
+.series-legend button { min-height: 36px; padding: 6px 12px; background: var(--soft); color: var(--txt); border: 2px solid transparent; font-size: .85rem; }
+.series-legend button.on { border-color: var(--c); background: var(--card); }
+.series-legend i { width: 10px; height: 10px; border-radius: 50%; background: var(--c); display: inline-block; }
+.playtime { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.playtime .kpi { text-align: center; padding: 10px 6px; }
+.playtime .big { font-size: 1.6rem; }
+.play-month { background: var(--brand-xl); border: 1px solid var(--brand-l); border-radius: 14px; padding: 10px 12px; margin-bottom: 10px; display: flex; gap: 10px; align-items: center; }
+.ev-kind { display: inline-flex; align-items: center; gap: 4px; font-size: .78rem; font-weight: 700; padding: 2px 8px; border-radius: 99px; background: var(--amber-l); color: var(--warn-txt); }
+.ev-kind.tournoi { background: var(--brand-l); color: var(--brand-d); }
+.ev-result { font-weight: 700; }
+.ev-result.victoire { color: var(--ok-txt); }
+.ev-result.defaite { color: var(--red); }
+.coach-says { background: var(--soft); border-left: 3px solid var(--brand); border-radius: 8px; padding: 8px 10px; margin-top: 8px; white-space: pre-line; }
+.todo-result { background: var(--amber-l); color: var(--warn-txt); border-radius: 10px; padding: 8px 10px; margin-top: 8px; font-size: .88rem; }
+.seg-choice { display: flex; gap: 6px; margin-bottom: 8px; }
+.seg-choice button { flex: 1; background: var(--soft); color: var(--txt); }
+.seg-choice button.on { background: var(--brand); color: var(--on-brand); }
+.txline { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+.txline:last-child { border-bottom: 0; }
+.coach-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+.mycoach { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--line); width: 100%; background: none; color: var(--txt); border-radius: 0; justify-content: flex-start; min-height: 48px; }
+.mycoach:last-child { border-bottom: 0; }
+.mycoach:hover { background: none; }
+.navbadge.inline { position: static; display: inline-grid; margin-left: 6px; animation: none; }
+.plain-card { color: var(--txt); font-weight: 400; }
+.plain-card:hover { background: var(--card); }

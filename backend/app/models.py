@@ -309,3 +309,24 @@ class Promotion(Base):
     notified_count: Mapped[int] = mapped_column(Integer, default=0)
     active: Mapped[bool] = mapped_column(default=True)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+
+
+class PlayerEvent(Base):
+    """Planning padel du joueur, en plus de ses entraînements: matchs amicaux et tournois. Après le match, il note
+    son résultat et comment il a joué, et s'il a été coaché (par quel coach); ce coach peut ajouter son retour."""
+
+    __tablename__ = "player_events"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    account_id: Mapped[int] = mapped_column(ForeignKey("players.id"), index=True)  # fiche compte du joueur
+    kind: Mapped[str] = mapped_column(String(10), default="match")  # match (amical) / tournoi
+    title: Mapped[str] = mapped_column(String(120), default="")
+    start: Mapped[datetime] = mapped_column(UTCDateTime, index=True)
+    duration_min: Mapped[int] = mapped_column(Integer, default=90)
+    place: Mapped[str] = mapped_column(String(120), default="")
+    result: Mapped[str] = mapped_column(String(10), default="")  # victoire / defaite / vide
+    score: Mapped[str] = mapped_column(String(60), default="")
+    rating: Mapped[int | None] = mapped_column(Integer, nullable=True)  # comment il a joué: 0-100 (= 0 à 10)
+    comment: Mapped[str] = mapped_column(Text, default="")
+    coach_id: Mapped[int | None] = mapped_column(ForeignKey("coaches.id"), nullable=True)  # coaché par
+    coach_feedback: Mapped[str] = mapped_column(Text, default="")
+    feedback_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)

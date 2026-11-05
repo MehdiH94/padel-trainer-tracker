@@ -14,7 +14,7 @@ from . import courts
 from .accounts import linked
 from .isolation import visible_coaches
 from . import groups as grp
-from .booking import attendee_ids, fits_session, free_slots, join_price, join_target, pending_joins, price_for, spots_left
+from .booking import attendee_ids, fits_session, free_slots, slot_choices, join_price, join_target, pending_joins, price_for, spots_left
 from .common import TUNIS, aware
 from .pricing import duration_for, quote
 
@@ -76,13 +76,13 @@ def _in_window(start: datetime, day: date, period: str | None) -> bool:
     return True
 
 
-def offers(db: Session, account: Player, day: date, kinds: list[str], coach_id: int | None = None, club: str | None = None,
+def offers(db: Session, account: Player, day: date, kinds: list[str], coach_ids: set[int] | None = None, club: str | None = None,
            period: str | None = None, hour: int | None = None) -> dict:
     """Groupes à rejoindre et créneaux à créer pour ce jour, chez les coachs (et au club) choisis.
     kinds: formules acceptées par le joueur (une ou plusieurs parmi individuel, duo, groupe)."""
     kinds = [k for k in CAPACITY if k in kinds] or list(CAPACITY)
     my_ids = {p.id for p in linked(db, account)}
-    coaches = [c for c in visible_coaches(db, account) if not coach_id or c.id == coach_id]  # comptes test à part
+    coaches = [c for c in visible_coaches(db, account) if not coach_ids or c.id in coach_ids]  # comptes test à part; un ou plusieurs coachs
     now = datetime.now(timezone.utc)
     groups, with_court, other = [], [], []
     other_kinds: dict[str, int] = {}  # séances ouvertes ce jour-là d'une formule que le joueur n'a pas choisie
@@ -123,14 +123,13 @@ def offers(db: Session, account: Player, day: date, kinds: list[str], coach_id: 
         # 2. Nouveaux créneaux: pour chaque début possible, les formules qui y tiennent (durée propre à chacune)
         starts: dict[datetime, list[dict]] = {}
         for k in kinds:
-            minutes = duration_for(c, k)
-            for start in free_slots(db, c, minutes=minutes):
+            for start, minutes in slot_choices(db, c, k):  # durée de la formule, ou plage restante entière
                 if not _in_window(start, day, period):
                     continue
                 if not grp.can_open(k, start):  # ouvrir un duo/groupe seul: seulement à plus de 24 h
                     too_late.add(k)
                     continue
-                starts.setdefault(start, []).append(quote(db, c, k, start))
+                starts.setdefault(start, []).append(quote(db, c, k, start, minutes))
         for start, options in sorted(starts.items()):
             held = [cb for cb in courts.held_covering(db, c, start, min(o["duration_min"] for o in options))
                     if not club or same_club(club, db.get(Club, cb.club_id).name)]

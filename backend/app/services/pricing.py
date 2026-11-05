@@ -12,8 +12,12 @@ def duration_for(coach: Coach, kind: str) -> int:
     return {"duo": coach.duration_duo, "groupe": coach.duration_groupe}.get(kind) or coach.slot_minutes
 
 
-def base_price(coach: Coach, kind: str) -> int:
-    return {"individuel": coach.price_individuel, "duo": coach.price_duo, "groupe": coach.price_groupe}[kind]
+def base_price(coach: Coach, kind: str, minutes: int | None = None) -> int:
+    """Prix par joueur de la formule (Réglages) pour sa durée préférée; pour une autre durée, au prorata
+    (100 TND l'heure -> 150 TND pour 1 h 30)."""
+    price = {"individuel": coach.price_individuel, "duo": coach.price_duo, "groupe": coach.price_groupe}[kind]
+    pref = duration_for(coach, kind)
+    return price if not minutes or minutes == pref else round(price * minutes / pref)
 
 
 def reduced(base: int, pct: int = 0, millimes: int = 0) -> int:
@@ -45,9 +49,11 @@ def promo_for(db: Session, coach: Coach, start: datetime, minutes: int) -> Promo
     return best
 
 
-def quote(db: Session, coach: Coach, kind: str, start: datetime) -> dict:
-    """Prix par joueur d'une nouvelle séance: la plus forte réduction entre heure creuse et promotion s'applique."""
-    base, minutes = base_price(coach, kind), duration_for(coach, kind)
+def quote(db: Session, coach: Coach, kind: str, start: datetime, minutes: int | None = None) -> dict:
+    """Prix par joueur d'une nouvelle séance (durée de la formule, ou celle du créneau restant, au prorata):
+    la plus forte réduction entre heure creuse et promotion s'applique."""
+    minutes = minutes or duration_for(coach, kind)
+    base = base_price(coach, kind, minutes)
     best = (0, 0, 0, None)  # (réduction en millimes, %, dinars, raison)
     for item, reason in ((happy_hour(db, coach, start), "happy_hour"), (promo_for(db, coach, start, minutes), "promo")):
         if item:

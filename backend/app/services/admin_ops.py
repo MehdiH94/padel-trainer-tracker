@@ -4,10 +4,10 @@ Un joueur peut avoir une fiche chez plusieurs coachs, reliées à la fiche « co
 Si on supprime la fiche compte, une autre fiche reliée devient le compte (e-mail et mot de passe recopiés):
 le joueur garde l'accès à ses autres coachs.
 """
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update
 from sqlalchemy.orm import Session
 
-from ..models import (Attendance, Availability, TimeOff, Booking, Club, Coach, CourtBooking, CreditTx, Exercise, HappyHour, Payment,
+from ..models import (PlayerEvent, Attendance, Availability, TimeOff, Booking, Club, Coach, CourtBooking, CreditTx, Exercise, HappyHour, Payment,
                       Player, Promotion, Proposal, ReminderLog, SessionReminder, SkillRating, TrainingSession)
 
 PLAYER_TABLES = (SkillRating, Attendance, Payment, CreditTx, Booking, ReminderLog, Proposal, SessionReminder)
@@ -26,6 +26,8 @@ def _hand_over_account(db: Session, p: Player) -> None:
     db.flush()
     for o in others[1:]:
         o.account_id = heir.id
+    for e in db.scalars(select(PlayerEvent).where(PlayerEvent.account_id == p.id)):  # son planning (matchs, tournois) suit le compte
+        e.account_id = heir.id
 
 
 def _empty_sessions(db: Session, session_ids: set[int]) -> None:
@@ -46,6 +48,7 @@ def delete_player(db: Session, p: Player) -> None:
     _hand_over_account(db, p)
     for table in PLAYER_TABLES:
         db.execute(delete(table).where(table.player_id == p.id))
+    db.execute(delete(PlayerEvent).where(PlayerEvent.account_id == p.id))
     db.delete(p)
     db.flush()
     db.expire_all()
@@ -57,6 +60,7 @@ def delete_coach(db: Session, coach: Coach) -> None:
     for p in list(db.scalars(select(Player).where(Player.coach_id == coach.id))):
         delete_player(db, p)
     sessions = [s.id for s in db.scalars(select(TrainingSession).where(TrainingSession.coach_id == coach.id))]
+    db.execute(update(PlayerEvent).where(PlayerEvent.coach_id == coach.id).values(coach_id=None, coach_feedback=""))
     for table in (Payment, CreditTx, Booking, ReminderLog, Proposal, SessionReminder):  # restes liés à ses séances
         db.execute(delete(table).where(table.coach_id == coach.id))
     db.execute(delete(Attendance).where(Attendance.session_id.in_(sessions)))

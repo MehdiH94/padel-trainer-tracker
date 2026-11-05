@@ -134,6 +134,7 @@ class BookIn(BaseModel):
     start: datetime | None = None  # nouveau créneau
     coach_id: int | None = None  # coach du nouveau créneau (par défaut: le coach qui a invité le joueur)
     kinds: list[str] = []  # toutes les formules acceptées par le joueur (montrées au coach)
+    minutes: int | None = None  # durée du créneau proposé (formule, ou plage restante entière)
     session_id: int | None = None  # ou rejoindre une séance existante
 
 
@@ -155,7 +156,7 @@ def book(body: BookIn, player: Player = Depends(current_player), db: Session = D
         if s:
             b = svc.request_join(db, coach, row, s, sms, kinds=body.kinds)
         elif body.start and body.kind:
-            b = svc.request_new(db, coach, row, body.kind, body.start, sms, accepted_kinds=body.kinds)
+            b = svc.request_new(db, coach, row, body.kind, body.start, sms, accepted_kinds=body.kinds, minutes=body.minutes)
         else:
             raise HTTPException(422, "Choisissez une séance ou un créneau")
     except svc.BookingError as e:
@@ -324,8 +325,17 @@ def decline_proposal(proposal_id: int, player: Player = Depends(current_player),
 @router.get("/credits")
 def credits(player: Player = Depends(current_player), db: Session = Depends(get_db)):
     ids = {p.id for p in linked(db, player)}
-    rows = db.scalars(select(CreditTx).where(CreditTx.player_id.in_(ids)).order_by(CreditTx.id.desc()).limit(30)).all()
-    return [{"id": t.id, "amount_millimes": t.amount_millimes, "reason": t.reason, "created_at": t.created_at, "coach_name": db.get(Coach, t.coach_id).name} for t in rows]
+    rows = db.scalars(select(CreditTx).where(CreditTx.player_id.in_(ids)).order_by(CreditTx.id.desc()).limit(60)).all()
+    out = []
+    for t in rows:
+        s = db.get(TrainingSession, t.session_id) if t.session_id else None
+        if not s and t.booking_id:  # réservation débitée à la validation: la séance de la réservation
+            b = db.get(Booking, t.booking_id)
+            s = db.get(TrainingSession, b.session_id) if b and b.session_id else None
+        out.append({"id": t.id, "amount_millimes": t.amount_millimes, "reason": t.reason, "created_at": t.created_at,
+                    "coach_id": t.coach_id, "coach_name": db.get(Coach, t.coach_id).name,
+                    "session": {"start": s.start, "kind": s.kind, "duration_min": s.duration_min} if s else None})
+    return out
 
 
 @router.get("/progress")
@@ -345,7 +355,36 @@ def progress(player: Player = Depends(current_player), db: Session = Depends(get
         crit += [c for c in criteria_for(db.get(_Coach, p.coach_id), p) if c not in crit]
     skills = skills_of(db, [p.id for p in rows] or [player.id], crit or None)
     lasts = [pr["last_session"] for pr in profiles if pr["last_session"]]
-    return {"stats": stats, **skills, "last_session": max(lasts, key=lambda h: aware(h["start"]), default=None), "goals": player.goals}
+    # Une araignée par coach (couleurs superposées) et ses notes sur le joueur
+    by_coach = []
+    for p in rows:
+        c = db.get(_Coach, p.coach_id)
+        sk = skills_of(db, [p.id], criteria_for(c, p))
+        if any(x["score"] is not None for x in sk["skills"]) or p.notes:
+            by_coach.append({"coach_id": c.id, "coach_name": c.name, "skills": sk["skills"], "notes": p.notes})
+    return {"stats": stats, **skills, "last_session": max(lasts, key=lambda h: aware(h["start"]), default=None), "goals": player.goals,
+            "by_coach": by_coach, "play": _play_time(db, player, rows)}
+
+
+def _play_time(db: Session, player: Player, rows: list[Player]) -> dict:
+    """Heures de padel du mois et au total: entraînements effectués, matchs amicaux, tournois."""
+    from ..models import PlayerEvent
+    from ..services.common import TUNIS
+    month = datetime.now(TUNIS).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    now = datetime.now(timezone.utc)
+    out = {k: {"month": 0.0, "total": 0.0, "count": 0} for k in ("entrainement", "match", "tournoi")}
+    def add(k, start, minutes):
+        out[k]["total"] += minutes / 60
+        out[k]["count"] += 1
+        if aware(start) >= month:
+            out[k]["month"] += minutes / 60
+    ids = {p.id for p in rows}
+    for s in db.scalars(select(TrainingSession).join(Attendance).where(Attendance.player_id.in_(ids), TrainingSession.status == "effectuee")):
+        add("entrainement", s.start, s.duration_min)
+    for e in db.scalars(select(PlayerEvent).where(PlayerEvent.account_id == player.id)):
+        if aware(e.start) <= now:
+            add(e.kind, e.start, e.duration_min)
+    return {k: {kk: round(v, 1) if kk != "count" else v for kk, v in d.items()} for k, d in out.items()}
 
 
 # --- Prise de rendez-vous tous coachs confondus ------------------------------
@@ -372,7 +411,7 @@ def clubs(player: Player = Depends(current_player), db: Session = Depends(get_db
 
 
 @router.get("/offers")
-def offers(day: date, kinds: str = "", kind: str = "", coach_id: int | None = None, club: str | None = None, period: str | None = None,
+def offers(day: date, kinds: str = "", kind: str = "", coach_id: int | None = None, coach_ids: str = "", club: str | None = None, period: str | None = None,
            hour: int | None = None, player: Player = Depends(current_player), db: Session = Depends(get_db)):
     """Pour le jour choisi: groupes à rejoindre et créneaux à créer, selon le coach, le club et les formules acceptées
     (kinds=individuel,duo: plusieurs choix possibles)."""
@@ -381,4 +420,5 @@ def offers(day: date, kinds: str = "", kind: str = "", coach_id: int | None = No
         raise HTTPException(422, "Type de séance invalide")
     player.pref_kinds = ",".join(wanted)  # préférences retenues (groupes proposés par le coach)
     db.commit()
-    return marketplace.offers(db, player, day, wanted, coach_id, club or None, period or None, hour)
+    chosen = {int(x) for x in coach_ids.split(",") if x.strip().isdigit()} or ({coach_id} if coach_id else None)  # un ou plusieurs coachs
+    return marketplace.offers(db, player, day, wanted, chosen, club or None, period or None, hour)

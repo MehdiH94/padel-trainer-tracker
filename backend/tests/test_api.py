@@ -2066,3 +2066,50 @@ def test_player_specific_spider_criteria(client):
     assert [s["stroke"] for s in client.get(f"/players/{p['id']}/profile").json()["skills"]] == names
     assert len(client.get(f"/players/{q['id']}/profile").json()["skills"]) == 9  # les autres gardent ceux du coach
     assert client.put(f"/players/{p['id']}/criteria", json={"names": []}).json()["custom"] is False
+
+
+def test_flexible_durations_fill_the_remaining_window(client):
+    """Durées préférées du coach (seul 60 min, groupe 90 min), mais pas de règle stricte: 1 h libre = un groupe
+    peut y jouer 1 h; 1 h 30 libre = un joueur seul y joue 1 h 30 (pas de demi-heure perdue). Prix au prorata."""
+    st = client.get("/booking/settings").json()
+    client.put("/booking/settings", json={**st, "auto_confirm": False, "slot_minutes": 60, "duration_duo": 60, "duration_groupe": 90,
+                                          "price_individuel": 60000, "price_duo": 40000, "price_groupe": 30000, "booking_mode": "terrains"})
+    day = (datetime.now(timezone.utc) + timedelta(days=4)).date()
+    at = lambda h, m=0: datetime(day.year, day.month, day.day, h, m, tzinfo=timezone.utc)  # noqa: E731
+    club = mkclub(client)
+    free_court(client, at(7).isoformat(), minutes=60, club=club)  # 8 h-9 h à Tunis: 1 h libre
+    client.post("/court-bookings/manual", json={"club_id": club["id"], "start": at(13).isoformat(), "duration_min": 90})  # 14 h-15 h 30
+    p, pc = player_client(client)
+    off = pc.get(f"/me/offers?day={day}&kinds=individuel,groupe").json()["slots_with_court"]
+    opts = {(x["start"][11:16], o["kind"]): o for x in off for o in x["options"]}
+    assert opts[("07:00", "groupe")]["duration_min"] == 60 and opts[("07:00", "groupe")]["price_millimes"] == 20000  # 30 TND/1 h 30 -> 20 TND/1 h
+    assert opts[("13:00", "individuel")]["duration_min"] == 90 and opts[("13:00", "individuel")]["price_millimes"] == 90000  # 60 TND/h -> 90
+    assert ("13:30", "individuel") not in opts  # pas de demi-heure perdue
+    r = pc.post("/me/book", json={"kind": "individuel", "kinds": ["individuel"], "start": at(13).isoformat(), "minutes": 90}).json()
+    assert r["status"] == "en_attente"
+    req = next(x for x in client.get("/booking/requests").json() if x["id"] == r["id"])
+    assert (req["duration_min"], req["price_millimes"]) == (90, 90000)
+    assert pc.post("/me/book", json={"kind": "individuel", "kinds": ["individuel"], "start": at(7).isoformat(), "minutes": 45}).status_code == 409
+
+
+def test_player_planning_matches_coach_feedback_and_progress(client):
+    """Le joueur ajoute ses matchs et tournois, note son résultat et son jeu, dit qui l'a coaché;
+    ce coach y ajoute son retour. Ma progression: une araignée par coach, ses notes, les heures de jeu."""
+    p, pc = player_client(client)
+    coach_id = next(c["id"] for c in pc.get("/me/coaches").json())
+    past = (datetime.now(timezone.utc) - timedelta(days=2)).isoformat()
+    e = pc.post("/me/events", json={"kind": "tournoi", "title": "Open de la Marsa", "start": past, "duration_min": 120,
+                                    "result": "victoire", "score": "6-4 6-3", "rating": 7.5, "comment": "Bon filet", "coach_id": coach_id}).json()
+    assert e["rating"] == 7.5 and e["coach_name"]
+    assert pc.post("/me/events", json={"kind": "match", "start": past, "coach_id": 99999}).status_code == 422  # pas son coach
+    m = client.get(f"/players/{p['id']}/matches").json()
+    assert [x["id"] for x in m] == [e["id"]]
+    client.put(f"/matches/{e['id']}/feedback", json={"feedback": "Très bon placement"})
+    assert pc.get("/me/events").json()[0]["coach_feedback"] == "Très bon placement"
+    client.post(f"/players/{p['id']}/skills", json={"stroke": "Volée", "value": 80})
+    client.put(f"/players/{p['id']}/notes", json={"notes": "Travaille ton revers"})
+    pr = pc.get("/me/progress").json()
+    assert pr["by_coach"][0]["notes"] == "Travaille ton revers"
+    assert next(s for s in pr["by_coach"][0]["skills"] if s["stroke"] == "Volée")["score"] == 8
+    assert pr["play"]["tournoi"]["total"] == 2 and pr["play"]["tournoi"]["count"] == 1
+    assert pc.delete(f"/me/events/{e['id']}").status_code == 200 and pc.get("/me/events").json() == []
