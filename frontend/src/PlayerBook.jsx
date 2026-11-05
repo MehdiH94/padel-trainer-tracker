@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { api, peek, dayLabel, hhmm, tnd } from "./api.js";
 import Icon from "./Icon.jsx";
-import { toastError } from "./feedback.jsx";
+import { Modal, toast, toastError } from "./feedback.jsx";
 import { VerifyBanner } from "./VerifyEmail.jsx";
 import { Avatar, CategoryBadge, KIND, Loading, reduction } from "./ui.jsx";
 
@@ -121,6 +121,26 @@ function Offer({ o, me, kinds, durs, onBooked, openCoach }) {
   );
 }
 
+// Coachs et clubs favoris: choisis d'office à chaque réservation
+function Favorites({ fav, coaches, clubs, onClose, onSaved }) {
+  const [ids, setIds] = useState(fav.coach_ids);
+  const [names, setNames] = useState(fav.clubs);
+  const flip = (list, set, x) => set(list.includes(x) ? list.filter((y) => y !== x) : [...list, x]);
+  const save = () => api("/me/favorites", { method: "PUT", body: { coach_ids: ids, clubs: names } })
+    .then((f) => { toast("Favoris enregistrés"); onSaved(f); }).catch(toastError);
+  return (
+    <Modal onClose={onClose} label="Mes favoris">
+      <div className="row"><b className="sheet-title">Mes favoris</b><button className="small sec iconbtn" aria-label="Fermer" onClick={onClose}><Icon name="x" size={15} /></button></div>
+      <p className="mut small-p">Ils seront choisis d'office quand vous réservez (vous pouvez toujours en changer).</p>
+      <div className="mut small-p">Coachs</div>
+      <div className="coach-chips">{coaches.map((c) => <button key={c.id} className={"chip small" + (ids.includes(c.id) ? " on" : "")} aria-pressed={ids.includes(c.id)} onClick={() => flip(ids, setIds, c.id)}>{ids.includes(c.id) && <Icon name="star" size={13} />} {c.name}</button>)}</div>
+      <div className="mut small-p">Clubs</div>
+      <div className="coach-chips">{clubs.map((c) => <button key={c} className={"chip small" + (names.includes(c) ? " on" : "")} aria-pressed={names.includes(c)} onClick={() => flip(names, setNames, c)}>{names.includes(c) && <Icon name="star" size={13} />} {c}</button>)}</div>
+      <button style={{ width: "100%", marginTop: 8 }} onClick={save}>Enregistrer mes favoris</button>
+    </Modal>
+  );
+}
+
 // Les choix du joueur sont gardés le temps de la visite: en revenant de la page d'un coach, rien n'est perdu
 const KEEP = "book-filters";
 const kept = () => { try { return JSON.parse(sessionStorage.getItem(KEEP)) || {}; } catch { return {}; } };
@@ -130,9 +150,12 @@ export function Book({ me, reload, go, coachParam }) {
   const [coaches, setCoaches] = useState(() => peek("/me/coaches") ?? []);
   const [clubs, setClubs] = useState(() => peek("/me/clubs") ?? []);
   // un, plusieurs ou tous les coachs (liste vide = tous)
-  const [coachIds, setCoachIds] = useState(coachParam ? [+coachParam] : k0.coachIds ?? (k0.coachId ? [k0.coachId] : []));
+  const fav = me.favorites ?? { coach_ids: [], clubs: [] };
+  const [coachIds, setCoachIds] = useState(coachParam ? [+coachParam] : k0.coachIds ?? (k0.coachId ? [k0.coachId] : fav.coach_ids)); // favoris d'office
+  const [editFav, setEditFav] = useState(false);
   const toggleCoach = (id) => setCoachIds(coachIds.includes(id) ? coachIds.filter((x) => x !== id) : [...coachIds, id]);
-  const [club, setClub] = useState(k0.club ?? "");
+  const [places, setPlaces] = useState(k0.places ?? (k0.club ? [k0.club] : fav.clubs)); // clubs choisis (vide = tous), favoris d'office
+  const togglePlace = (c) => setPlaces(places.includes(c) ? places.filter((x) => x !== c) : [...places, c]);
   const [day, setDay] = useState(k0.day && k0.day >= ymd(new Date()) ? k0.day : null);
   const [period, setPeriod] = useState(k0.hour ? "" : k0.period ?? ""); // heure précise choisie: pas de période en plus
   const [hour, setHour] = useState(k0.hour ?? "");
@@ -144,18 +167,18 @@ export function Book({ me, reload, go, coachParam }) {
   const solo = kinds.length === 1 && kinds[0] === "individuel";
   const [more, setMore] = useState(false);
   useEffect(() => {
-    try { sessionStorage.setItem(KEEP, JSON.stringify({ coachIds, club, day, period, hour, kinds, durs })); } catch { /* stockage indisponible */ }
+    try { sessionStorage.setItem(KEEP, JSON.stringify({ coachIds, places, day, period, hour, kinds, durs })); } catch { /* stockage indisponible */ }
     setMore(false);
-  }, [coachIds.join(","), club, day, period, hour, kinds.join(","), JSON.stringify(durs)]);
+  }, [coachIds.join(","), places.join("|"), day, period, hour, kinds.join(","), JSON.stringify(durs)]);
   const [offers, setOffers] = useState(null);
   const [done, setDone] = useState(null);
   useEffect(() => { api("/me/coaches").then(setCoaches); api("/me/clubs").then(setClubs); }, []);
   useEffect(() => {
     if (!day) return;
-    const q = new URLSearchParams({ day, kinds: kinds.join(","), duo_min: durs.duo.join(","), groupe_min: durs.groupe.join(","), ...(coachIds.length && { coach_ids: coachIds.join(",") }), ...(club && { club }), ...(period && { period }), ...(hour !== "" && { hour }) });
+    const q = new URLSearchParams({ day, kinds: kinds.join(","), duo_min: durs.duo.join(","), groupe_min: durs.groupe.join(","), ...(coachIds.length && { coach_ids: coachIds.join(",") }), ...(places.length && { clubs: places.join("|") }), ...(period && { period }), ...(hour !== "" && { hour }) });
     setOffers(peek("/me/offers?" + q) ?? null); // même recherche déjà faite: affichée tout de suite, puis mise à jour
     api("/me/offers?" + q).then(setOffers).catch(toastError);
-  }, [day, kinds.join(","), JSON.stringify(durs), coachIds.join(","), club, period, hour]);
+  }, [day, kinds.join(","), JSON.stringify(durs), coachIds.join(","), places.join("|"), period, hour]);
 
   const days = Array.from({ length: 14 }, (_, i) => new Date(Date.now() + i * 86400000));
   const openCoach = (id) => go(`coach/${id}`);
@@ -191,18 +214,22 @@ export function Book({ me, reload, go, coachParam }) {
         <button className={"chip small" + (coachIds.length === 0 ? " on" : "")} aria-pressed={coachIds.length === 0} onClick={() => setCoachIds([])}>Tous</button>
         {coaches.map((c) => (
           <button key={c.id} className={"chip small" + (coachIds.includes(c.id) ? " on" : "")} aria-pressed={coachIds.includes(c.id)} onClick={() => toggleCoach(c.id)}>
-            {coachIds.includes(c.id) && <Icon name="check" size={13} />} {c.name}{c.mine ? " ★" : ""}
+            {coachIds.includes(c.id) && <Icon name="check" size={13} />} {c.name}{fav.coach_ids.includes(c.id) ? " ★" : ""}
           </button>
         ))}
       </div>
-      <div className="grid">
-        <label className="field"><span className="mut">Club</span>
-          <select value={club} onChange={(e) => setClub(e.target.value)}>
-            <option value="">Tous les clubs</option>
-            {clubs.map((c) => <option key={c}>{c}</option>)}
-          </select>
-        </label>
+      <div className="mut small-p">Clubs (un ou plusieurs)</div>
+      <div className="coach-chips" role="group" aria-label="Clubs">
+        <button className={"chip small" + (places.length === 0 ? " on" : "")} aria-pressed={places.length === 0} onClick={() => setPlaces([])}>Tous</button>
+        {clubs.map((c) => (
+          <button key={c} className={"chip small" + (places.includes(c) ? " on" : "")} aria-pressed={places.includes(c)} onClick={() => togglePlace(c)}>
+            {places.includes(c) && <Icon name="check" size={13} />} {c}{fav.clubs.includes(c) ? " ★" : ""}
+          </button>
+        ))}
       </div>
+      <button className="link" onClick={() => setEditFav(true)}><Icon name="star" size={14} /> {fav.coach_ids.length || fav.clubs.length ? "Modifier mes favoris" : "Choisir mes coachs et clubs favoris"}</button>
+      {editFav && <Favorites fav={fav} coaches={coaches} clubs={clubs} onClose={() => setEditFav(false)}
+        onSaved={(f) => { setEditFav(false); setCoachIds(f.coach_ids); setPlaces(f.clubs); reload(); }} />}
       {coach && <button className="link" onClick={() => openCoach(coach.id)}><Icon name="user" size={14} /> Découvrir {coach.name}</button>}
 
       <h2 className="step"><span>2</span> Quel jour ?</h2>

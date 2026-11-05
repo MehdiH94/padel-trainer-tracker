@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from "react";
-import { api, dayLabel, hhmm, setToken, tnd, toDate, useLive } from "./api.js";
+import { api, dayKey, dayLabel, hhmm, setToken, tnd, toDate, useLive } from "./api.js";
 import Icon from "./Icon.jsx";
 import { toast, toastError } from "./feedback.jsx";
 import { Book, CoachPage } from "./PlayerBook.jsx";
-import { Planning, PlayTime } from "./PlayerPlanning.jsx";
-import { CoachRadars, Credits, Progression } from "./PlayerProgress.jsx";
-import { DateBlock, KindPill, SessionTicket, TZ } from "./PlayerShared.jsx";
+import { Planning } from "./PlayerPlanning.jsx";
+import { Credits, Progression } from "./PlayerProgress.jsx";
+import { DateBlock, KindPill, statusText, TZ } from "./PlayerShared.jsx";
 import { VerifyBanner } from "./VerifyEmail.jsx";
 import { useRoute } from "./router.js";
 import { Avatar, CategoryBadge, InstallCard, Loading, OfflineBar, reduction } from "./ui.jsx";
@@ -23,23 +23,59 @@ function bookPromo(p, go) {
 const shortDay = (ymd) => new Date(ymd + "T12:00:00Z").toLocaleDateString("fr-FR", { day: "numeric", month: "long", timeZone: "UTC" });
 const absenceText = (a) => (a.now ? `absent jusqu'au ${shortDay(a.end_date)}` : a.start_date === a.end_date ? `absent le ${shortDay(a.end_date)}` : `absent du ${shortDay(a.start_date)} au ${shortDay(a.end_date)}`) + (a.reason ? ` (${a.reason})` : "");
 
-// Accueil simple: prochaine séance, mes coachs (et leurs absences), une araignée résumée et l'objectif; le détail est dans « Ma progression »
-function Home({ me, sessions, progress, proposals, promos, go, reload }) {
-  const next = sessions.upcoming[0];
+// Accueil: ce qui compte maintenant. La prochaine séance (en couleur, orange le jour même), un impayé s'il y en a,
+// réserver, puis « Quoi de neuf » (propositions, promotions, retours des coachs, résultats à saisir, absences):
+// rien quand il n'y a rien de neuf. La progression détaillée est dans son onglet.
+const DAY = 86400000;
+const recent = (iso, days) => iso && Date.now() - toDate(iso).getTime() < days * DAY;
+
+function NextSession({ s, go }) {
+  if (!s) return <div className="next-card empty"><Icon name="calendar" size={18} /> Aucune séance prévue : réservez la prochaine !</div>;
+  const start = toDate(s.start);
+  const today = dayKey(s.start) === dayKey(new Date().toISOString());
+  const hoursLeft = Math.round((start - Date.now()) / 3600000);
+  const when = today ? (hoursLeft <= 0 ? "En cours" : `Aujourd'hui · dans ${hoursLeft} h`) : hoursLeft < 48 && dayKey(new Date(Date.now() + DAY).toISOString()) === dayKey(s.start) ? "Demain" : dayLabel(s.start);
+  return (
+    <button className={"next-card" + (today ? " today" : "")} onClick={() => go("planning")}>
+      <span className="next-label">Prochaine séance</span>
+      <span className="next-when cap1">{when}</span>
+      <span className="next-time">{hhmm(s.start)} <small>· {s.duration_min} min · {KIND_LABEL[s.kind]}</small></span>
+      <span className="next-where"><Icon name="user" size={13} /> {s.coach_name}{s.club && <> · <Icon name="pin" size={13} /> {s.club}</>}</span>
+      <span className={"next-status " + s.status}>{statusText(s)}</span>
+    </button>
+  );
+}
+const KIND_LABEL = { individuel: "Seul", duo: "À deux", groupe: "En groupe" };
+
+function Home({ me, sessions, progress, proposals, promos, events, go, reload }) {
   const answer = (p, what) => api(`/me/proposals/${p.id}/${what}`, { method: "POST" })
     .then(() => { toast(what === "accept" ? "C'est noté, vous êtes inscrit !" : "Proposition refusée"); reload(); })
     .catch(toastError);
-  const rated = progress?.by_coach?.some((c) => c.skills.some((s) => s.score != null));
-  const absences = me.absences ?? [];
+  const debts = me.wallets.filter((w) => w.due_millimes > 0);
+  // « Quoi de neuf »: seulement ce qui est récent ou à faire
+  const news = [];
+  const last = progress?.last_session;
+  if (last && recent(last.start, 7)) news.push({ k: "fb", icon: "message", tone: "ok", text: <>Nouveau retour de votre coach sur la séance du {dayLabel(last.start)}</>, go: "progress" });
+  events.filter((e) => e.coach_feedback && recent(e.feedback_at, 14)).forEach((e) => news.push({ k: "m" + e.id, icon: "swords", tone: "ok", text: <><b>{e.coach_name}</b> a commenté votre {e.kind === "tournoi" ? "tournoi" : "match"} du {dayLabel(e.start)}</>, go: "planning" }));
+  events.filter((e) => e.kind !== "autre" && toDate(e.start) < new Date() && recent(e.start, 14) && !e.result && e.rating == null).forEach((e) => news.push({ k: "r" + e.id, icon: "edit", tone: "warn", text: <>Comment s'est passé votre {e.kind === "tournoi" ? "tournoi" : "match"} du {dayLabel(e.start)} ? Ajoutez le résultat.</>, go: "planning" }));
+  (me.absences ?? []).forEach((a, i) => news.push({ k: "a" + i, icon: "sun", tone: "warn", text: <><b>{a.coach_name}</b> {absenceText(a)}</> }));
+  const nothing = !proposals.length && !promos.length && !news.length;
   return (
     <>
-      <div className="hero">
+      <div className="hero home-hero">
         <div className="hero-top">{me.coach_name ? `Votre coach · ${me.coach_name}` : "Bienvenue sur Padel Coach"}</div>
         <div className="row"><h1>Salut {me.name.split(" ")[0]}</h1><CategoryBadge category={me.category} gender={me.gender} /></div>
+        <NextSession s={sessions.upcoming[0]} go={go} />
       </div>
 
       <VerifyBanner me={me} />
-      <InstallCard />
+      {debts.map((w) => (
+        <button key={w.coach_id} className="debt-card" onClick={() => go("credits")}>
+          <Icon name="wallet" size={20} />
+          <span><b>Vous devez {tnd(w.due_millimes)} à {w.coach_name}</b><small>À régler directement auprès de votre coach.</small></span>
+          <Icon name="chevR" size={16} />
+        </button>
+      ))}
       {!me.coach_name && (
         <div className="card" style={{ marginBottom: 10 }}>
           <b><Icon name="users" size={16} /> Choisissez votre coach</b>
@@ -47,86 +83,54 @@ function Home({ me, sessions, progress, proposals, promos, go, reload }) {
         </div>
       )}
       <button className="cta" onClick={() => go("book")}><Icon name="calendar" size={20} /> Réserver une séance <Icon name="chevR" size={18} /></button>
+      <InstallCard />
 
-      {proposals.length > 0 && (
-        <>
-          <h2 className="accent-h"><Icon name="sparkles" size={16} /> {me.coach_name} vous propose</h2>
-          {proposals.map((p) => (
-            <div className="card proposal" key={p.id}>
-              <div className="row g10" style={{ alignItems: "flex-start" }}>
-                <DateBlock iso={p.start} />
-                <div style={{ flex: 1 }}>
-                  <div className="row"><b>{hhmm(p.start)} · {p.duration_min} min</b><KindPill kind={p.kind} /></div>
-                  <div className="mut"><Icon name="user" size={13} /> {p.coach_name}{p.club && <> · <Icon name="pin" size={13} /> {p.club}</>}</div>
-                  <div className="partners">
-                    {p.partners.map((x) => <span key={x.name} className="partner"><Avatar name={x.name} size={22} /> {x.name.split(" ")[0]} <CategoryBadge category={x.category} /></span>)}
-                  </div>
-                  <div className="mut">{p.spots_left} place{p.spots_left > 1 ? "s" : ""} libre{p.spots_left > 1 ? "s" : ""} · <b>{tnd(p.price_millimes)}</b></div>
-                </div>
+      {!nothing && <h2 className="accent-h"><Icon name="sparkles" size={16} /> Quoi de neuf</h2>}
+      {proposals.map((p) => (
+        <div className="card proposal" key={p.id}>
+          <div className="row g10" style={{ alignItems: "flex-start" }}>
+            <DateBlock iso={p.start} />
+            <div style={{ flex: 1 }}>
+              <div className="mut small-p"><b>{p.coach_name}</b> vous propose une séance</div>
+              <div className="row"><b>{hhmm(p.start)} · {p.duration_min} min</b><KindPill kind={p.kind} /></div>
+              {p.club && <div className="mut"><Icon name="pin" size={13} /> {p.club}</div>}
+              <div className="partners">
+                {p.partners.map((x) => <span key={x.name} className="partner"><Avatar name={x.name} size={22} /> {x.name.split(" ")[0]} <CategoryBadge category={x.category} /></span>)}
               </div>
-              <div className="actions">
-                <button onClick={() => answer(p, "accept")}><Icon name="check" size={16} /> Accepter</button>
-                <button className="sec" onClick={() => answer(p, "decline")}>Refuser</button>
-              </div>
+              <div className="mut">{p.spots_left} place{p.spots_left > 1 ? "s" : ""} libre{p.spots_left > 1 ? "s" : ""} · <b>{tnd(p.price_millimes)}</b></div>
             </div>
-          ))}
-        </>
-      )}
-
-      {promos.length > 0 && (
-        <>
-          <h2 className="accent-h"><Icon name="sparkles" size={16} /> Promotions</h2>
-          {promos.map((p) => (
-            <div className="card promo-card" key={p.id}>
-              <div className="row g10" style={{ alignItems: "flex-start" }}>
-                <DateBlock iso={p.start} />
-                <div style={{ flex: 1 }}>
-                  <div className="row"><b>{hhmm(p.start)} · {p.club}</b><span className="promo-tag">{reduction(p)}</span></div>
-                  <div className="mut"><Icon name="user" size={13} /> {p.coach_name} · terrain déjà réservé</div>
-                  <div className="mut small-p">Seul {tnd(p.prices.individuel)} · à deux {tnd(p.prices.duo)} · en groupe {tnd(p.prices.groupe)} par joueur</div>
-                </div>
-              </div>
-              <button style={{ width: "100%", marginTop: 10 }} onClick={() => bookPromo(p, go)}>J'en profite</button>
-            </div>
-          ))}
-        </>
-      )}
-
-      <h2>Ma prochaine séance</h2>
-      {next ? <SessionTicket s={next} reload={reload} /> : <div className="card mut">Aucune séance prévue. Réservez la prochaine !</div>}
-
-      {(me.wallets.length > 0 || absences.length > 0) && (
-        <>
-          <h2>Mes coachs</h2>
-          <div className="card">
-            {me.wallets.map((w) => {
-              const off = absences.filter((a) => a.coach_name === w.coach_name);
-              return (
-                <button key={w.coach_id} className="mycoach" onClick={() => go(`coach/${w.coach_id}`)}>
-                  <Avatar name={w.coach_name} size={34} />
-                  <span style={{ flex: 1, textAlign: "left" }}>
-                    <b>{w.coach_name}</b>
-                    {off.map((a, i) => <div key={i} className="small-p" style={{ color: "var(--warn-txt)" }}><Icon name="sun" size={13} /> {absenceText(a)}</div>)}
-                  </span>
-                  <Icon name="chevR" size={16} />
-                </button>
-              );
-            })}
           </div>
-        </>
-      )}
-
-      {progress && (rated || progress.goals || progress.play) && (
-        <>
-          <h2>Ma progression</h2>
-          {progress.goals && <div className="card"><div className="mut"><Icon name="target" size={14} /> Mon objectif</div><b>{progress.goals}</b></div>}
-          {rated && <div className="card"><CoachRadars progress={progress} small /></div>}
-          <PlayTime play={progress.play} compact />
-          <button className="link center" style={{ width: "100%", marginTop: 6 }} onClick={() => go("progress")}>Voir ma progression <Icon name="chevR" size={14} /></button>
-        </>
+          <div className="actions">
+            <button onClick={() => answer(p, "accept")}><Icon name="check" size={16} /> Accepter</button>
+            <button className="sec" onClick={() => answer(p, "decline")}>Refuser</button>
+          </div>
+        </div>
+      ))}
+      {promos.map((p) => (
+        <div className="card promo-card" key={p.id}>
+          <div className="row g10" style={{ alignItems: "flex-start" }}>
+            <DateBlock iso={p.start} />
+            <div style={{ flex: 1 }}>
+              <div className="row"><b>{hhmm(p.start)} · {p.club}</b><span className="promo-tag">{reduction(p)}</span></div>
+              <div className="mut"><Icon name="user" size={13} /> {p.coach_name} · terrain déjà réservé</div>
+            </div>
+          </div>
+          <button style={{ width: "100%", marginTop: 10 }} onClick={() => bookPromo(p, go)}>J'en profite</button>
+        </div>
+      ))}
+      {news.length > 0 && (
+        <div className="news">
+          {news.map((n) => (
+            <button key={n.k} className={"news-row " + n.tone} onClick={() => n.go && go(n.go)} disabled={!n.go}>
+              <span className="news-ico"><Icon name={n.icon} size={16} /></span>
+              <span className="news-txt">{n.text}</span>
+              {n.go && <Icon name="chevR" size={15} />}
+            </button>
+          ))}
+        </div>
       )}
       {/* Version bêta: rappels et confirmations uniquement par e-mail */}
-      <div className="mut small-p" style={{ marginTop: 14 }}><Icon name="bell" size={14} /> Rappels et confirmations par e-mail{me.email ? ` (${me.email})` : ""}</div>
+      <div className="mut small-p" style={{ marginTop: 16, textAlign: "center" }}><Icon name="bell" size={13} /> Rappels et confirmations par e-mail{me.email ? ` (${me.email})` : ""}</div>
     </>
   );
 }

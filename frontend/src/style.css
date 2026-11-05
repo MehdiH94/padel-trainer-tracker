@@ -772,3 +772,33 @@ button.saved { background: var(--green); border-color: var(--green); color: #fff
 .cal-block.p-autre, .cal-dot.p-autre { background: var(--s3); color: #fff; }
 .check-line { display: flex; align-items: center; gap: 8px; margin: 0 0 10px; font-size: .92rem; }
 .check-line input { width: 20px; height: 20px; min-height: 0; margin: 0; }
+
+/* Accueil joueur: prochaine séance en couleur dans le bandeau, impayé, « Quoi de neuf » */
+.home-hero h1 { margin-bottom: 10px; }
+.home-hero .row { align-items: center; }
+.next-card { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; width: 100%; text-align: left; background: #ffffff14; border: 1px solid #ffffff2e; color: #fff; border-radius: 18px; padding: 12px 14px; font-weight: 400; backdrop-filter: blur(4px); }
+.next-card:hover { background: #ffffff22; }
+.next-card.empty { flex-direction: row; align-items: center; gap: 8px; color: var(--hero-txt); }
+.next-card.today { background: linear-gradient(135deg, var(--accent), var(--brand)); border-color: transparent; box-shadow: var(--glow); }
+.next-label { font-size: .72rem; text-transform: uppercase; letter-spacing: .08em; color: var(--hero-txt); font-weight: 700; }
+.next-card.today .next-label { color: #fff; opacity: .9; }
+.next-when { font-family: var(--font-display); font-size: 1.15rem; font-weight: 700; }
+.next-time { font-family: var(--font-display); font-size: 2rem; font-weight: 700; line-height: 1; }
+.next-time small { font-family: var(--font); font-size: .85rem; font-weight: 500; opacity: .85; }
+.next-where { font-size: .88rem; opacity: .9; display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.next-status { margin-top: 6px; font-size: .78rem; font-weight: 700; padding: 3px 10px; border-radius: 99px; background: #ffffff24; }
+.next-status.confirmee { background: var(--green); color: #fff; }
+.debt-card { display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; background: var(--red-l); color: var(--red); border: 1px solid var(--red); border-radius: 16px; padding: 12px 14px; margin-bottom: 10px; font-weight: 400; }
+.debt-card:hover { background: var(--red-l); filter: brightness(.98); }
+.debt-card span { flex: 1; display: flex; flex-direction: column; }
+.debt-card small { color: var(--txt); opacity: .8; }
+.news { display: flex; flex-direction: column; gap: 8px; }
+.news-row { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; background: var(--card); color: var(--txt); border: 1px solid var(--line); border-left: 4px solid var(--brand); border-radius: 14px; padding: 10px 12px; font-weight: 400; box-shadow: var(--shadow); }
+.news-row:hover { background: var(--brand-xl); }
+.news-row:disabled { opacity: 1; cursor: default; }
+.news-row.ok { border-left-color: var(--green); }
+.news-row.warn { border-left-color: var(--amber); }
+.news-ico { width: 32px; height: 32px; flex: none; border-radius: 10px; display: grid; place-items: center; background: var(--brand-l); color: var(--brand-d); }
+.news-row.ok .news-ico { background: var(--green-l); color: var(--ok-txt); }
+.news-row.warn .news-ico { background: var(--amber-l); color: var(--warn-txt); }
+.news-txt { flex: 1; font-size: .92rem; }

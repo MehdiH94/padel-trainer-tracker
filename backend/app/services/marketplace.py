@@ -76,13 +76,15 @@ def _in_window(start: datetime, day: date, period: str | None) -> bool:
     return True
 
 
-def offers(db: Session, account: Player, day: date, kinds: list[str], coach_ids: set[int] | None = None, club: str | None = None,
+def offers(db: Session, account: Player, day: date, kinds: list[str], coach_ids: set[int] | None = None, club: str | list[str] | None = None,
            period: str | None = None, hour: int | None = None, durations: dict | None = None) -> dict:
     """Groupes à rejoindre et créneaux à créer pour ce jour, chez les coachs (et au club) choisis.
     kinds: formules acceptées par le joueur (une ou plusieurs parmi individuel, duo, groupe);
     durations: durées acceptées pour chacune (seul = 1 h; à deux, en groupe: 1 h, 1 h 30 ou les deux)."""
     kinds = [k for k in CAPACITY if k in kinds] or list(CAPACITY)
     durations = player_durations(durations)
+    wanted_clubs = [club] if isinstance(club, str) else [c for c in club or [] if c]  # un ou plusieurs clubs (vide = tous)
+    in_clubs = lambda name: not wanted_clubs or any(same_club(c, name) for c in wanted_clubs)  # noqa: E731
     my_ids = {p.id for p in linked(db, account)}
     coaches = [c for c in visible_coaches(db, account) if not coach_ids or c.id in coach_ids]  # comptes test à part; un ou plusieurs coachs
     now = datetime.now(timezone.utc)
@@ -91,7 +93,7 @@ def offers(db: Session, account: Player, day: date, kinds: list[str], coach_ids:
     too_late: set[str] = set()  # formules qu'on ne peut plus ouvrir seul ce jour-là (moins de 24 h)
     for c in filter(None, coaches):
         clubs = coach_clubs(db, c)
-        if club and not any(same_club(club, n) for n in clubs):
+        if wanted_clubs and not any(in_clubs(n) for n in clubs):
             continue
         who = {"id": c.id, "name": c.name}
         # 1. Séances à rejoindre: la taille de la séance après l'arrivée du joueur doit convenir à tous (services/groups).
@@ -101,7 +103,7 @@ def offers(db: Session, account: Player, day: date, kinds: list[str], coach_ids:
         for s in db.scalars(select(TrainingSession).where(TrainingSession.coach_id == c.id, TrainingSession.open.is_(True), TrainingSession.status == "prevue")):
             if not _in_window(s.start, day, period) or aware(s.start) < now + timedelta(hours=2):
                 continue
-            if my_ids & set(attendee_ids(s)) or spots_left(db, s) <= 0 or (club and not same_club(club, s.club)):
+            if my_ids & set(attendee_ids(s)) or spots_left(db, s) <= 0 or (wanted_clubs and not in_clubs(s.club)):
                 continue
             ok, gap = fits_session(db, account, s)
             if not ok:
@@ -143,14 +145,14 @@ def offers(db: Session, account: Player, day: date, kinds: list[str], coach_ids:
                 starts.setdefault(start, []).extend(quote(db, c, k, start, minutes) for k in ks)
         for start, options in sorted(starts.items()):
             held = [cb for cb in courts.held_covering(db, c, start, min(o["duration_min"] for o in options))
-                    if not club or same_club(club, db.get(Club, cb.club_id).name)]
+                    if in_clubs(db.get(Club, cb.club_id).name)]
             first = options[0]
             item = {"type": "slot", "coach": who, "start": start, "options": options, "kind": first["kind"],
                     "duration_min": first["duration_min"], "price_millimes": first["price_millimes"],
                     "discount_pct": max(o["discount_pct"] for o in options), "reduction_millimes": max(o["reduction_millimes"] for o in options),
                     "reason": next((o["reason"] for o in options if o["reason"]), None),
                     "court": "reserve" if held else "a_confirmer",
-                    "club": db.get(Club, held[0].club_id).name if held else (club or (clubs[0] if len(clubs) == 1 else ""))}
+                    "club": db.get(Club, held[0].club_id).name if held else (wanted_clubs[0] if len(wanted_clubs) == 1 else (clubs[0] if len(clubs) == 1 else ""))}
             (with_court if held else other).append(item)
 
     def closeness(x: dict) -> float:

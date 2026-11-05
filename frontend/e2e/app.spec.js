@@ -111,7 +111,7 @@ test("le coach ajoute un élève, qui s'inscrit avec le lien pré-rempli", async
   await player.getByLabel("Votre e-mail").fill("lina.test@demo.tn");
   await player.getByLabel(/Mot de passe/).fill("secret1");
   await player.getByRole("button", { name: "Créer mon compte" }).click();
-  await expect(player.getByRole("heading", { name: "Ma prochaine séance" })).toBeVisible();
+  await expect(player.getByRole("heading", { name: /^Salut / })).toBeVisible();
   await player.close();
 
   await page.reload();
@@ -120,7 +120,7 @@ test("le coach ajoute un élève, qui s'inscrit avec le lien pré-rempli", async
 
 test("le joueur ne peut plus annuler hors délai mais peut se faire remplacer", async ({ page }) => {
   await login(page, "sami@demo.tn");
-  await expect(page.getByRole("heading", { name: "Ma prochaine séance" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /^Salut / })).toBeVisible();
   await page.locator("nav").getByRole("button", { name: "Planning" }).click();
   await page.getByRole("tab", { name: /Liste/ }).click();
   await page.locator(".late-btn").first().click();
@@ -444,7 +444,7 @@ test("planning du joueur: il ajoute un match coaché, note son résultat, et son
   await page.getByRole("button", { name: /Passé/ }).click();
   await expect(page.getByText("Super placement, continue")).toBeVisible();
   await page.locator("nav").getByRole("button", { name: "Progression" }).click();
-  await expect(page.getByRole("heading", { name: "Mon temps de jeu" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Mon niveau technique" })).toBeVisible();
   await page.locator("nav").getByRole("button", { name: "Crédits" }).click();
   await expect(page.getByRole("heading", { name: "Historique" })).toBeVisible();
 });
@@ -489,4 +489,19 @@ test("agenda du joueur: semaine, « Autre » (kiné…) et « Entraînement » q
   await page.getByRole("button", { name: /Ajouter à mon planning/ }).click();
   await page.getByRole("dialog").getByRole("button", { name: /Entraînement/ }).click();
   await expect(page.getByRole("heading", { name: "Réserver" })).toBeVisible();
+});
+
+test("réserver: coachs et clubs favoris choisis d'office", async ({ page }) => {
+  await login(page, "sami@demo.tn");
+  await page.locator("nav").getByRole("button", { name: "Réserver" }).click();
+  await page.getByRole("button", { name: /Choisir mes coachs et clubs favoris/ }).click();
+  const dialog = page.getByRole("dialog");
+  await dialog.getByRole("button", { name: /Coach Démo/ }).click();
+  await dialog.getByRole("button", { name: "Enregistrer mes favoris" }).click();
+  await expect(page.getByRole("group", { name: "Coachs" }).getByRole("button", { name: /Coach Démo ★/ })).toHaveAttribute("aria-pressed", "true");
+  await page.locator("nav").getByRole("button", { name: "Accueil" }).click();
+  await page.evaluate(() => sessionStorage.removeItem("book-filters")); // nouvelle visite: les favoris reviennent d'office
+  await page.locator("nav").getByRole("button", { name: "Réserver" }).click();
+  await expect(page.getByRole("group", { name: "Coachs" }).getByRole("button", { name: /Coach Démo ★/ })).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByRole("group", { name: "Coachs" }).getByRole("button", { name: "Tous" })).toHaveAttribute("aria-pressed", "false");
 });

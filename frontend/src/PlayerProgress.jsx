@@ -39,18 +39,17 @@ export function Progression({ progress, events }) {
     <>
       <h1>Ma progression</h1>
       {progress.goals && <div className="card"><div className="mut"><Icon name="target" size={14} /> Mon objectif</div><b>{progress.goals}</b></div>}
-      <h2>Mon temps de jeu</h2>
-      <PlayTime play={progress.play} />
+      <div style={{ marginTop: 12 }}><PlayTime play={progress.play} bare /></div>
       {played.length > 0 && <div className="mut small-p" style={{ marginTop: 8 }}><Icon name="trophy" size={14} /> Matchs et tournois : <b>{wins} victoire{wins > 1 ? "s" : ""}</b> · {played.length - wins} défaite{played.length - wins > 1 ? "s" : ""}</div>}
 
       <h2>Mon niveau technique</h2>
-      {rated ? <div className="card"><CoachRadars progress={progress} /></div> : <div className="card mut">Votre coach n'a pas encore noté votre jeu : l'araignée apparaîtra après sa première évaluation.</div>}
       {rated && (
         <div className="grid">
           <div className="card good"><b><Icon name="trophy" size={15} /> Points forts</b>{progress.strengths.length ? progress.strengths.map((s) => <div key={s}>• {s}</div>) : <div className="mut">À venir</div>}</div>
           <div className="card bad"><b><Icon name="target" size={15} /> À travailler</b>{progress.weaknesses.length ? progress.weaknesses.map((s) => <div key={s}>• {s}</div>) : <div className="mut">Rien de critique</div>}</div>
         </div>
       )}
+      {rated ? <div className="card"><CoachRadars progress={progress} /></div> : <div className="card mut">Votre coach n'a pas encore noté votre jeu : l'araignée apparaîtra après sa première évaluation.</div>}
 
       {notes.length > 0 && (
         <>

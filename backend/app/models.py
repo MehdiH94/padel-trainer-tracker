@@ -60,6 +60,8 @@ class Player(Base):
     gender: Mapped[str] = mapped_column(String(1), default="M")  # M / F
     category: Mapped[str] = mapped_column(String(6), default="P100-")  # P25- .. P1000+ (constants.CATEGORIES)
     pref_kinds: Mapped[str] = mapped_column(String(40), default="individuel,duo,groupe")  # types de séance souhaités
+    fav_coaches: Mapped[str] = mapped_column(String(120), default="")  # coachs favoris (ids séparés par des virgules), choisis d'office dans Réserver
+    fav_clubs: Mapped[str] = mapped_column(Text, default="")  # clubs favoris (noms séparés par « | »)
     dominant_hand: Mapped[str] = mapped_column(String(10), default="droitier")
     side: Mapped[str] = mapped_column(String(10), default="drive")
     goals: Mapped[str] = mapped_column(Text, default="")

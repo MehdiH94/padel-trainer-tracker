@@ -35,7 +35,9 @@ def me(player: Player = Depends(current_player), db: Session = Depends(get_db)):
     coach = _main_coach(db, player)  # None: compte créé sans coach (lien public), il en choisit un en réservant
     return {
         "name": player.name, "phone": player.phone, "email": player.email, "category": player.category, "gender": player.gender,
-        "pref_kinds": player.pref_kinds.split(","), "coach_name": coach.name if coach else "", "coach_id": coach.id if coach else None,
+        "pref_kinds": player.pref_kinds.split(","),
+        "favorites": {"coach_ids": [int(x) for x in (player.fav_coaches or "").split(",") if x.isdigit()],
+                      "clubs": [c for c in (player.fav_clubs or "").split("|") if c]}, "coach_name": coach.name if coach else "", "coach_id": coach.id if coach else None,
         "credits_millimes": credit_balance(db, player.id),
         "contact_channel": player.contact_channel,
         "email_verified": verification.is_verified(player), "can_book": verification.can_book(player),
@@ -127,6 +129,20 @@ def suggestions(kinds: str = "individuel,duo,groupe", player: Player = Depends(c
     db.commit()
     coach = _main_coach(db, player)
     return svc.suggestions(db, coach, row_for_coach(db, player, coach, create=False) or player, wanted) if coach else []
+
+
+class FavoritesIn(BaseModel):
+    coach_ids: list[int] = []
+    clubs: list[str] = []
+
+
+@router.put("/favorites")
+def set_favorites(body: FavoritesIn, player: Player = Depends(current_player), db: Session = Depends(get_db)):
+    """Coachs et clubs favoris du joueur: choisis d'office quand il ouvre Réserver."""
+    player.fav_coaches = ",".join(str(i) for i in dict.fromkeys(body.coach_ids))[:120]
+    player.fav_clubs = "|".join(c.replace("|", " ").strip() for c in dict.fromkeys(body.clubs) if c.strip())
+    db.commit()
+    return {"coach_ids": body.coach_ids, "clubs": [c for c in player.fav_clubs.split("|") if c]}
 
 
 class BookIn(BaseModel):
@@ -412,7 +428,7 @@ def clubs(player: Player = Depends(current_player), db: Session = Depends(get_db
 
 
 @router.get("/offers")
-def offers(day: date, kinds: str = "", kind: str = "", coach_id: int | None = None, coach_ids: str = "", club: str | None = None, period: str | None = None,
+def offers(day: date, kinds: str = "", kind: str = "", coach_id: int | None = None, coach_ids: str = "", club: str | None = None, clubs: str = "", period: str | None = None,
            hour: int | None = None, duo_min: str = "", groupe_min: str = "", player: Player = Depends(current_player), db: Session = Depends(get_db)):
     """Pour le jour choisi: groupes à rejoindre et créneaux à créer, selon le coach, le club et les formules acceptées
     (kinds=individuel,duo: plusieurs choix possibles)."""
@@ -423,4 +439,5 @@ def offers(day: date, kinds: str = "", kind: str = "", coach_id: int | None = No
     db.commit()
     chosen = {int(x) for x in coach_ids.split(",") if x.strip().isdigit()} or ({coach_id} if coach_id else None)  # un ou plusieurs coachs
     durations = {k: [int(x) for x in v.split(",") if x.strip().isdigit()] for k, v in (("duo", duo_min), ("groupe", groupe_min))}  # ex. duo_min=60,90
-    return marketplace.offers(db, player, day, wanted, chosen, club or None, period or None, hour, durations)
+    places = [c for c in clubs.split("|") if c.strip()] or ([club] if club else [])  # clubs=La Marsa|Gammarth
+    return marketplace.offers(db, player, day, wanted, chosen, places, period or None, hour, durations)

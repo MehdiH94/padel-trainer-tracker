@@ -134,16 +134,16 @@ function PastTraining({ h, open, onToggle }) {
 }
 
 // Temps de jeu du mois: entraînement, matchs amicaux, tournois (pour encourager à tout noter)
-export function PlayTime({ play, compact }) {
+export function PlayTime({ play, compact, bare }) {
   if (!play) return null;
   const items = [["entrainement", "Entraînement", "ball"], ["match", "Matchs amicaux", "swords"], ["tournoi", "Tournois", "trophy"]];
   const month = items.reduce((a, [k]) => a + play[k].month, 0);
   return (
     <>
-      <div className="play-month">
+      {!bare && <div className="play-month">
         <Icon name="clock" size={20} />
         <div><b>{hours(Math.round(month * 10) / 10)} de padel ce mois-ci</b>{!compact && <div className="mut small-p">Notez aussi vos matchs et tournois : tout votre temps de jeu compte.</div>}</div>
-      </div>
+      </div>}
       <div className="playtime">
         {items.map(([k, l, ic]) => (
           <div key={k} className="kpi"><span className="ico"><Icon name={ic} size={16} /></span><div className="big">{hours(play[k].month)}</div><div className="mut">{l}</div>{!compact && <small className="mut">{hours(play[k].total)} au total</small>}</div>

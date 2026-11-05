@@ -2131,3 +2131,18 @@ def test_player_planning_matches_coach_feedback_and_progress(client):
     assert o["title"] == "Kiné" and o["coach_id"] is None
     m = pc.post("/me/events", json={"kind": "match", "start": past, "court_reserved": True}).json()
     assert m["court_reserved"] is True and pc.get("/me/progress").json()["play"]["match"]["count"] == 1
+
+
+def test_favorite_coaches_and_clubs_and_several_clubs_filter(client):
+    """Coachs et clubs favoris du joueur (choisis d'office dans Réserver); recherche sur plusieurs clubs."""
+    open_week(client)
+    mkclub(client)
+    p, pc = player_client(client)
+    coach_id = pc.get("/me/coaches").json()[0]["id"]
+    assert pc.get("/me").json()["favorites"] == {"coach_ids": [], "clubs": []}
+    pc.put("/me/favorites", json={"coach_ids": [coach_id], "clubs": ["Padel Club La Marsa"]})
+    assert pc.get("/me").json()["favorites"] == {"coach_ids": [coach_id], "clubs": ["Padel Club La Marsa"]}
+    day = _day_of(pc.get("/me/slots").json()[-1])
+    both = pc.get(f"/me/offers?day={day}&kinds=individuel&clubs=Padel Club La Marsa|Autre Club").json()
+    none = pc.get(f"/me/offers?day={day}&kinds=individuel&clubs=Autre Club").json()
+    assert both["slots_other"] and not none["slots_other"]
