@@ -357,32 +357,45 @@ export const OFFS = [5000, 10000, 15000, 20000, 30000]; // réductions proposée
 // Note sur 10 au demi-point (« 7,5 »)
 export const note10 = (v) => (v == null ? "–" : String(Math.round(v * 10) / 10).replace(".", ","));
 
-// Jauges de l'araignée: on glisse le doigt de 0 à 10 (pas de 0,5); la note est enregistrée quand on lâche.
-// skills = [{stroke, score, previous}] (critères du coach), onSaved: après chaque enregistrement.
+// Araignée notée critère par critère: une jauge à la fois (0 à 10, pas de 0,5), flèche pour revenir au précédent,
+// nombre de critères restants. La note est enregistrée en passant au critère suivant (ou en touchant « Terminer »).
+// skills = [{stroke, score, previous}] (critères du joueur), onSaved: après chaque enregistrement.
 export function SkillSliders({ playerId, skills, onSaved }) {
   const [vals, setVals] = useState(() => Object.fromEntries(skills.map((s) => [s.stroke, s.score])));
-  const [saved, setSaved] = useState(null); // dernier critère enregistré (petit « ✓ »)
+  const [i, setI] = useState(0);
+  const [done, setDone] = useState(false);
   useEffect(() => { setVals(Object.fromEntries(skills.map((s) => [s.stroke, s.score]))); }, [skills.map((s) => s.stroke + s.score).join()]); // eslint-disable-line react-hooks/exhaustive-deps
-  const commit = (stroke) => {
-    const v = vals[stroke];
-    if (v == null || v === skills.find((s) => s.stroke === stroke)?.score) return;
-    api(`/players/${playerId}/skills`, { method: "POST", body: { stroke, value: Math.round(v * 10) } })
-      .then(() => { setSaved(stroke); onSaved?.(); }).catch(toastError);
+  if (!skills.length) return null;
+  const cur = skills[Math.min(i, skills.length - 1)];
+  const v = vals[cur.stroke];
+  const left = skills.length - i - 1;
+  const commit = () => {
+    if (v == null || v === cur.score) return Promise.resolve();
+    return api(`/players/${playerId}/skills`, { method: "POST", body: { stroke: cur.stroke, value: Math.round(v * 10) } })
+      .then(() => onSaved?.()).catch(toastError);
   };
+  const go = (n) => commit().then(() => { if (i + n >= skills.length) setDone(true); else setI(Math.max(0, i + n)); });
+  if (done) return (
+    <div className="stepper done">
+      <Icon name="checkCircle" size={22} /> <b>Araignée à jour</b>
+      <button type="button" className="link" onClick={() => { setDone(false); setI(0); }}>Revoir les critères</button>
+    </div>
+  );
   return (
-    <div className="sliders">
-      {skills.map((s) => {
-        const v = vals[s.stroke];
-        return (
-          <label key={s.stroke} className="slider-row">
-            <span className="slider-head"><b>{s.stroke}</b><span className={"slider-val" + (v == null ? " none" : "")}>{note10(v)}<small>/10</small>{saved === s.stroke && <Icon name="check" size={13} />}</span></span>
-            <input type="range" min="0" max="10" step="0.5" value={v ?? 0} aria-label={`${s.stroke} : note sur 10`}
-              className={v == null ? "unset" : ""} style={{ "--p": `${(v ?? 0) * 10}%` }}
-              onChange={(e) => { setVals({ ...vals, [s.stroke]: +e.target.value }); setSaved(null); }}
-              onPointerUp={() => commit(s.stroke)} onKeyUp={() => commit(s.stroke)} onBlur={() => commit(s.stroke)} />
-          </label>
-        );
-      })}
+    <div className="stepper">
+      <div className="stepper-top">
+        <button type="button" className="small sec iconbtn" aria-label="Critère précédent" disabled={i === 0} onClick={() => go(-1)}><Icon name="chevL" size={16} /></button>
+        <span className="mut small-p">Critère {i + 1} / {skills.length} · {left ? `${left} restant${left > 1 ? "s" : ""}` : "dernier"}</span>
+        <span className="stepper-dots" aria-hidden="true">{skills.map((s, k) => <i key={s.stroke} className={k === i ? "on" : vals[s.stroke] != null ? "set" : ""} />)}</span>
+      </div>
+      <label className="slider-row">
+        <span className="slider-head"><b className="stepper-name">{cur.stroke}</b><span className={"slider-val" + (v == null ? " none" : "")}>{note10(v)}<small>/10</small></span></span>
+        <input type="range" min="0" max="10" step="0.5" value={v ?? 0} aria-label={`${cur.stroke} : note sur 10`}
+          className={v == null ? "unset" : ""} style={{ "--p": `${(v ?? 0) * 10}%` }}
+          onChange={(e) => setVals({ ...vals, [cur.stroke]: +e.target.value })} />
+      </label>
+      {cur.previous != null && <div className="mut small-p">Avant : {note10(cur.previous)}/10</div>}
+      <button type="button" style={{ width: "100%", marginTop: 8 }} onClick={() => go(1)}>{left ? <>Suivant <Icon name="chevR" size={16} /></> : <><Icon name="check" size={16} /> Terminer</>}</button>
     </div>
   );
 }

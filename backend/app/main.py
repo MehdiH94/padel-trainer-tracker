@@ -40,7 +40,7 @@ NEW_COLUMNS = [
     ("coaches", "signup_at", "TIMESTAMP"), ("coaches", "email_verified_at", "TIMESTAMP"), ("coaches", "email_token", "VARCHAR(48)"),
     ("coaches", "email_token_sent_at", "TIMESTAMP"),
     ("happy_hours", "discount_millimes", "INTEGER DEFAULT 0"), ("promotions", "discount_millimes", "INTEGER DEFAULT 0"),
-    ("bookings", "discount_millimes", "INTEGER DEFAULT 0"), ("skill_ratings", "value", "INTEGER"), ("coaches", "criteria", "TEXT"),
+    ("bookings", "discount_millimes", "INTEGER DEFAULT 0"), ("skill_ratings", "value", "INTEGER"), ("coaches", "criteria", "TEXT"), ("players", "criteria", "TEXT"),
 ]
 with engine.begin() as conn:
     for table, column, ddl in NEW_COLUMNS:

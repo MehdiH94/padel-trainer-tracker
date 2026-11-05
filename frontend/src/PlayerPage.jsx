@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { actingAs, api, dayLabel, hhmm, peek, shortDate, tnd, useContactCheck } from "./api.js";
+import CriteriaEditor from "./CriteriaEditor.jsx";
 import FeedbackEditor from "./FeedbackEditor.jsx";
 import Icon from "./Icon.jsx";
 import InviteLink from "./InviteLink.jsx";
@@ -129,6 +130,7 @@ export default function PlayerPage({ id, onBack }) {
   const [p, setP] = useState(() => peek(`/players/${id}/profile`) ?? null); // fiche déjà ouverte: tout de suite
   const [strokes, setStrokes] = useState(() => peek("/criteria")?.names ?? []);
   const [tab, setTab] = useState("padel");
+  const [critOpen, setCritOpen] = useState(false); // critères de l'araignée de ce joueur
   const [edit, setEdit] = useState(null);
   const [editing, setEditing] = useState(false);
   // montants en millimes (MoneyInput: la virgule est acceptée, « 25,5 » = 25,500 TND)
@@ -221,8 +223,14 @@ export default function PlayerPage({ id, onBack }) {
             <div className="row"><b>Évaluation (araignée)</b><span className="mut">Moyenne {avg}/10</span></div>
             {ratedCount > 0 ? <RadarChart skills={skills} /> : <div className="mut">Glissez les jauges ci-dessous pour noter : l'araignée apparaîtra.</div>}
             <div className="legend" style={{ justifyContent: "center" }}><span><i style={{ background: "#f97316" }} />Niveau actuel</span><span><i style={{ background: "#94a3b8" }} />Évaluation précédente</span></div>
-            <div className="mut small-p" style={{ margin: "6px 0" }}>Glissez le doigt sur chaque jauge (de 0 à 10). Critères modifiables dans Réglages › Araignée.</div>
+            <div className="mut small-p" style={{ margin: "6px 0" }}>Notez critère par critère en glissant le doigt (de 0 à 10).</div>
             <SkillSliders playerId={id} skills={skills} onSaved={load} />
+            {/* critères propres à ce joueur (sinon ceux du coach, Réglages › Araignée) */}
+            <button type="button" className="link small-p" style={{ marginTop: 8 }} aria-expanded={critOpen} onClick={() => setCritOpen(!critOpen)}>
+              <Icon name="edit" size={13} /> Critères de {player.name.split(" ")[0]}
+            </button>
+            {critOpen && <CriteriaEditor url={`/players/${id}/criteria`} reset="Revenir à mes critères"
+              intro={`Les critères de l'araignée de ${player.name.split(" ")[0]} (3 à 12). Par défaut, ceux de vos Réglages.`} onSaved={load} />}
           </div>
           {stats.upcoming_count > 0 && (
             <div className="card"><b>Prochaines séances</b>

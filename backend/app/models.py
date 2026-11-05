@@ -63,6 +63,8 @@ class Player(Base):
     side: Mapped[str] = mapped_column(String(10), default="drive")
     goals: Mapped[str] = mapped_column(Text, default="")
     notes: Mapped[str] = mapped_column(Text, default="")
+    # Critères de l'araignée propres à ce joueur (liste JSON); None = ceux du coach
+    criteria: Mapped[str | None] = mapped_column(Text, nullable=True)
     # Moyen choisi par le joueur pour les rappels automatiques: whatsapp / sms / email (None = pas encore choisi)
     contact_channel: Mapped[str | None] = mapped_column(String(10), nullable=True)
     # Un joueur peut réserver chez plusieurs coachs: une fiche par coach, reliées au compte (fiche avec mot de passe).

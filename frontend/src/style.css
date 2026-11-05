@@ -719,3 +719,13 @@ button.saved { background: var(--green); border-color: var(--green); color: #fff
 .absence-note { display: flex; gap: 8px; align-items: flex-start; margin-bottom: 10px; font-size: .9rem; }
 .absence-note svg { flex: none; margin-top: 2px; }
 .admin-card { border-color: var(--brand-ring); background: var(--brand-xl); }
+/* Araignée critère par critère */
+.stepper { border: 1px solid var(--line); border-radius: 14px; padding: 10px 12px; margin: 6px 0; background: var(--soft); }
+.stepper-top { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.stepper-top .small-p { flex: 1; }
+.stepper-dots { display: flex; gap: 3px; }
+.stepper-dots i { width: 6px; height: 6px; border-radius: 50%; background: var(--line); }
+.stepper-dots i.set { background: var(--brand-ring); }
+.stepper-dots i.on { background: var(--brand); width: 14px; border-radius: 4px; }
+.stepper-name { font-size: 1.05rem; }
+.stepper.done { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; color: var(--ok-txt); }

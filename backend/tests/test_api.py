@@ -2053,3 +2053,16 @@ def test_admin_corrects_credits_coach_cannot(client, monkeypatch):
     acting.post(f"/players/{p['id']}/credits", json={"amount_millimes": 50000, "method": "especes"})
     assert acting.post(f"/players/{p['id']}/credits/correction", json={"amount_millimes": -20000}).json()["balance_millimes"] == 30000
     assert acting.post(f"/players/{p['id']}/credits/correction", json={"amount_millimes": 0}).status_code == 422
+
+
+def test_player_specific_spider_criteria(client):
+    """Critères de l'araignée propres à un joueur (sinon ceux du coach)."""
+    p, q = mkplayer(client, name="Ali"), mkplayer(client, name="Bea", phone="22 000 111")
+    assert client.get(f"/players/{p['id']}/criteria").json()["custom"] is False
+    names = ["Service", "Mental", "Cardio"]
+    r = client.put(f"/players/{p['id']}/criteria", json={"names": names}).json()
+    assert r["names"] == names and r["custom"]
+    assert client.post(f"/players/{p['id']}/skills", json={"stroke": "Cardio", "value": 65}).status_code == 201
+    assert [s["stroke"] for s in client.get(f"/players/{p['id']}/profile").json()["skills"]] == names
+    assert len(client.get(f"/players/{q['id']}/profile").json()["skills"]) == 9  # les autres gardent ceux du coach
+    assert client.put(f"/players/{p['id']}/criteria", json={"names": []}).json()["custom"] is False

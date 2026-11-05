@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { api, peek } from "./api.js";
 import Icon from "./Icon.jsx";
 import { toast, toastError } from "./feedback.jsx";
+import CriteriaEditor from "./CriteriaEditor.jsx";
 import { ClockPicker, KIND, Loading, MoneyInput } from "./ui.jsx";
 
 const DAYS = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"];
@@ -190,44 +191,7 @@ export default function Settings({ onBack, sub }) {
       <button style={{ width: "100%" }} onClick={save}>{saved ? "Enregistré" : "Enregistrer les réglages"}</button>
 
       <h2 id="araignee">Araignée : critères d'évaluation</h2>
-      <CriteriaEditor />
+      <CriteriaEditor url="/criteria" intro="Ce que vous notez de 0 à 10 pour vos joueurs (3 à 12 critères). Chaque joueur peut aussi avoir les siens, depuis sa fiche." reset="Revenir aux standards" />
     </>
-  );
-}
-
-// Critères de l'araignée du coach: les standards (coups du padel) à garder, renommer, retirer ou compléter.
-// Les notes déjà données restent attachées au nom du critère.
-function CriteriaEditor() {
-  const [c, setC] = useState(() => peek("/criteria") ?? null);
-  const [names, setNames] = useState(() => peek("/criteria")?.names ?? []);
-  const [fresh, setFresh] = useState("");
-  const [dirty, setDirty] = useState(false);
-  useEffect(() => { api("/criteria").then((r) => { setC(r); setNames(r.names); }).catch(() => {}); }, []);
-  if (!c) return <Loading rows={1} />;
-  const edit = (next) => { setNames(next); setDirty(true); };
-  const add = () => { const n = fresh.trim(); if (n && !names.some((x) => x.toLowerCase() === n.toLowerCase())) edit([...names, n]); setFresh(""); };
-  const save = (list) => api("/criteria", { method: "PUT", body: { names: list } })
-    .then((r) => { setC(r); setNames(r.names); setDirty(false); toast(list.length ? "Critères enregistrés" : "Critères standards rétablis"); }).catch(toastError);
-  return (
-    <div className="card">
-      <div className="mut small-p" style={{ marginBottom: 8 }}>Ce que vous notez de 0 à 10 pour chaque joueur (3 à 12 critères). {c.custom ? "Vos critères personnalisés." : "Critères standards du padel."}</div>
-      {names.map((n, i) => (
-        <div className="crit-row" key={i}>
-          <input aria-label={`Critère ${i + 1}`} value={n} maxLength={40} onChange={(e) => edit(names.map((x, j) => (j === i ? e.target.value : x)))} />
-          <button type="button" className="small sec iconbtn" aria-label={`Retirer ${n}`} disabled={names.length <= 3} onClick={() => edit(names.filter((_, j) => j !== i))}><Icon name="trash" size={14} /></button>
-        </div>
-      ))}
-      {names.length < 12 && (
-        <div className="crit-row">
-          <input placeholder="Nouveau critère (ex. Mental, Déplacements…)" aria-label="Nouveau critère" value={fresh} maxLength={40}
-            onChange={(e) => setFresh(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); add(); } }} />
-          <button type="button" className="small sec iconbtn" aria-label="Ajouter le critère" disabled={!fresh.trim()} onClick={add}><Icon name="plus" size={14} /></button>
-        </div>
-      )}
-      <div className="actions">
-        {c.custom && <button type="button" className="sec" onClick={() => save([])}>Revenir aux standards</button>}
-        <button type="button" disabled={!dirty} onClick={() => save(names.map((x) => x.trim()).filter(Boolean))}>{dirty ? "Enregistrer les critères" : "Enregistré"}</button>
-      </div>
-    </div>
   );
 }

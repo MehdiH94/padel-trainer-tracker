@@ -339,10 +339,10 @@ def progress(player: Player = Depends(current_player), db: Session = Depends(get
     stats["since"] = min((pr["stats"]["since"] for pr in profiles if pr["stats"]["since"]), default=None)
     # critères des coachs du joueur (dans l'ordre de ses fiches), sans doublon
     from ..models import Coach as _Coach
-    from .profile import criteria_of
+    from .profile import criteria_for
     crit: list[str] = []
     for p in rows:
-        crit += [c for c in criteria_of(db.get(_Coach, p.coach_id)) if c not in crit]
+        crit += [c for c in criteria_for(db.get(_Coach, p.coach_id), p) if c not in crit]
     skills = skills_of(db, [p.id for p in rows] or [player.id], crit or None)
     lasts = [pr["last_session"] for pr in profiles if pr["last_session"]]
     return {"stats": stats, **skills, "last_session": max(lasts, key=lambda h: aware(h["start"]), default=None), "goals": player.goals}

@@ -36,6 +36,33 @@ def criteria_of(coach: Coach | None) -> list[str]:
     return list(STROKES)
 
 
+def criteria_for(coach: Coach | None, player: Player) -> list[str]:
+    """Critères de l'araignée de ce joueur: les siens s'il en a, sinon ceux de son coach."""
+    if player.criteria:
+        try:
+            names = json.loads(player.criteria)
+            if names:
+                return names
+        except ValueError:
+            pass
+    return criteria_of(coach)
+
+
+def clean_names(raw: list[str]) -> list[str]:
+    """Liste de critères nettoyée (espaces, doublons), 3 à 12 critères (vide = revenir aux critères par défaut)."""
+    names, seen = [], set()
+    for n in raw:
+        n = " ".join(n.split())[:40]
+        if n and n.lower() not in seen:
+            seen.add(n.lower())
+            names.append(n)
+    if len(names) > 12:
+        raise HTTPException(422, "12 critères au plus.")
+    if raw and len(names) < 3:
+        raise HTTPException(422, "Gardez au moins 3 critères pour dessiner l'araignée.")
+    return names
+
+
 def rating_value(r: SkillRating) -> int:
     return r.value if r.value is not None else r.score * 20
 
@@ -67,26 +94,34 @@ def get_criteria(coach: Coach = Depends(current_coach)):
 
 @router.put("/criteria")
 def set_criteria(body: CriteriaIn, coach: Coach = Depends(current_coach), db: Session = Depends(get_db)):
-    names, seen = [], set()
-    for n in body.names:
-        n = " ".join(n.split())[:40]
-        if n and n.lower() not in seen:
-            seen.add(n.lower())
-            names.append(n)
-    if len(names) > 12:
-        raise HTTPException(422, "12 critères au plus.")
-    if body.names and len(names) < 3:
-        raise HTTPException(422, "Gardez au moins 3 critères pour dessiner l'araignée.")
+    names = clean_names(body.names)
     coach.criteria = json.dumps(names, ensure_ascii=False) if names and names != STROKES else None
     db.commit()
     return get_criteria(coach)
 
 
+@router.get("/players/{player_id}/criteria")
+def get_player_criteria(player_id: int, coach: Coach = Depends(current_coach), db: Session = Depends(get_db)):
+    """Critères de l'araignée de ce joueur (les siens, ou ceux du coach par défaut)."""
+    p = get_owned_player(db, coach, player_id)
+    return {"names": criteria_for(coach, p), "standard": criteria_of(coach), "custom": bool(p.criteria)}
+
+
+@router.put("/players/{player_id}/criteria")
+def set_player_criteria(player_id: int, body: CriteriaIn, coach: Coach = Depends(current_coach), db: Session = Depends(get_db)):
+    """Critères propres à ce joueur (vide = revenir aux critères du coach). Les notes déjà données restent."""
+    p = get_owned_player(db, coach, player_id)
+    names = clean_names(body.names)
+    p.criteria = json.dumps(names, ensure_ascii=False) if names and names != criteria_of(coach) else None
+    db.commit()
+    return get_player_criteria(player_id, coach, db)
+
+
 @router.post("/players/{player_id}/skills", status_code=201)
 def rate_skill(player_id: int, body: SkillIn, coach: Coach = Depends(current_coach), db: Session = Depends(get_db)):
-    get_owned_player(db, coach, player_id)
+    player = get_owned_player(db, coach, player_id)
     value = body.value if body.value is not None else (body.score * 20 if body.score is not None else None)
-    if body.stroke not in criteria_of(coach) + STROKES or value is None or not 0 <= value <= 100 or (body.value is None and not 1 <= body.score <= 5):
+    if body.stroke not in criteria_for(coach, player) + criteria_of(coach) + STROKES or value is None or not 0 <= value <= 100 or (body.value is None and not 1 <= body.score <= 5):
         raise HTTPException(422, "Critère ou note invalide (de 0 à 10).")
     db.add(SkillRating(player_id=player_id, stroke=body.stroke, score=round(value / 20), value=value))
     db.commit()
@@ -165,7 +200,7 @@ def build_profile(db: Session, coach_id: int, player: Player) -> dict:
     pays = db.scalars(select(Payment).where(Payment.player_id == player.id).order_by(Payment.paid_at.desc())).all()
     paid = sum(p.amount_millimes for p in pays if p.kind == "seance")  # les recharges servent aux réservations
 
-    sk = skills_of(db, [player.id], criteria_of(db.get(Coach, coach_id)))
+    sk = skills_of(db, [player.id], criteria_for(db.get(Coach, coach_id), player))
     skills, strengths, weaknesses = sk["skills"], sk["strengths"], sk["weaknesses"]
 
     last = next((h for h in done if h["worked_on"] or h["note"] or h["to_improve"]), None)

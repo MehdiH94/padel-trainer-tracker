@@ -66,7 +66,15 @@ test("le coach parcourt tous ses écrans", async ({ page }) => {
   // fiche joueur: notes générales et araignée en jauges
   await nav(page, "Joueurs").click();
   await page.getByText("Sami Ben Ali").click();
-  await expect(page.locator(".slider-row").first()).toBeVisible();
+  // araignée critère par critère: « Suivant », flèche pour revenir, critères restants
+  await expect(page.getByText(/^Critère 1 \/ \d+ · \d+ restants$/)).toBeVisible();
+  await page.getByRole("button", { name: /Suivant/ }).click();
+  await expect(page.getByText(/^Critère 2 \//)).toBeVisible();
+  await page.getByRole("button", { name: "Critère précédent" }).click();
+  await expect(page.getByText(/^Critère 1 \//)).toBeVisible();
+  // critères propres à ce joueur
+  await page.getByRole("button", { name: "Critères de Sami" }).click();
+  await expect(page.getByLabel("Nouveau critère")).toBeVisible();
   await page.getByRole("button", { name: "Notes", exact: true }).click();
   await page.locator(".notes-area").fill(`Très motivé, travailler la bandeja (${Date.now()})`);
   await page.getByRole("button", { name: "Enregistrer les notes" }).click();
