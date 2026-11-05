@@ -96,8 +96,9 @@ function NotesTab({ player, onSaved }) {
     <div className="card">
       <div className="row"><b><Icon name="edit" size={15} /> Notes sur {player.name.split(" ")[0]}</b><span className="mut small-p">visibles par vous seul</span></div>
       <textarea className="msg notes-area" rows={10} value={txt} placeholder="Caractère, objectifs, blessures, préférences, ce qui marche avec lui…"
-        onChange={(e) => { setTxt(e.target.value); setState("dirty"); }} onBlur={() => state === "dirty" && save()} />
-      <button style={{ width: "100%" }} className={state === "saved" ? "saved" : ""} disabled={state === "saved"} onClick={save}>
+        onChange={(e) => { setTxt(e.target.value); setState("dirty"); }}
+        onBlur={(e) => state === "dirty" && !e.relatedTarget?.dataset.save && save()} />{/* le bouton enregistre lui-même: pas deux fois */}
+      <button data-save="1" style={{ width: "100%" }} className={state === "saved" ? "saved" : ""} disabled={state === "saved"} onClick={save}>
         {state === "saved" ? <><Icon name="checkCircle" size={16} /> Enregistré</> : "Enregistrer les notes"}
       </button>
     </div>

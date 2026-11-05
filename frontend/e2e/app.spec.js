@@ -68,9 +68,10 @@ test("le coach parcourt tous ses écrans", async ({ page }) => {
   await page.getByText("Sami Ben Ali").click();
   await expect(page.locator(".slider-row").first()).toBeVisible();
   await page.getByRole("button", { name: "Notes", exact: true }).click();
-  await page.locator(".notes-area").fill("Très motivé, travailler la bandeja");
+  await page.locator(".notes-area").fill(`Très motivé, travailler la bandeja (${Date.now()})`);
   await page.getByRole("button", { name: "Enregistrer les notes" }).click();
-  await expect(page.getByText("Notes enregistrées")).toBeVisible();
+  await expect(page.getByText("Notes enregistrées")).toHaveCount(1); // un seul enregistrement
+  await expect(page.getByRole("button", { name: "Enregistré" })).toBeVisible();
   await page.getByRole("button", { name: "Réglages" }).click();
   await expect(page.getByRole("heading", { name: "Réglages" })).toBeVisible();
 });
