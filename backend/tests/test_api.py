@@ -1270,14 +1270,14 @@ def test_slots_only_on_reserved_courts_by_default(client):
     client.post("/court-bookings/manual", json={"club_id": club["id"], "start": start.isoformat(), "duration_min": 240})  # mardi 8 h-12 h
     slots = pc.get("/me/slots").json()
     local = [datetime.fromisoformat(x.replace("Z", "+00:00")).replace(tzinfo=timezone.utc).astimezone(TUNIS) for x in slots]
-    # pas d'heure creuse sur un terrain déjà payé: au bord du terrain (8 h, ou fin à midi), jamais au milieu
-    assert {t.date() for t in local} == {day} and [t.strftime("%H:%M") for t in local] == ["08:00", "11:00"]
+    # tout début qui ne laisse pas de bout de terrain de moins d'1 h (jamais 8 h 30 ni 10 h 30)
+    assert {t.date() for t in local} == {day} and [t.strftime("%H:%M") for t in local] == ["08:00", "09:00", "09:30", "10:00", "11:00"]
     off = pc.get(f"/me/offers?day={day.isoformat()}&kinds=individuel").json()
-    assert len(off["slots_with_court"]) == 2 and off["slots_other"] == []
+    assert len(off["slots_with_court"]) == 5 and off["slots_other"] == []
     # réservation de 8 h (validée: terrain libre): la séance prend 8 h-9 h, le reste du bloc reste libre
     assert pc.post("/me/book", json={"kind": "individuel", "start": slots[0]}).json()["status"] == "confirmee"
     left = [datetime.fromisoformat(x.replace("Z", "+00:00")).astimezone(TUNIS).strftime("%H:%M") for x in pc.get("/me/slots").json()]
-    assert left == ["09:00", "11:00"]  # à la suite de la séance, ou en fin de terrain
+    assert left == ["09:00", "10:00", "11:00"]  # 9 h 30 laisserait une demi-heure perdue après la séance de 8 h
     free = sorted((c for c in client.get("/court-bookings").json() if c["free"]), key=lambda c: c["start"])
     assert [(datetime.fromisoformat(c["start"].replace("Z", "+00:00")).astimezone(TUNIS).strftime("%H:%M"), c["duration_min"]) for c in free] == [("09:00", 180)]
     # le coach monte lui-même une séance à 10 h dans ce club: elle utilise le terrain libre (pas de doublon)
@@ -1718,8 +1718,8 @@ def test_public_signup_without_coach_then_books_a_coach(client, monkeypatch):
 
 
 def test_slots_never_overlap_and_leave_no_unusable_gap(client):
-    """Terrain 8 h-12 h: une séance d'1 h 30 ouverte à 8 h bloque jusqu'à 9 h 30; les débuts proposés ne laissent
-    jamais de trou de moins d'1 h (ex. pas de début à 8 h 30)."""
+    """Terrain 8 h-12 h: tous les débuts possibles toutes les 30 min, sans laisser de trou de moins d'1 h (ex. pas
+    de début à 8 h 30); ceux collés au bord sont « idéaux ». Une séance d'1 h 30 ouverte à 8 h bloque jusqu'à 9 h 30."""
     st = client.get("/booking/settings").json()
     client.put("/booking/settings", json={**st, "auto_confirm": False, "price_individuel": 60000, "price_duo": 40000, "price_groupe": 30000, "booking_mode": "terrains"})
     day = (datetime.now(timezone.utc) + timedelta(days=4)).date()
@@ -1728,8 +1728,9 @@ def test_slots_never_overlap_and_leave_no_unusable_gap(client):
     p, pc = player_client(client)
     hhmm = lambda xs: sorted({(datetime.fromisoformat(x["start"].replace("Z", "+00:00")) + timedelta(hours=1)).strftime("%H:%M") for x in xs})  # noqa: E731
     first = pc.get(f"/me/offers?day={day}&kinds=individuel").json()["slots_with_court"]
-    # terrain déjà payé: pas d'heure creuse, seulement au bord du terrain (8 h, ou 11 h pour finir à midi)
-    assert hhmm(first) == ["08:00", "11:00"]
+    # n'importe quel début toutes les 30 min, sans laisser de bout de terrain de moins d'1 h (jamais 8 h 30 ni 10 h 30)
+    assert hhmm(first) == ["08:00", "09:00", "09:30", "10:00", "11:00"]
+    assert [x["ideal"] for x in sorted(first, key=lambda x: x["start"])] == [True, False, False, False, True]  # collés au bord
     r = pc.post("/me/book", json={"kind": "groupe", "start": eight.isoformat(), "kinds": ["groupe"], "minutes": 90})
     assert r.status_code == 201
     after = pc.get(f"/me/offers?day={day}&kinds=individuel,duo,groupe").json()["slots_with_court"]

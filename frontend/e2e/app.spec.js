@@ -521,3 +521,34 @@ test("planning › calendrier: une séance passée à noter s'ouvre sur le panne
   await expect(dialog.getByRole("button", { name: "Pas eu lieu ? Annuler" })).toBeVisible();
   await expect(dialog.getByText("Préparer la séance")).toHaveCount(0);
 });
+
+test("réserver: une carte par coach et club, l'heure se choisit sur des pastilles", async ({ page }) => {
+  await login(page, "sami@demo.tn");
+  await page.locator("nav").getByRole("button", { name: "Réserver" }).click();
+  await page.locator(".daypill").nth(4).click();
+  const group = page.locator(".slotgroup").first();
+  await expect(group).toBeVisible();
+  await group.locator(".chips button").first().click();
+  await expect(group.getByRole("button", { name: /Réserver ce créneau/ })).toBeVisible();
+});
+
+test("terrain hors des horaires de travail (mode disponibilités): avertissement et confirmation", async ({ page, request }) => {
+  const { token } = await (await request.post("/api/auth/login", { data: { email: "demo@padel.tn", password: "demo1234" } })).json();
+  const headers = { Authorization: `Bearer ${token}` };
+  const st = await (await request.get("/api/booking/settings", { headers })).json();
+  const avail = [0, 1, 2, 3, 4, 5, 6].map((d) => ({ weekday: d, start_time: "09:00", end_time: "21:00" }));
+  await request.put("/api/booking/settings", { headers, data: { ...st, booking_mode: "disponibilites", availability: avail } });
+  try {
+    await login(page, "demo@padel.tn");
+    await nav(page, "Planning").click();
+    await page.getByRole("button", { name: "Terrain", exact: true }).click();
+    const form = page.locator("form.edit-card");
+    await form.getByLabel("Début").selectOption("06:00");
+    await expect(form.getByText(/En dehors de vos horaires de travail/)).toBeVisible();
+    await form.getByRole("button", { name: /Enregistrer le terrain/ }).click();
+    await expect(page.getByRole("dialog").getByText(/les joueurs ne verront pas ce créneau/)).toBeVisible();
+    await page.getByRole("dialog").getByRole("button", { name: "Non" }).click();
+  } finally {
+    await request.put("/api/booking/settings", { headers, data: st });
+  }
+});

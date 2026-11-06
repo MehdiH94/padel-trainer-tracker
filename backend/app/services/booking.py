@@ -104,14 +104,32 @@ def _free_on_courts(db: Session, coach: Coach, now: datetime, earliest: datetime
         lo, hi = aware(cb.start), aware(cb.start) + timedelta(minutes=cb.duration_min)
         cur = lo
         while cur + length <= hi and cur < horizon:
-            # terrain déjà payé: pas d'heure creuse, la séance colle au bord du terrain libre ou à une séance voisine
-            # (8 h-12 h: 8 h ou la fin à midi, jamais 8 h 30 qui laisserait la première demi-heure perdue)
-            end = cur + length
-            touches = cur == lo or end == hi or any(cur == b_end or end == b_start for b_start, b_end in busy)
-            if cur >= earliest and touches and _fits(cur, length, lo, hi, busy, shortest):
+            # n'importe quel début toutes les 30 min, tant qu'il ne laisse pas de bout de terrain inutilisable
+            # (moins d'1 h) avant ou après: 8 h-12 h libre = 8 h, 9 h, 9 h 30, 10 h, 11 h pour 1 h (jamais 8 h 30)
+            if cur >= earliest and _fits(cur, length, lo, hi, busy, shortest):
                 out.add(cur)
             cur += step
     return sorted(out)
+
+
+def edges(db: Session, coach: Coach) -> set[datetime]:
+    """Bords des plages libres (début / fin des terrains libres, des disponibilités et des séances): un créneau qui
+    en touche un ne coupe pas la plage en deux, c'est celui qu'on met en avant (« idéal »)."""
+    out = set()
+    for s, e in _busy(db, coach):
+        out.update((s, e))
+    for cb in db.scalars(select(CourtBooking).where(CourtBooking.coach_id == coach.id, CourtBooking.session_id.is_(None),
+                                                   CourtBooking.status == "confirmee", CourtBooking.start.is_not(None))):
+        out.update((aware(cb.start), aware(cb.start) + timedelta(minutes=cb.duration_min)))
+    if coach.booking_mode == "disponibilites":
+        today = datetime.now(TUNIS).date()
+        for w in db.scalars(select(Availability).where(Availability.coach_id == coach.id)):
+            for off in range(HORIZON_DAYS + 1):
+                day = today + timedelta(days=off)
+                if day.weekday() == w.weekday:
+                    out.add(datetime.combine(day, time.fromisoformat(w.start_time), TUNIS).astimezone(timezone.utc))
+                    out.add(datetime.combine(day, time.fromisoformat(w.end_time), TUNIS).astimezone(timezone.utc))
+    return out
 
 
 def days_off(db: Session, coach: Coach) -> list[tuple]:

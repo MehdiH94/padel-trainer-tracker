@@ -14,7 +14,7 @@ from . import courts
 from .accounts import linked
 from .isolation import visible_coaches
 from . import groups as grp
-from .booking import attendee_ids, fits_session, free_slots, join_price, join_target, pending_joins, price_for, spots_left
+from .booking import attendee_ids, edges, fits_session, free_slots, join_price, join_target, pending_joins, price_for, spots_left
 from .common import TUNIS, aware
 from .pricing import duration_for, kinds_at, player_durations, quote
 
@@ -132,6 +132,7 @@ def offers(db: Session, account: Player, day: date, kinds: list[str], coach_ids:
         # 2. Nouveaux créneaux: pour chaque durée choisie (1 h, 1 h 30), les débuts possibles et le prix de chaque
         #    formule acceptée à cette durée (la séance démarre avec la plus petite, le prix suit la formule jouée)
         starts: dict[datetime, list[dict]] = {}
+        snug = edges(db, c)  # créneaux collés à un bord de plage libre: mis en avant
         for minutes in (60, 90):
             ks = kinds_at(kinds, durations, minutes)
             if not ks:
@@ -152,6 +153,7 @@ def offers(db: Session, account: Player, day: date, kinds: list[str], coach_ids:
                     "discount_pct": max(o["discount_pct"] for o in options), "reduction_millimes": max(o["reduction_millimes"] for o in options),
                     "reason": next((o["reason"] for o in options if o["reason"]), None),
                     "court": "reserve" if held else "a_confirmer",
+                    "ideal": any(start in snug or start + timedelta(minutes=o["duration_min"]) in snug for o in options),
                     "club": db.get(Club, held[0].club_id).name if held else (wanted_clubs[0] if len(wanted_clubs) == 1 else (clubs[0] if len(clubs) == 1 else ""))}
             (with_court if held else other).append(item)
 
@@ -164,7 +166,7 @@ def offers(db: Session, account: Player, day: date, kinds: list[str], coach_ids:
     groups.sort(key=lambda g: (g.pop("_gap"), closeness(g)))
     with_court.sort(key=lambda x: (-x["reduction_millimes"], closeness(x)))  # les réductions d'abord
     other.sort(key=closeness)
-    return {"groups": groups[:10], "slots_with_court": with_court[:20], "slots_other": other[:30], "other_kinds": other_kinds,
+    return {"groups": groups[:10], "slots_with_court": with_court[:80], "slots_other": other[:120], "other_kinds": other_kinds,
             "too_late": [k for k in CAPACITY if k in too_late]}
 
 

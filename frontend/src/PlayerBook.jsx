@@ -42,8 +42,8 @@ function CourtTag({ court }) {
 }
 
 // Une proposition (groupe à rejoindre ou créneau à créer), avec confirmation sur place
-function Offer({ o, me, kinds, durs, onBooked, openCoach }) {
-  const [open, setOpen] = useState(false);
+function Offer({ o, me, kinds, durs, onBooked, openCoach, startOpen }) {
+  const [open, setOpen] = useState(!!startOpen);
   const [busy, setBusy] = useState(false);
   // Créneau proposé en 1 h et/ou 1 h 30 (durées choisies par le joueur): il choisit la durée, chacune son prix.
   // Pas de formule à choisir: on démarre avec la plus petite formule cochée, et le prix suit la formule
@@ -141,6 +141,37 @@ function Favorites({ fav, coaches, clubs, onClose, onSaved }) {
   );
 }
 
+// Créneaux libres d'un même coach au même club ce jour-là: une seule carte, l'heure se choisit sur des pastilles
+// (toutes les 30 min). « Idéal » = collé au bord de la plage libre: ne coupe pas le terrain en deux.
+function SlotGroup({ items, me, kinds, durs, onBooked, openCoach }) {
+  const [pick, setPick] = useState(null);
+  const first = items[0];
+  const cheapest = Math.min(...items.flatMap((o) => (o.options ?? []).map((x) => x.price_millimes)));
+  const promo = items.some((o) => o.reduction_millimes > 0);
+  const chosen = items.find((o) => o.start === pick);
+  return (
+    <div className="card slotgroup">
+      <div className="row" style={{ alignItems: "flex-start" }}>
+        <span className="offer-main">
+          <span className="offer-coach">{first.coach.name}</span>
+          <small>{first.club || "Club à confirmer"}</small>
+          <span><CourtTag court={first.court} />{promo && <span className="promo-tag">Réductions</span>}</span>
+        </span>
+        <span className="offer-price"><span><small className="mut">dès </small>{tnd(cheapest)}</span></span>
+      </div>
+      <div className="mut small-p" style={{ margin: "8px 0 4px" }}>Choisissez l'heure{items.some((o) => o.ideal) && items.some((o) => !o.ideal) ? " (★ idéal : ne coupe pas le créneau libre en deux)" : ""}</div>
+      <div className="chips" role="group" aria-label={`Heures avec ${first.coach.name}`}>
+        {items.map((o) => (
+          <button key={o.start} className={"chip small" + (pick === o.start ? " on" : "")} aria-pressed={pick === o.start} onClick={() => setPick(pick === o.start ? null : o.start)}>
+            {hhmm(o.start)}{o.ideal && items.some((x) => !x.ideal) ? " ★" : ""}
+          </button>
+        ))}
+      </div>
+      {chosen && <Offer key={chosen.start} o={chosen} me={me} kinds={kinds} durs={durs} onBooked={onBooked} openCoach={openCoach} startOpen />}
+    </div>
+  );
+}
+
 // Les choix du joueur sont gardés le temps de la visite: en revenant de la page d'un coach, rien n'est perdu
 const KEEP = "book-filters";
 const kept = () => { try { return JSON.parse(sessionStorage.getItem(KEEP)) || {}; } catch { return {}; } };
@@ -165,10 +196,8 @@ export function Book({ me, reload, go, coachParam }) {
   const toggleDur = (k, m) => setDurs({ ...durs, [k]: durs[k].includes(m) ? (durs[k].length > 1 ? durs[k].filter((x) => x !== m) : durs[k]) : [...durs[k], m].sort() });
   const toggleKind = (k) => setKinds(kinds.includes(k) ? (kinds.length > 1 ? kinds.filter((x) => x !== k) : kinds) : ["individuel", "duo", "groupe"].filter((x) => x === k || kinds.includes(x)));
   const solo = kinds.length === 1 && kinds[0] === "individuel";
-  const [more, setMore] = useState(false);
   useEffect(() => {
     try { sessionStorage.setItem(KEEP, JSON.stringify({ coachIds, places, day, period, hour, kinds, durs })); } catch { /* stockage indisponible */ }
-    setMore(false);
   }, [coachIds.join(","), places.join("|"), day, period, hour, kinds.join(","), JSON.stringify(durs)]);
   const [offers, setOffers] = useState(null);
   const [done, setDone] = useState(null);
@@ -203,6 +232,14 @@ export function Book({ me, reload, go, coachParam }) {
 
   const nothing = offers && !offers.groups.length && !offers.slots_with_court.length && !offers.slots_other.length;
   const list = (items) => items.map((o) => <Offer key={(o.session_id ?? "") + o.coach.id + o.start} o={o} me={me} kinds={kinds} durs={durs} onBooked={booked} openCoach={openCoach} />);
+  // créneaux libres regroupés par coach et club (une carte, les heures en pastilles), dans l'ordre de la meilleure heure
+  const grouped = (items) => {
+    const g = new Map();
+    items.forEach((o) => { const k = `${o.coach.id}|${o.club}|${o.court}`; g.set(k, [...(g.get(k) ?? []), o]); });
+    return [...g.values()].map((xs) => (
+      <SlotGroup key={xs[0].coach.id + xs[0].club + xs[0].court} items={[...xs].sort((a, b) => (a.start < b.start ? -1 : 1))} me={me} kinds={kinds} durs={durs} onBooked={booked} openCoach={openCoach} />
+    ));
+  };
   return (
     <>
       <h1>Réserver</h1>
@@ -310,13 +347,12 @@ export function Book({ me, reload, go, coachParam }) {
         <>
           <h2 className="accent-h"><Icon name="pin" size={16} /> Créneaux avec un terrain déjà réservé</h2>
           {!solo && offers.slots_with_court.length > 0 && <div className="mut small-p" style={{ marginTop: -4, marginBottom: 8 }}>Vous pouvez être le premier : la séance sera confirmée quand assez de joueurs vous auront rejoint.</div>}
-          {offers.slots_with_court.length ? list(offers.slots_with_court) : <div className="card mut">Aucun terrain déjà réservé ce jour-là.</div>}
+          {offers.slots_with_court.length ? grouped(offers.slots_with_court) : <div className="card mut">Aucun terrain déjà réservé ce jour-là.</div>}
           {offers.slots_other.length > 0 && (
             <>
               <h2>Autres créneaux</h2>
               <div className="mut small-p" style={{ marginTop: -4, marginBottom: 8 }}>Le coach réservera le terrain et confirmera.</div>
-              {list(more ? offers.slots_other : offers.slots_other.slice(0, 6))}
-              {!more && offers.slots_other.length > 6 && <button className="link center" onClick={() => setMore(true)}>Voir les {offers.slots_other.length - 6} autres créneaux</button>}
+              {grouped(offers.slots_other)}
             </>
           )}
         </>

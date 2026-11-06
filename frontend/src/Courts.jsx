@@ -58,8 +58,20 @@ export function ManualForm({ clubs, onDone, onCancel }) {
   const setDate = (e) => setF({ ...f, date: e.target.value, weekdays: f.repeat === "weekly" && f.weekdays.length > 1 ? f.weekdays : [weekdayOf(e.target.value)], until: plusDays(e.target.value, Math.max(1, Math.round((new Date(f.until + "T12:00:00Z") - new Date(f.date + "T12:00:00Z")) / 604800000)) * 7 - 1) }); // garde le nombre de semaines
   const toggleDay = (d) => setF({ ...f, weekdays: f.weekdays.includes(d) ? (f.weekdays.length > 1 ? f.weekdays.filter((x) => x !== d) : f.weekdays) : [...f.weekdays, d] });
   const count = countOccurrences(f);
+  // Mode « disponibilités »: un terrain hors de ses horaires de travail ne sera jamais proposé aux joueurs
+  const [prefs, setPrefs] = useState(() => peek("/booking/settings"));
+  useEffect(() => { api("/booking/settings").then(setPrefs).catch(() => {}); }, []);
+  const end = (() => { const [h, m] = f.time.split(":").map(Number); const t = h * 60 + m + +f.duration_min; return `${String(Math.floor(t / 60)).padStart(2, "0")}:${String(t % 60).padStart(2, "0")}`; })();
+  const days = f.repeat === "none" ? [weekdayOf(f.date)] : f.repeat === "daily" ? [0, 1, 2, 3, 4, 5, 6] : f.weekdays;
+  const outside = prefs?.booking_mode === "disponibilites" && days.some((d) =>
+    !(prefs.availability ?? []).some((w) => w.weekday === d && w.start_time <= f.time && end <= w.end_time));
   async function save(e) {
     e.preventDefault();
+    if (outside && !(await confirmDialog({
+      title: "En dehors de vos horaires de travail",
+      message: "Ce terrain est en dehors de vos horaires de travail (Réglages › Disponibilités) : les joueurs ne verront pas ce créneau lorsqu'ils essaieront de réserver via l'application. Êtes-vous sûr de vouloir l'ajouter ?",
+      confirm: "Oui, l'ajouter", cancel: "Non",
+    }))) return;
     setBusy(true);
     try {
       const r = await api("/court-bookings/manual", { method: "POST", body: {
@@ -107,6 +119,7 @@ export function ManualForm({ clubs, onDone, onCancel }) {
         </label>
       )}
       {f.repeat !== "none" && <div className="multi-hint"><Icon name="repeat" size={16} /> <span><b>{count} terrain{count > 1 ? "s" : ""}</b> seront ajoutés, de {f.time} pour {f.duration_min} min. Les créneaux déjà saisis sont ignorés.</span></div>}
+      {outside && <div className="note warn small-p"><Icon name="alert" size={14} /> En dehors de vos horaires de travail : les joueurs ne verront pas ce créneau en réservant.</div>}
       {err && <div className="err" role="alert">{err}</div>}
       <button style={{ width: "100%" }} disabled={busy}>{busy ? "Enregistrement…" : f.repeat === "none" ? "Enregistrer le terrain" : `Enregistrer les ${count} terrains`}</button>
     </form>
