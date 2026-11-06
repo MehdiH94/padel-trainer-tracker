@@ -45,7 +45,7 @@ NEW_COLUMNS = [
     ("coaches", "hourly_prices", "BOOLEAN DEFAULT 0"), ("attendances", "refunded", "BOOLEAN DEFAULT 0"),
     ("player_events", "court_reserved", "BOOLEAN DEFAULT 0"), ("players", "fav_coaches", "VARCHAR(120) DEFAULT ''"),
     ("players", "fav_clubs", "TEXT DEFAULT ''"), ("bookings", "accepted_opts", "VARCHAR(120) DEFAULT ''"),
-    ("attendances", "accepted_opts", "VARCHAR(120) DEFAULT ''"),
+    ("attendances", "accepted_opts", "VARCHAR(120) DEFAULT ''"), ("coaches", "join_token", "VARCHAR(32)"), ("players", "open_signup", "BOOLEAN DEFAULT 0"),
 ]
 with engine.begin() as conn:
     for table, column, ddl in NEW_COLUMNS:

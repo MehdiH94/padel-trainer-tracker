@@ -2151,7 +2151,7 @@ def test_favorite_coaches_and_clubs_and_several_clubs_filter(client):
     mkclub(client)
     p, pc = player_client(client)
     coach_id = pc.get("/me/coaches").json()[0]["id"]
-    assert pc.get("/me").json()["favorites"] == {"coach_ids": [], "clubs": []}
+    assert pc.get("/me").json()["favorites"]["coach_ids"] == [coach_id]  # lien de son coach: favori d'office
     pc.put("/me/favorites", json={"coach_ids": [coach_id], "clubs": ["Padel Club La Marsa"]})
     assert pc.get("/me").json()["favorites"] == {"coach_ids": [coach_id], "clubs": ["Padel Club La Marsa"]}
     day = _day_of(pc.get("/me/slots").json()[-1])
@@ -2199,3 +2199,25 @@ def test_open_duration_shortened_by_the_strictest_and_same_slot_requests(client)
     assert client.post(f"/booking/requests/{rz['id']}/accept", json={}).status_code == 409
     grp_session = next(x2 for x2 in client.get("/sessions").json() if set(x2["player_ids"]) == {x["id"], y["id"]})
     assert grp_session["duration_min"] == 90
+
+
+def test_coach_signup_link_profile_and_goals(client):
+    """Lien d'inscription du coach (le même pour tous ses joueurs): le joueur devient son élève, coach favori,
+    après confirmation de l'administrateur; main forte, côté et objectifs demandés à l'inscription."""
+    from fastapi.testclient import TestClient
+    link = client.get("/auth/coach-link").json()["path"]
+    assert link == client.get("/auth/coach-link").json()["path"] and link.startswith("/inscription/")
+    token = link.rsplit("/", 1)[1]
+    assert TestClient(app).get(f"/auth/join/{token}").json()["coach_name"] == "Coach Test"
+    body = {"name": "Nadia Club", "phone": "29 111 222", "email": "nadia@x.tn", "password": "secret1", "gender": "F", "category": "P100-",
+            "dominant_hand": "gaucher", "side": "deux", "goals": "Progresser techniquement · Gagner un tableau P250", "coach_token": token}
+    pc = login_as(TestClient(app), TestClient(app).post("/auth/signup", json=body).json()["token"])
+    assert pc.get("/auth/account").json()["signup_status"] == "a_valider"  # confirmation de l'administrateur, comme le lien public
+    mine = next(x for x in client.get("/players").json() if x["name"] == "Nadia Club")
+    assert (mine["dominant_hand"], mine["side"], mine["goals"]) == ("gaucher", "deux", "Progresser techniquement · Gagner un tableau P250")
+    assert TestClient(app).post("/auth/signup", json={**body, "email": "x1@x.tn", "coach_token": "faux"}).status_code == 404
+    assert TestClient(app).post("/auth/signup", json={**body, "email": "x2@x.tn", "phone": "29 333 444", "side": "milieu"}).status_code == 422
+    # lien personnel d'un élève: son coach devient son coach favori
+    p, pc2 = player_client(client)
+    coach_id = next(c["id"] for c in pc2.get("/me/coaches").json() if c["mine"])
+    assert pc2.get("/me").json()["favorites"]["coach_ids"] == [coach_id]

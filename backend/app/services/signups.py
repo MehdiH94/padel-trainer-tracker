@@ -48,8 +48,9 @@ def coach_pending(coach: Coach) -> bool:
 
 
 def player_pending(p: Player) -> bool:
-    """Joueur inscrit par le lien public (sans coach): rien n'est possible avant la confirmation de l'administrateur."""
-    return p.signup_status == "a_valider" and p.coach_id is None and p.account_id is None
+    """Joueur inscrit seul (lien public, ou lien général d'un coach): rien n'est possible avant la confirmation de
+    l'administrateur."""
+    return p.signup_status == "a_valider" and p.account_id is None and (p.coach_id is None or bool(p.open_signup))
 
 
 def _admin_link(base: str) -> str:

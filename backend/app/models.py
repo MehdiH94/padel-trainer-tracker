@@ -13,6 +13,7 @@ def utcnow() -> datetime:
 class Coach(Base):
     __tablename__ = "coaches"
     id: Mapped[int] = mapped_column(primary_key=True)
+    join_token: Mapped[str | None] = mapped_column(String(32), nullable=True)  # lien d'inscription du coach (pour tous ses joueurs)
     email: Mapped[str] = mapped_column(String(255), unique=True)
     password_hash: Mapped[str] = mapped_column(String(255))
     name: Mapped[str] = mapped_column(String(120))
@@ -60,6 +61,7 @@ class Player(Base):
     gender: Mapped[str] = mapped_column(String(1), default="M")  # M / F
     category: Mapped[str] = mapped_column(String(6), default="P100-")  # P25- .. P1000+ (constants.CATEGORIES)
     pref_kinds: Mapped[str] = mapped_column(String(40), default="individuel,duo,groupe")  # types de séance souhaités
+    open_signup: Mapped[bool] = mapped_column(default=False)  # inscrit seul (lien public ou lien général d'un coach): l'administrateur confirme avant tout
     fav_coaches: Mapped[str] = mapped_column(String(120), default="")  # coachs favoris (ids séparés par des virgules), choisis d'office dans Réserver
     fav_clubs: Mapped[str] = mapped_column(Text, default="")  # clubs favoris (noms séparés par « | »)
     dominant_hand: Mapped[str] = mapped_column(String(10), default="droitier")

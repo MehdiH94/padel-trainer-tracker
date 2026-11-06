@@ -188,7 +188,7 @@ export function Book({ me, reload, go, coachParam }) {
   const [hour, setHour] = useState(k0.hour ?? "");
   const [kinds, setKinds] = useState(k0.kinds ?? me.pref_kinds);
   // durées acceptées: seul = toujours 1 h; à deux / en groupe = 1 h 30 par défaut, 1 h ou les deux
-  const [durs, setDurs] = useState(k0.durs ?? { duo: [90], groupe: [90] });
+  const [durs, setDurs] = useState(k0.durs ?? { duo: [60], groupe: [90] });
   const toggleDur = (k, m) => setDurs({ ...durs, [k]: durs[k].includes(m) ? (durs[k].length > 1 ? durs[k].filter((x) => x !== m) : durs[k]) : [...durs[k], m].sort() });
   const toggleKind = (k) => setKinds(kinds.includes(k) ? (kinds.length > 1 ? kinds.filter((x) => x !== k) : kinds) : ["individuel", "duo", "groupe"].filter((x) => x === k || kinds.includes(x)));
   const solo = kinds.length === 1 && kinds[0] === "individuel";

@@ -2,7 +2,7 @@
 
 Le coach fixe un prix par heure et par joueur pour chaque formule; une séance d'une autre durée est au prorata
 (100 TND l'heure -> 150 TND pour 1 h 30). Côté joueur, la durée se choisit à la réservation: seul = toujours 1 h,
-à deux ou en groupe = 1 h, 1 h 30 ou les deux (1 h 30 par défaut). Le coach, lui, crée ses séances comme il veut."""
+à deux = 1 h par défaut, en groupe = 1 h 30 par défaut (1 h, 1 h 30 ou les deux). Le coach, lui, crée ses séances comme il veut."""
 from datetime import datetime, timedelta
 
 from sqlalchemy import select
@@ -13,17 +13,17 @@ from .common import TUNIS, aware
 
 
 PLAYER_DURATIONS = {"individuel": (60,), "duo": (60, 90), "groupe": (60, 90)}  # durées que le joueur peut choisir
-DEFAULT_DURATION = {"individuel": 60, "duo": 90, "groupe": 90}
+DEFAULT_DURATION = {"individuel": 60, "duo": 60, "groupe": 90}  # proposé par défaut: seul et à deux 1 h, en groupe 1 h 30
 
 
 def duration_for(coach: Coach | None, kind: str) -> int:
-    """Durée proposée par défaut pour une formule (seul 1 h, à deux ou en groupe 1 h 30)."""
+    """Durée proposée par défaut pour une formule (seul et à deux 1 h, en groupe 1 h 30)."""
     return DEFAULT_DURATION.get(kind, 60)
 
 
 def player_durations(chosen: dict | None) -> dict[str, list[int]]:
     """Durées acceptées par le joueur pour chaque formule (seul: toujours 1 h). Rien de précisé pour une formule:
-    toutes ses durées possibles (l'appli, elle, envoie toujours le choix du joueur: 1 h 30 par défaut)."""
+    toutes ses durées possibles (l'appli, elle, envoie toujours le choix du joueur)."""
     chosen = chosen or {}
     return {k: sorted({int(m) for m in (chosen.get(k) or allowed) if int(m) in allowed}) or list(allowed)
             for k, allowed in PLAYER_DURATIONS.items()}

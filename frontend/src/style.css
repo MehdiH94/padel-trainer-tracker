@@ -830,3 +830,5 @@ button.saved { background: var(--green); border-color: var(--green); color: #fff
 .choice-opt.best { border-color: var(--green); background: var(--green-l); }
 .banner.bad { background: var(--red-l); color: var(--red); }
 .price-cells { display: flex; gap: 12px; }
+.chips.goals .chip { text-align: left; white-space: normal; }
+.seg-choice button { min-width: 0; }

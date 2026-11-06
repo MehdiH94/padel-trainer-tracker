@@ -276,7 +276,7 @@ function Account() {
 export default function App() {
   let page;
   if (location.pathname.startsWith("/invite/")) page = <Invite token={location.pathname.split("/")[2]} />;
-  else if (location.pathname.startsWith("/inscription")) page = <Signup />;
+  else if (location.pathname.startsWith("/inscription")) page = <Signup coachToken={location.pathname.split("/")[2] || null} />; // /inscription/<jeton> = lien d'un coach
   else if (location.pathname.startsWith("/remplacer/")) page = <Replace token={location.pathname.split("/")[2]} />;
   else if (location.pathname.startsWith("/verify/")) page = <VerifyEmail token={location.pathname.split("/")[2]} />;
   else if (!getToken()) page = <Login />;

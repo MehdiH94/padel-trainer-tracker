@@ -449,15 +449,20 @@ test("planning du joueur: il ajoute un match coaché, note son résultat, et son
   await expect(page.getByRole("heading", { name: "Historique" })).toBeVisible();
 });
 
-test("réserver: seul toujours 1 h, à deux ou en groupe 1 h 30 par défaut, 1 h ou les deux", async ({ page }) => {
+test("réserver: seul toujours 1 h, à deux 1 h par défaut, en groupe 1 h 30 par défaut, 1 h ou les deux", async ({ page }) => {
   await login(page, "sami@demo.tn");
   await page.locator("nav").getByRole("button", { name: "Réserver" }).click();
-  const duo = page.getByRole("checkbox", { name: /À deux/ });
-  if ((await duo.getAttribute("aria-checked")) !== "true") await duo.click();
+  for (const k of [/À deux/, /En groupe/]) {
+    const c = page.getByRole("checkbox", { name: k });
+    if ((await c.getAttribute("aria-checked")) !== "true") await c.click();
+  }
   const durDuo = page.getByRole("group", { name: "Durée à deux" });
-  await expect(durDuo.getByRole("button", { name: "1 h 30" })).toHaveAttribute("aria-pressed", "true");
-  await expect(durDuo.getByRole("button", { name: "1 h", exact: true })).toHaveAttribute("aria-pressed", "false");
-  await durDuo.getByRole("button", { name: "1 h", exact: true }).click(); // les deux durées
+  await expect(durDuo.getByRole("button", { name: "1 h", exact: true })).toHaveAttribute("aria-pressed", "true");
+  await expect(durDuo.getByRole("button", { name: "1 h 30" })).toHaveAttribute("aria-pressed", "false");
+  const durGroup = page.getByRole("group", { name: "Durée en groupe" });
+  await expect(durGroup.getByRole("button", { name: "1 h 30" })).toHaveAttribute("aria-pressed", "true");
+  await expect(durGroup.getByRole("button", { name: "1 h", exact: true })).toHaveAttribute("aria-pressed", "false");
+  await durDuo.getByRole("button", { name: "1 h 30" }).click(); // les deux durées
   await expect(durDuo.getByRole("button", { name: "1 h", exact: true })).toHaveAttribute("aria-pressed", "true");
   await expect(durDuo.getByRole("button", { name: "1 h 30" })).toHaveAttribute("aria-pressed", "true");
   const solo = page.getByRole("checkbox", { name: /Seul/ });
@@ -498,9 +503,10 @@ test("agenda du joueur: semaine, « Autre » (kiné…) et « Entraînement » q
 test("réserver: coachs et clubs favoris choisis d'office", async ({ page }) => {
   await login(page, "sami@demo.tn");
   await page.locator("nav").getByRole("button", { name: "Réserver" }).click();
-  await page.getByRole("button", { name: /Choisir mes coachs et clubs favoris/ }).click();
+  await page.getByRole("button", { name: /favoris/ }).click(); // son coach est déjà favori (lien d'invitation)
   const dialog = page.getByRole("dialog");
-  await dialog.getByRole("button", { name: /Coach Démo/ }).click();
+  const demo = dialog.getByRole("button", { name: /Coach Démo/ });
+  if ((await demo.getAttribute("aria-pressed")) !== "true") await demo.click();
   await dialog.getByRole("button", { name: "Enregistrer mes favoris" }).click();
   await expect(page.getByRole("group", { name: "Coachs" }).getByRole("button", { name: /Coach Démo ★/ })).toHaveAttribute("aria-pressed", "true");
   await page.locator("nav").getByRole("button", { name: "Accueil" }).click();
@@ -578,4 +584,30 @@ test("trois demandes pour le même créneau: le coach voit les choix possibles e
   await expect(page.getByRole("dialog").getByText(/Mehdi sera refusé/)).toBeVisible();
   await page.getByRole("dialog").getByRole("button", { name: "Accepter ce choix" }).click();
   await expect(page.locator(".req.conflict", { hasText: "Mehdi" }).filter({ hasText: "Karim" })).toHaveCount(0);
+});
+
+test("lien d'inscription du coach: le joueur choisit main, côté et objectifs, et devient son élève", async ({ page, browser }) => {
+  await login(page, "demo@padel.tn");
+  await nav(page, "Joueurs").click();
+  await page.getByRole("button", { name: /Mon lien d'inscription/ }).click();
+  const link = await page.getByLabel("Mon lien d'inscription").inputValue();
+  expect(link).toMatch(/\/inscription\/.+/);
+  const p = await (await browser.newContext()).newPage();
+  await p.goto(link);
+  await expect(p.getByText(/Coach Démo vous invite/)).toBeVisible();
+  await p.getByLabel("Nom complet").fill("Olfa Lien");
+  await p.getByLabel("Téléphone").fill("29 876 543");
+  await p.getByRole("group", { name: "Main forte" }).getByRole("button", { name: "Gaucher" }).click();
+  await p.getByRole("group", { name: "Côté de jeu" }).getByRole("button", { name: "Les deux" }).click();
+  await p.getByRole("group", { name: "Mes objectifs" }).getByRole("button", { name: "Gagner un tableau en tournoi" }).click();
+  await p.getByLabel("Tableau visé").selectOption("P250");
+  await p.getByLabel("Votre e-mail").fill("olfa.lien@demo.tn");
+  await p.getByLabel(/Mot de passe/).fill("secret1");
+  await p.getByRole("button", { name: "Créer mon compte" }).click();
+  await expect(p.getByText(/administrateur/).first()).toBeVisible(); // en attente de confirmation
+  await p.close();
+  await page.reload();
+  await page.getByText("Olfa Lien").first().click();
+  await expect(page.getByText("Gagner un tableau P250")).toBeVisible();
+  await expect(page.getByText(/gaucher · les deux côtés/)).toBeVisible();
 });

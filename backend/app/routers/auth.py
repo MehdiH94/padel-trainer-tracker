@@ -7,7 +7,9 @@ from sqlalchemy.orm import Session
 
 from fastapi.security import HTTPAuthorizationCredentials
 
-from ..auth import _decode, bearer, create_token, hash_password, verify_password
+import secrets
+
+from ..auth import _decode, bearer, create_token, current_coach, hash_password, verify_password
 from ..db import get_db
 from ..models import Coach, Player
 from ..constants import CATEGORIES
@@ -127,6 +129,21 @@ class InviteAccept(BaseModel):
     phone: str | None = None
     gender: str | None = None
     category: str | None = None
+    dominant_hand: str | None = None  # droitier / gaucher
+    side: str | None = None  # drive / revers / deux
+    goals: str | None = None  # objectifs choisis à l'inscription (affichés sur sa fiche)
+
+
+HANDS, SIDES = ("droitier", "gaucher"), ("drive", "revers", "deux")
+
+
+def _profile(p: Player, hand: str | None, side: str | None, goals: str | None) -> None:
+    """Main forte, côté de jeu et objectifs déclarés à l'inscription."""
+    if (hand and hand not in HANDS) or (side and side not in SIDES):
+        raise HTTPException(422, "Main forte ou côté de jeu invalide.")
+    p.dominant_hand, p.side = hand or p.dominant_hand, side or p.side
+    if goals is not None and goals.strip():
+        p.goals = goals.strip()[:500]
 
 
 def _by_token(db: Session, token: str) -> Player:
@@ -140,7 +157,7 @@ def _by_token(db: Session, token: str) -> Player:
 def invite_info(token: str, db: Session = Depends(get_db)):
     p = _by_token(db, token)
     return {"player_name": p.name, "coach_name": db.get(Coach, p.coach_id).name, "email": p.email,
-            "phone": p.phone, "gender": p.gender, "category": p.category}
+            "phone": p.phone, "gender": p.gender, "category": p.category, "dominant_hand": p.dominant_hand, "side": p.side}
 
 
 @router.post("/invite/{token}")
@@ -159,6 +176,8 @@ def invite_accept(token: str, body: InviteAccept, db: Session = Depends(get_db))
     p.name = (body.name or "").strip() or p.name
     p.phone = (body.phone or "").strip() or p.phone
     p.gender, p.category = body.gender or p.gender, body.category or p.category
+    _profile(p, body.dominant_hand, body.side, body.goals)
+    p.fav_coaches = str(p.coach_id)  # son coach: favori d'office (choisi d'office dans Réserver)
     p.email, p.password_hash, p.invite_token = email, hash_password(body.password), None
     p.contact_channel = body.contact_channel or p.contact_channel or "email"  # version bêta: tout par e-mail
     verification.send_link(db, p, body.base)  # DP-002: lien de vérification de l'adresse
@@ -175,6 +194,28 @@ class SignupIn(BaseModel):
     gender: str = "M"
     category: str = "P100-"
     base: str = ""
+    dominant_hand: str = "droitier"
+    side: str = "drive"
+    goals: str = ""
+    coach_token: str | None = None  # lien d'inscription d'un coach: le joueur devient son élève
+
+
+@router.get("/coach-link")
+def coach_link(coach: Coach = Depends(current_coach), db: Session = Depends(get_db)):
+    """Lien d'inscription du coach, le même pour tous ses joueurs (à envoyer à un groupe): le joueur qui s'inscrit
+    devient son élève (coach favori), après confirmation de l'administrateur comme pour le lien public."""
+    if not coach.join_token:
+        coach.join_token = secrets.token_urlsafe(12)
+        db.commit()
+    return {"path": f"/inscription/{coach.join_token}"}
+
+
+@router.get("/join/{token}")
+def join_info(token: str, db: Session = Depends(get_db)):
+    c = db.scalar(select(Coach).where(Coach.join_token == token))
+    if not c:
+        raise HTTPException(404, "Ce lien d'inscription n'est plus valide.")
+    return {"coach_name": c.name}
 
 
 @router.post("/signup")
@@ -194,8 +235,16 @@ def public_signup(body: SignupIn, db: Session = Depends(get_db)):
         raise HTTPException(422, "Niveau invalide : choisissez un niveau de P25- à P1000+.")
     if contact_conflicts(db, None, email, None)["email"]:
         raise HTTPException(409, "Cette adresse e-mail a déjà un compte : connectez-vous, ou utilisez une autre adresse.")
-    p = Player(coach_id=None, name=body.name.strip(), phone=phone, email=email, password_hash=hash_password(body.password),
-               gender=body.gender, category=body.category, contact_channel="email")
+    coach = None
+    if body.coach_token:
+        coach = db.scalar(select(Coach).where(Coach.join_token == body.coach_token))
+        if not coach:
+            raise HTTPException(404, "Ce lien d'inscription n'est plus valide.")
+        if contact_conflicts(db, coach.id, None, phone)["phone"]:
+            raise HTTPException(409, "Ce numéro est déjà celui d'un élève de ce coach : demandez-lui votre lien personnel.")
+    p = Player(coach_id=coach.id if coach else None, name=body.name.strip(), phone=phone, email=email, password_hash=hash_password(body.password),
+               gender=body.gender, category=body.category, contact_channel="email", fav_coaches=str(coach.id) if coach else "", open_signup=True)
+    _profile(p, body.dominant_hand, body.side, body.goals)
     db.add(p)
     db.flush()
     verification.send_link(db, p, body.base)

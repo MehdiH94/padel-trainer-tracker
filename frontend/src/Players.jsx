@@ -1,10 +1,41 @@
 import { useEffect, useState } from "react";
 import { api, emailProblem, peek, tnd, useContactCheck } from "./api.js";
 import Icon from "./Icon.jsx";
+import { toast } from "./feedback.jsx";
 import InviteLink from "./InviteLink.jsx";
 import PlayerPage from "./PlayerPage.jsx";
 import { guideHidden } from "./guide.js";
 import { Avatar, CATEGORIES, catOption, CategoryBadge, TIERS, tierOf } from "./ui.jsx";
+
+// Lien d'inscription du coach, le même pour tous ses joueurs (à envoyer à un groupe WhatsApp…): chacun crée son
+// compte et devient son élève (coach favori); l'administrateur confirme ensuite, comme pour le lien public.
+function CoachLink() {
+  const [open, setOpen] = useState(false);
+  const [path, setPath] = useState(() => peek("/auth/coach-link")?.path ?? null);
+  useEffect(() => { if (open && !path) api("/auth/coach-link").then((r) => setPath(r.path)).catch(() => {}); }, [open]);
+  const url = path && location.origin + path;
+  const msg = url && `Bonjour ! Créez votre compte Padel Coach avec ce lien pour réserver vos séances avec moi et suivre votre progression : ${url}`;
+  const copy = async () => { try { await navigator.clipboard.writeText(url); toast("Lien copié"); } catch { /* sans presse-papiers: le lien reste affiché */ } };
+  return (
+    <div className="card coach-link">
+      <button className="row plain" style={{ width: "100%" }} aria-expanded={open} onClick={() => setOpen(!open)}>
+        <span><Icon name="link" size={16} /> <b>Mon lien d'inscription</b> <span className="mut small-p">· pour tous mes joueurs</span></span>
+        <Icon name={open ? "chevD" : "chevR"} size={16} />
+      </button>
+      {open && (
+        <>
+          <div className="mut small-p" style={{ margin: "6px 0" }}>Envoyez-le à un groupe : chaque joueur crée son compte et devient votre élève (vous êtes son coach favori). L'administrateur confirme ensuite son inscription.</div>
+          {url ? (
+            <>
+              <div className="linkbox"><input readOnly value={url} aria-label="Mon lien d'inscription" onFocus={(e) => e.target.select()} /><button type="button" className="small" onClick={copy}><Icon name="copy" size={15} /> Copier</button></div>
+              <div className="actions"><a className="btnlink wa" href={`https://wa.me/?text=${encodeURIComponent(msg)}`} target="_blank" rel="noreferrer"><Icon name="whatsapp" size={15} /> WhatsApp</a></div>
+            </>
+          ) : <div className="skel" style={{ height: 40 }} />}
+        </>
+      )}
+    </div>
+  );
+}
 
 export default function Players({ playerId, openPlayer, closePlayer, go }) {
   const [list, setList] = useState(() => peek("/players") ?? []); // liste du dernier passage, tout de suite
@@ -49,6 +80,7 @@ export default function Players({ playerId, openPlayer, closePlayer, go }) {
   return (
     <>
       <h1>Joueurs <span className="mut">({list.length})</span></h1>
+      <CoachLink />
       <div className="searchbox"><Icon name="search" size={18} /><input placeholder="Rechercher un joueur…" value={q} onChange={(e) => setQ(e.target.value)} /></div>
       <div className="chips" style={{ marginBottom: 6 }}>
         <button className={"chip small" + (cat === "all" ? " on" : "")} onClick={() => setCat("all")}>Tous</button>
