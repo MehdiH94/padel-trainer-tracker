@@ -191,7 +191,7 @@ export default function CourtCalendar({ list, promos = [], sessions = [], offs =
                   <button key={cb.id} className={"cal-block " + cb.state} onClick={() => setSel(cb)}
                     style={{ top: (s - minH) * PX, height: Math.max((e - s) * PX - 2, 18), left: `${(lane / count) * 100}%`, width: `${100 / count}%` }}
                     aria-label={`${STATES[cb.state].short}, ${h24(cb.start)}${cb.club_name ? ", " + cb.club_name : ""}`}>
-                    <b>{short(cb.start)}–{short(endIso(cb))}{day && ` · ${STATES[cb.state].short}`}</b>
+                    <b>{byId[cb.session_id]?.feedback_missing && byId[cb.session_id]?.status === "effectuee" && <i className="todo-dot mini" title="À noter" />}{short(cb.start)}–{short(endIso(cb))}{day && ` · ${STATES[cb.state].short}`}</b>
                     {day && cb.club_name && <small>{cb.club_name}{cb.court_label && ` · ${cb.court_label}`}</small>}
                     {!day && multi && cb.club_name && <small className="club-code">{codes[cb.club_name]}</small>}
                     {day && cb.players?.length > 0 && <small>{cb.players.join(", ")}{cb.min_needed > 1 ? ` (${cb.players_count}/${cb.min_needed})` : ""}</small>}

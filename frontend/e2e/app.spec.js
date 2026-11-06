@@ -40,7 +40,7 @@ test("le coach parcourt tous ses écrans", async ({ page }) => {
   const next = page.getByRole("button", { name: "Semaine suivante" });
   for (let i = 0; i < 13; i++) await next.click();
   await expect(next).toBeDisabled();
-  await page.getByRole("button", { name: "Aujourd'hui" }).click();
+  await page.getByRole("button", { name: "Aujourd'hui", exact: true }).click();
   await page.getByRole("tab", { name: "Jour par jour" }).click();
   await expect(page.locator(".weekstrip")).toBeVisible();
 
@@ -380,7 +380,7 @@ test("terrain libre: prévenir ses joueurs en heures creuses (−20 TND); absenc
 
   // absence: aujourd'hui, avec une raison, visible dans le calendrier
   await page.getByRole("button", { name: "Semaine", exact: true }).click();
-  const back = page.getByRole("button", { name: "Aujourd'hui" }); // seulement quand on n'est pas sur la semaine en cours
+  const back = page.getByRole("button", { name: "Aujourd'hui", exact: true }); // seulement quand on n'est pas sur la semaine en cours
   if (await back.count()) await back.click();
   await page.getByRole("button", { name: "Absence" }).click();
   await page.getByLabel("Raison (facultatif)").fill("Vacances");
@@ -465,14 +465,19 @@ test("réserver: seul toujours 1 h, à deux ou en groupe 1 h 30 par défaut, 1 h
   await expect(page.getByText("toujours 1 h")).toBeVisible();
 });
 
-test("séance effectuée: le coach rembourse un joueur absent", async ({ page }) => {
+test("séance effectuée: le coach rembourse un joueur absent (somme choisie), depuis le planning", async ({ page }) => {
   await login(page, "demo@padel.tn");
+  await nav(page, "Planning").click();
+  await expect(page.getByText(/séances? à noter/).first()).toBeVisible(); // toutes les séances à noter, point rouge
   await page.locator(".donechip").first().click();
   const panel = page.locator(".donepanel");
   await expect(panel.locator(".paycard")).toHaveCount(1); // un joueur à la fois
   await panel.getByRole("button", { name: "Absent ? Rembourser" }).first().click();
-  await expect(page.getByRole("dialog").getByText("Êtes-vous sûr de vouloir rembourser ce joueur ?")).toBeVisible();
-  await page.getByRole("dialog").getByRole("button", { name: /Oui, rembourser/ }).click();
+  const amount = panel.getByLabel("Somme à rembourser");
+  if (await amount.count()) await amount.fill("10"); // une partie seulement
+  await panel.getByRole("button", { name: /^Rembourser/ }).click();
+  await expect(page.getByRole("dialog").getByText(/Êtes-vous sûr de vouloir rembourser/)).toBeVisible();
+  await page.getByRole("dialog").getByRole("button", { name: "Oui, rembourser" }).click();
   await expect(panel.getByText("Absent · remboursé")).toBeVisible();
 });
 
@@ -486,7 +491,7 @@ test("agenda du joueur: semaine, « Autre » (kiné…) et « Entraînement » q
   await form.getByPlaceholder(/kiné/).fill("Kiné genou");
   await form.getByRole("button", { name: "Enregistrer" }).click();
   await expect(page.getByText("Autre ajouté à votre planning")).toBeVisible();
-  await page.getByRole("button", { name: "Aujourd'hui" }).click();
+  await page.getByRole("button", { name: "Aujourd'hui", exact: true }).click();
   await expect(page.getByRole("grid", { name: "Mon agenda de la semaine" }).getByRole("button", { name: /Kiné genou/ })).toBeVisible();
   await page.getByRole("button", { name: /Ajouter à mon planning/ }).click();
   await page.getByRole("dialog").getByRole("button", { name: /Entraînement/ }).click();

@@ -2,7 +2,7 @@ import { useState } from "react";
 import { api, tnd } from "./api.js";
 import Icon from "./Icon.jsx";
 import { confirmDialog, toast, toastError } from "./feedback.jsx";
-import { PlayerTag } from "./ui.jsx";
+import { MoneyInput, PlayerTag } from "./ui.jsx";
 
 // Reste à régler par un joueur pour une séance effectuée
 export const leftToPay = (x) => Math.max(0, x.due_millimes - x.paid_millimes);
@@ -45,6 +45,7 @@ export default function SessionPayments({ s, name, byId, onPaid, playerId }) {
   const [own, setOwn] = useState(ids[0]);
   const cur = playerId ?? (ids.includes(own) ? own : ids[0]);
   const [form, setForm] = useState(null); // { amount, method }
+  const [back, setBack] = useState(null); // somme à rembourser (millimes), modifiable avant confirmation
   const [err, setErr] = useState("");
   const x = s.payments.find((p) => p.player_id === cur);
   if (!x) return null;
@@ -63,18 +64,22 @@ export default function SessionPayments({ s, name, byId, onPaid, playerId }) {
     }
   }
   // Joueur absent: le coach peut le rembourser (ses crédits lui reviennent, la séance ne lui est plus facturée)
+  const paid = x.credit_millimes + x.paid_millimes; // ce qu'il a payé pour la séance: le maximum à rendre
   async function refund() {
+    const amount = Math.min(back ?? paid, paid);
     const ok = await confirmDialog({
-      title: "Êtes-vous sûr de vouloir rembourser ce joueur ?",
-      message: `${name(cur)} n'est pas venu : ce qu'il a payé pour cette séance lui revient en crédits, et elle ne lui est plus facturée.`,
-      confirm: `Oui, rembourser ${first}`, cancel: "Non", danger: true,
+      title: amount > 0 ? `Êtes-vous sûr de vouloir rembourser ${tnd(amount)} à ${name(cur)} ?` : `Êtes-vous sûr de vouloir rembourser ${name(cur)} ?`,
+      message: amount > 0 ? "La somme revient sur ses crédits chez vous, et la séance ne lui est plus facturée." : "Il ne sera rien rendu, mais la séance ne lui sera plus facturée.",
+      confirm: "Oui, rembourser", cancel: "Non", danger: true,
     });
     if (!ok) return;
-    api(`/sessions/${s.id}/refund/${cur}`, { method: "POST" }).then(() => { toast(`${first} remboursé`); onPaid?.(); }).catch(toastError);
+    api(`/sessions/${s.id}/refund/${cur}`, { method: "POST", body: { amount_millimes: amount } })
+      .then(() => { toast(amount > 0 ? `${tnd(amount)} remboursés à ${first}` : `${first} : séance plus facturée`); setBack(null); onPaid?.(); })
+      .catch(toastError);
   }
   return (
     <div className="paybox">
-      {playerId == null && <PlayerSwitch ids={ids} cur={cur} setCur={(id) => { setOwn(id); setForm(null); }} byId={byId} name={name} mark={(id) => leftToPay(s.payments.find((p) => p.player_id === id)) > 0} />}
+      {playerId == null && <PlayerSwitch ids={ids} cur={cur} setCur={(id) => { setOwn(id); setForm(null); setBack(null); }} byId={byId} name={name} mark={(id) => leftToPay(s.payments.find((p) => p.player_id === id)) > 0} />}
       <div className="paycard">
         <div className="paycard-head">
           <b>{byId?.(cur) ? <PlayerTag p={byId(cur)} /> : name(cur)}</b>
@@ -82,10 +87,25 @@ export default function SessionPayments({ s, name, byId, onPaid, playerId }) {
             : x.credit_millimes > 0 ? <span className="paytag ok">Payé en crédits · {tnd(x.credit_millimes)}</span>
               : <span className={"paytag " + (left ? "ko" : "ok")}>Réglé {tnd(x.paid_millimes)} / {tnd(x.due_millimes)}</span>}
         </div>
-        {!x.refunded && !form && (
+        {!x.refunded && !form && back === null && (
           <div className="pay-actions">
             {left > 0 && <button className="small" onClick={() => setForm({ amount: (left / 1000).toFixed(3), method: "especes" })}><Icon name="wallet" size={15} /> Encaisser {tnd(left)}</button>}
-            <button className="small sec" onClick={refund}><Icon name="x" size={15} /> Absent ? Rembourser</button>
+            <button className="small sec" onClick={() => setBack(paid)}><Icon name="x" size={15} /> Absent ? Rembourser</button>
+          </div>
+        )}
+        {back !== null && (
+          <div className="refund-form">
+            {paid > 0 ? (
+              <>
+                <span className="mut small-p">Somme à rembourser</span>
+                <span className="inputunit"><MoneyInput label="Somme à rembourser" value={back} onChange={(m) => setBack(Math.min(m || 0, paid))} /><em>TND</em></span>
+                <small className="mut">Il a payé {tnd(paid)} pour cette séance : vous pouvez en rendre tout ou une partie.</small>
+              </>
+            ) : <small className="mut">Il n'a rien payé pour cette séance : elle ne lui sera simplement plus facturée.</small>}
+            <div className="pay-actions">
+              <button className="small" onClick={refund}>Rembourser{paid > 0 ? ` ${tnd(Math.min(back, paid))}` : ""}</button>
+              <button type="button" className="small sec" onClick={() => setBack(null)}>Annuler</button>
+            </div>
           </div>
         )}
         {form && (

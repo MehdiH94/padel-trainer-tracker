@@ -905,6 +905,10 @@ def test_coach_refunds_an_absent_player(client):
     assert next(x for x in out["payments"] if x["player_id"] == b["id"])["refunded"] is True
     assert bal(b) == 100000 and bal(a) == 60000
     assert client.post(f"/sessions/{s['id']}/refund/{b['id']}").status_code == 409  # pas deux fois
+    # remboursement partiel, choisi par le coach (jamais plus que ce qu'il a payé)
+    assert client.post(f"/sessions/{s['id']}/refund/{a['id']}", json={"amount_millimes": 50000}).status_code == 422
+    client.post(f"/sessions/{s['id']}/refund/{a['id']}", json={"amount_millimes": 15000})
+    assert bal(a) == 75000
     client.patch(f"/sessions/{s['id']}", json={"status": "prevue"})  # retour à « prévue »: rien n'est rendu deux fois
     assert bal(b) == 100000
 

@@ -817,3 +817,7 @@ button.saved { background: var(--green); border-color: var(--green); color: #fff
 .payform .pay-actions { grid-column: 1 / -1; }
 .payform select { width: 100%; }
 .donepanel { scroll-margin-top: 76px; }
+.refund-form { display: grid; gap: 6px; }
+.refund-form input { margin: 0; }
+.todo-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--red); display: inline-block; flex: none; box-shadow: 0 0 0 3px var(--red-l); }
+.todo-dot.mini { width: 7px; height: 7px; margin-right: 3px; box-shadow: 0 0 0 2px #fff; vertical-align: middle; }

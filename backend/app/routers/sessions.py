@@ -233,9 +233,13 @@ class InviteIn(BaseModel):
     message: str = ""
 
 
+class RefundIn(BaseModel):
+    amount_millimes: int | None = None  # somme rendue (par défaut: tout ce qu'il a payé pour la séance)
+
+
 @router.post("/{session_id}/refund/{player_id}", response_model=SessionOut)
-def refund_absent(session_id: int, player_id: int, coach: Coach = Depends(current_coach), db: Session = Depends(get_db)):
-    """Joueur absent d'une séance effectuée: le coach peut le rembourser (ses crédits lui reviennent)."""
+def refund_absent(session_id: int, player_id: int, body: RefundIn | None = None, coach: Coach = Depends(current_coach), db: Session = Depends(get_db)):
+    """Joueur absent d'une séance effectuée: le coach peut le rembourser, en tout ou en partie (crédits rendus)."""
     s = get_owned_session(db, coach, session_id)
     if s.status != "effectuee":
         raise HTTPException(409, "Seule une séance effectuée peut être remboursée à un absent.")
@@ -244,7 +248,10 @@ def refund_absent(session_id: int, player_id: int, coach: Coach = Depends(curren
         raise HTTPException(404, "Ce joueur n'est pas dans cette séance")
     if a.refunded:
         raise HTTPException(409, "Ce joueur a déjà été remboursé pour cette séance.")
-    amount = finance.refund_absent(db, s, a)
+    give = body.amount_millimes if body else None
+    if give is not None and not 0 <= give <= finance.refundable(db, s, a):
+        raise HTTPException(422, f"Le remboursement ne peut pas dépasser ce qu'il a payé pour cette séance ({dinars(finance.refundable(db, s, a))}).")
+    amount = finance.refund_absent(db, s, a, give)
     p = db.get(Player, player_id)
     booking_svc.notify(db, [p], "Séance remboursée", lambda pl: letter(
         pl.name, f"Vous n'avez pas pu venir à la séance du {quand(s.start, s.duration_min)} : {coach.name} vous la rembourse."

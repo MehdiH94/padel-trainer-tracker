@@ -1,9 +1,8 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { api, dayKey, dayLabel, hhmm, peek, shortDate, tnd, toDate, useLive } from "./api.js";
 import { Modal } from "./feedback.jsx";
-import FeedbackEditor from "./FeedbackEditor.jsx";
 import { monthRange } from "./Finance.jsx";
-import SessionPayments, { PlayerSwitch } from "./SessionPayments.jsx";
+import DonePanel, { ToRate } from "./DonePanel.jsx";
 import Icon from "./Icon.jsx";
 import { guideHidden, guideSteps, hideGuide } from "./guide.js";
 import { sessionStatus } from "./sessionActions.js";
@@ -25,45 +24,6 @@ function phase(s, now) {
   if (now >= st) return { key: "live", label: "En cours" };
   const m = Math.round((st - now) / 60000);
   return { key: "soon", label: m < 60 ? `Dans ${m} min` : `Dans ${Math.floor(m / 60)}h${String(m % 60).padStart(2, "0")}` };
-}
-
-// Panneau d'une séance terminée: un retour par joueur
-function DonePanel({ s, name, byId, strokes, onSaved, onClose }) {
-  const ref = useRef(null);
-  const [list, setList] = useState(null);
-  const [who, setWho] = useState(null);
-  const load = () => api(`/sessions/${s.id}/feedback`).then((l) => { setList(l); setWho((w) => w ?? l[0]?.player_id); });
-  useEffect(() => { setList(null); setWho(null); load(); }, [s.id]);
-  // le panneau s'ouvre sous la liste: on l'amène à l'écran pour ne pas avoir à descendre
-  useEffect(() => { if (list) ref.current?.scrollIntoView({ behavior: "smooth", block: "start" }); }, [s.id, !!list]);
-  if (!list) return null;
-  const cur = list.find((x) => x.player_id === who) ?? list[0];
-  const idx = list.indexOf(cur);
-  return (
-    <div className="card donepanel" ref={ref}>
-      <div className="row">
-        <b className="cap1">{shortDate(s.start)} · {hhmm(s.start)} · {KIND[s.kind].label}</b>
-        <button className="small sec iconbtn" aria-label="Fermer" onClick={onClose}><Icon name="x" size={15} /></button>
-      </div>
-      {/* un joueur à la fois: règlement puis retour de séance */}
-      <PlayerSwitch ids={list.map((x) => x.player_id)} cur={cur?.player_id} setCur={setWho} byId={byId} name={name}
-        mark={(id) => { const x = list.find((y) => y.player_id === id); return !(x.worked_on.length || x.note || x.to_improve); }} />
-      {list.length === 1 && <div className="mut" style={{ margin: "4px 0" }}><PlayerTag p={byId?.(cur.player_id) ?? cur} /></div>}
-      {s.payments?.length > 0 && cur && (
-        <>
-          <div className="mut small-p" style={{ marginTop: 8 }}>Règlement</div>
-          <SessionPayments s={s} name={name} byId={byId} onPaid={onSaved} playerId={cur.player_id} />
-        </>
-      )}
-      <div className="mut small-p" style={{ marginTop: 8 }}>Retour de séance</div>
-      {cur && <FeedbackEditor key={cur.player_id} h={cur} playerId={cur.player_id} name={byId?.(cur.player_id)?.name} strokes={strokes} rate onSaved={() => { load(); onSaved(); }} />}
-      {idx >= 0 && idx < list.length - 1 && (
-        <button className="sec" style={{ width: "100%", marginTop: 8 }} onClick={() => { setWho(list[idx + 1].player_id); ref.current?.scrollIntoView({ behavior: "smooth", block: "start" }); }}>
-          Joueur suivant : {name(list[idx + 1].player_id).split(" ")[0]} <Icon name="chevR" size={16} />
-        </button>
-      )}
-    </div>
-  );
 }
 
 // Premiers pas d'un nouveau coach: prix, disponibilités, premier joueur
@@ -170,9 +130,8 @@ export default function Home({ go, openPlayer, summary }) {
   const name = (id) => byId(id)?.name ?? "?";
   const todayAll = all.filter((s) => dayKey(s.start) === ymd(now) && s.status !== "annulee");
   const left = todayAll.filter((s) => s.status === "prevue" && endOf(s) > now); // séances du jour encore à venir (ou en cours)
-  // Séances effectuées à noter (retour du coach): celles des 7 derniers jours
-  const weekAgo = Date.now() - 7 * 86400000;
-  const toRate = all.filter((s) => s.status === "effectuee" && s.feedback_missing && toDate(s.start).getTime() > weekAgo).sort((a, b) => toDate(b.start) - toDate(a.start));
+  // Séances du jour effectuées à noter (retour du coach); les autres jours: dans le planning
+  const toRate = all.filter((s) => s.status === "effectuee" && s.feedback_missing && dayKey(s.start) === ymd(now)).sort((a, b) => toDate(b.start) - toDate(a.start));
   const setStatus = sessionStatus(all, load);
   // prochaine séance: en cours ou à venir (aujourd'hui ou plus tard); les autres du jour sont listées en bas
   const focus = all.filter((s) => s.status === "prevue" && endOf(s) > now).sort((a, b) => toDate(a.start) - toDate(b.start))[0];
@@ -247,22 +206,8 @@ export default function Home({ go, openPlayer, summary }) {
         <Kpi icon="alert" value={tnd(fin.unpaid_total_millimes)} small warn={fin.unpaid_total_millimes > 0} label="Impayés" onClick={() => setDetail("unpaid")} />
       </div>
 
-      {/* Séances effectuées (automatiquement, à la fin de l'heure) qui attendent le retour du coach */}
-      {toRate.length > 0 && (
-        <div className="card torate">
-          <div className="row"><b><Icon name="edit" size={16} /> {toRate.length} séance{toRate.length > 1 ? "s" : ""} à noter</b><span className="mut small-p">retour et araignée</span></div>
-          <div className="donestrip" style={{ marginTop: 8 }}>
-            {toRate.map((s) => (
-              <button key={s.id} className={"donechip" + (openDone === s.id ? " on" : "")} onClick={() => setOpenDone(openDone === s.id ? null : s.id)}>
-                <i className="todo" />
-                <AvatarStack names={s.player_ids.map(name)} size={24} />
-                <b>{hhmm(s.start)}</b>
-                <small>{dayKey(s.start) === ymd(now) ? "aujourd'hui" : shortDate(s.start)}</small>
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
+      {/* Séances du jour effectuées (automatiquement, à la fin de l'heure) qui attendent le retour du coach; les plus anciennes sont dans le planning */}
+      <ToRate list={toRate} openId={openDone} setOpen={setOpenDone} name={name} />
       {openDone && toRate.find((s) => s.id === openDone) && (
         <DonePanel s={toRate.find((s) => s.id === openDone)} name={name} byId={byId} strokes={strokes} onSaved={load} onClose={() => setOpenDone(null)} />
       )}

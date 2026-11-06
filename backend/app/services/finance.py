@@ -113,25 +113,47 @@ def settle(db: Session, coach_id: int, player_ids) -> None:
     db.flush()
 
 
-def refund_absent(db: Session, s: TrainingSession, a: Attendance) -> int:
-    """Joueur absent d'une séance effectuée: le coach le rembourse. Ce qu'il a payé pour elle (crédits débités,
-    paiement rattaché à la séance) lui revient en crédits, et la séance ne lui est plus facturée. Rend le montant."""
-    if a.refunded:
-        return 0
+def _credit_part(db: Session, s: TrainingSession, a: Attendance, mark: bool = False) -> int:
+    """Crédits débités pour cette séance (débits à la validation, séance payée en crédits, ajustements de prix).
+    mark: ces débits sont marqués pour ne pas être rendus une seconde fois (unsettle)."""
     amount = 0
     for t in db.scalars(select(CreditTx).where(CreditTx.player_id == a.player_id, CreditTx.reason.in_(("seance", "reservation", "ajustement")))):
         b = db.get(Booking, t.booking_id) if t.booking_id else None
         if t.session_id == s.id or (b and b.session_id == s.id):
-            amount -= t.amount_millimes  # débits (négatifs) et ajustements de prix pour cette séance
-            t.reason = {"seance": "seance_annulee"}.get(t.reason, t.reason)  # ne pas le rendre une seconde fois (unsettle)
+            amount -= t.amount_millimes
+            if mark:
+                t.reason = {"seance": "seance_annulee"}.get(t.reason, t.reason)
+    return amount
+
+
+def refundable(db: Session, s: TrainingSession, a: Attendance) -> int:
+    """Ce que le joueur a payé pour cette séance (crédits débités et argent réglé pour elle, comme affiché
+    dans les règlements): le maximum à lui rendre."""
+    return max(_credit_part(db, s, a) + session_payments(db, s.coach_id).get((s.id, a.player_id), 0), 0)
+
+
+def refund_absent(db: Session, s: TrainingSession, a: Attendance, give: int | None = None) -> int:
+    """Joueur absent d'une séance effectuée: le coach le rembourse. Ce qu'il a payé pour elle (crédits débités,
+    argent réglé pour cette séance) lui revient en crédits, en entier ou en partie (give, choisi par le coach),
+    et la séance ne lui est plus facturée. Rend le montant remboursé."""
+    if a.refunded:
+        return 0
+    cash = session_payments(db, s.coach_id).get((s.id, a.player_id), 0)  # argent réglé pour la séance (rattaché ou non)
+    amount = _credit_part(db, s, a, mark=True) + cash
+    attached = 0
     for p in db.scalars(select(Payment).where(Payment.session_id == s.id, Payment.player_id == a.player_id, Payment.kind == "seance")):
-        amount += p.amount_millimes
+        attached += p.amount_millimes
         p.kind = "credit"  # l'argent versé pour la séance devient des crédits
+    loose = cash - attached  # versement sans séance qui couvrait celle-ci: il devient lui aussi des crédits
+    if loose > 0:
+        db.add(Payment(coach_id=s.coach_id, player_id=a.player_id, amount_millimes=-loose, kind="seance"))
+        db.add(Payment(coach_id=s.coach_id, player_id=a.player_id, amount_millimes=loose, kind="credit"))
     a.refunded, a.credit_paid_millimes = True, 0
+    amount = max(amount, 0) if give is None else max(0, min(give, max(amount, 0)))
     if amount > 0:
         db.add(CreditTx(coach_id=s.coach_id, player_id=a.player_id, amount_millimes=amount, reason="remboursement", session_id=s.id))
     db.flush()
-    return max(amount, 0)
+    return amount
 
 
 def unsettle(db: Session, s: TrainingSession) -> None:

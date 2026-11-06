@@ -7,7 +7,8 @@ import InvitePlayers from "./InvitePlayers.jsx";
 import { confirmDialog, toast, toastError } from "./feedback.jsx";
 import SessionCard from "./SessionCard.jsx";
 import SessionForm from "./SessionForm.jsx";
-import SessionPayments, { PaySummary } from "./SessionPayments.jsx";
+import DonePanel, { ToRate } from "./DonePanel.jsx";
+import { PaySummary } from "./SessionPayments.jsx";
 import { duplicateNextWeek, sessionStatus } from "./sessionActions.js";
 import { DateSelect, KIND, Loading, PlayerTags, swipe } from "./ui.jsx";
 
@@ -56,6 +57,8 @@ export default function Planning({ go, summary }) {
   const [monday, setMonday] = useState(mondayOf(new Date()));
   const [sel, setSel] = useState(ymd(new Date()));
   const [openDone, setOpenDone] = useState(null);
+  const [openRate, setOpenRate] = useState(null); // séance à noter ouverte depuis le bandeau du haut
+  const [strokes, setStrokes] = useState(() => peek("/criteria")?.names ?? []);
   const [view, setView] = useState(location.hash.includes("jour") ? "liste" : "calendrier"); // le calendrier est la vue par défaut
   // Calendrier de la semaine: séances et terrains ensemble
   const [courts, setCourts] = useState(() => peek("/court-bookings") ?? []);
@@ -96,7 +99,7 @@ export default function Planning({ go, summary }) {
     setAdding(true);
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
-  useEffect(load, []);
+  useEffect(() => { load(); api("/criteria").then((c) => setStrokes(c.names)).catch(() => {}); }, []);
   useLive(load);
 
   const byId = (id) => players.find((p) => p.id === id);
@@ -111,6 +114,8 @@ export default function Planning({ go, summary }) {
   const list = byDay[sel] || [];
   const active = list.filter((s) => s.status !== "effectuee");
   const done = list.filter((s) => s.status === "effectuee"); // affichées en liste compacte
+  // toutes les séances effectuées sans retour, quel que soit le jour (l'accueil ne montre que celles du jour)
+  const toRate = (sessions ?? []).filter((s) => s.status === "effectuee" && s.feedback_missing).sort((a, b) => (a.start < b.start ? 1 : -1));
   const setStatus = sessionStatus(sessions ?? [], load);
   const duplicate = (s) => duplicateNextWeek(s, load);
   const maxMonday = addDays(mondayOf(new Date()), MAX_WEEKS * 7);
@@ -137,6 +142,12 @@ export default function Planning({ go, summary }) {
           </button>
         </div>
       </div>
+
+      {/* Séances passées encore sans retour (tous les jours): point rouge, chacune s'ouvre ici */}
+      <ToRate list={toRate} openId={openRate} setOpen={setOpenRate} name={name} />
+      {openRate && toRate.find((s) => s.id === openRate) && (
+        <DonePanel s={toRate.find((s) => s.id === openRate)} name={name} byId={byId} strokes={strokes} onSaved={load} onClose={() => setOpenRate(null)} />
+      )}
 
       <div className="seg mini" role="tablist" aria-label="Affichage" style={{ margin: "10px 0" }}>
         <button role="tab" aria-selected={view === "calendrier"} className={view === "calendrier" ? "on" : ""} onClick={() => setView("calendrier")}><Icon name="calendar" size={14} /> Calendrier</button>
@@ -179,7 +190,7 @@ export default function Planning({ go, summary }) {
             <button key={k} className={"day" + (k === sel ? " on" : "") + (k === today ? " today" : "")} onClick={() => setSel(k)}>
               <span className="dn">{d.toLocaleDateString("fr-FR", { weekday: "short", timeZone: TZ }).replace(".", "")}</span>
               <span className="dd">{d.toLocaleDateString("fr-FR", { day: "numeric", timeZone: TZ })}</span>
-              <span className="dots">{items.slice(0, 4).map((s, i) => <i key={i} style={{ background: KIND[s.kind]?.color }} />)}</span>
+              <span className="dots">{items.slice(0, 4).map((s, i) => <i key={i} style={{ background: s.status === "effectuee" && s.feedback_missing ? "var(--red)" : KIND[s.kind]?.color }} />)}</span>
             </button>
           );
         })}
@@ -202,20 +213,19 @@ export default function Planning({ go, summary }) {
             {done.map((s) => (
               <div key={s.id} className={"donerow" + (openDone === s.id ? " on" : "")}>
                 <button className="donerow-head" aria-expanded={openDone === s.id} onClick={() => setOpenDone(openDone === s.id ? null : s.id)}>
-                  <i style={{ background: KIND[s.kind]?.color }} />
+                  {s.feedback_missing ? <i className="todo-dot" title="À noter" /> : <i style={{ background: KIND[s.kind]?.color }} />}
                   <b>{hhmm(s.start)}</b>
                   <span className="donerow-names"><PlayerTags ids={s.player_ids} byId={byId} first empty="Sans joueur" /></span>
                   <PaySummary s={s} />
                   <Icon name={openDone === s.id ? "chevD" : "chevR"} size={15} />
                 </button>
                 {openDone === s.id && (
-                  <>
-                    <SessionPayments s={s} name={name} byId={byId} onPaid={load} />
-                    <div className="paylist" style={{ paddingTop: 0 }}>
+                  <DonePanel s={s} name={name} byId={byId} strokes={strokes} onSaved={load} scroll={false}>
+                    <div className="actions" style={{ marginTop: 10 }}>
                       <button className="small sec" onClick={() => duplicate(s)}><Icon name="copy" size={14} /> Copier à la semaine suivante</button>
                       <button className="small sec" onClick={() => setStatus(s.id, "annulee")}>Pas eu lieu ? Annuler</button>
                     </div>
-                  </>
+                  </DonePanel>
                 )}
               </div>
             ))}
