@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api, peek, tnd } from "./api.js";
 import Icon from "./Icon.jsx";
 import { toast, toastError } from "./feedback.jsx";
@@ -10,6 +10,7 @@ const FULL_DAYS = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", 
 
 export default function Settings({ onBack, sub }) {
   const [s, setS] = useState(() => peek("/booking/settings") ?? null);
+  const touched = useRef(false); // le coach a commencé à modifier: les réglages qui arrivent du serveur ne l'écrasent pas
   const [saved, setSaved] = useState(false);
   const [themes, setThemes] = useState(() => peek("/exercise-themes")?.work ?? []);
   const [cat, setCat] = useState(() => peek("/clubs/catalog") ?? null); // clubs connus + les miens
@@ -24,7 +25,7 @@ export default function Settings({ onBack, sub }) {
     setNewClubs([...newClubs, { ...nc, name: nc.name.trim() }]);
     setNc({ name: "", phone: "" });
   };
-  useEffect(() => { api("/booking/settings").then(setS); api("/exercise-themes").then((t) => setThemes(t.work)); }, []);
+  useEffect(() => { api("/booking/settings").then((x) => setS((cur) => (cur && touched.current ? cur : x))); api("/exercise-themes").then((t) => setThemes(t.work)); }, []);
   // Ouvert depuis le guide « Bien démarrer » (#settings/formules…): on va directement à la bonne section, mise en valeur
   useEffect(() => {
     const el = s && sub && document.getElementById(sub);
@@ -48,7 +49,7 @@ export default function Settings({ onBack, sub }) {
   }
 
   return (
-    <>
+    <div onInput={() => { touched.current = true; }} onClick={(e) => { if (e.target.closest("button, input, select")) touched.current = true; }}>
       <button className="small sec" onClick={onBack}><Icon name="chevL" size={15} /> Retour</button>
       <h1 style={{ marginTop: 10 }}>Réglages de réservation</h1>
       <p className="mut" style={{ marginTop: -6 }}>Ce que vos joueurs voient dans leur application : créneaux, prix, politique d'annulation.</p>
@@ -190,6 +191,6 @@ export default function Settings({ onBack, sub }) {
 
       <h2 id="araignee">Araignée : critères d'évaluation</h2>
       <CriteriaEditor url="/criteria" intro="Ce que vous notez de 0 à 10 pour vos joueurs (3 à 12 critères). Chaque joueur peut aussi avoir les siens, depuis sa fiche." reset="Revenir aux standards" />
-    </>
+    </div>
   );
 }
