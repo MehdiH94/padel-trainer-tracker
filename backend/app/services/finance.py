@@ -126,15 +126,9 @@ def _credit_part(db: Session, s: TrainingSession, a: Attendance, mark: bool = Fa
     return amount
 
 
-def refundable(db: Session, s: TrainingSession, a: Attendance) -> int:
-    """Ce que le joueur a payé pour cette séance (crédits débités et argent réglé pour elle, comme affiché
-    dans les règlements): le maximum à lui rendre."""
-    return max(_credit_part(db, s, a) + session_payments(db, s.coach_id).get((s.id, a.player_id), 0), 0)
-
-
-def refund_absent(db: Session, s: TrainingSession, a: Attendance, give: int | None = None) -> int:
+def refund_absent(db: Session, s: TrainingSession, a: Attendance) -> int:
     """Joueur absent d'une séance effectuée: le coach le rembourse. Ce qu'il a payé pour elle (crédits débités,
-    argent réglé pour cette séance) lui revient en crédits, en entier ou en partie (give, choisi par le coach),
+    argent réglé pour cette séance) lui revient en crédits, toujours en entier (tout ou rien),
     et la séance ne lui est plus facturée. Rend le montant remboursé."""
     if a.refunded:
         return 0
@@ -149,7 +143,7 @@ def refund_absent(db: Session, s: TrainingSession, a: Attendance, give: int | No
         db.add(Payment(coach_id=s.coach_id, player_id=a.player_id, amount_millimes=-loose, kind="seance"))
         db.add(Payment(coach_id=s.coach_id, player_id=a.player_id, amount_millimes=loose, kind="credit"))
     a.refunded, a.credit_paid_millimes = True, 0
-    amount = max(amount, 0) if give is None else max(0, min(give, max(amount, 0)))
+    amount = max(amount, 0)
     if amount > 0:
         db.add(CreditTx(coach_id=s.coach_id, player_id=a.player_id, amount_millimes=amount, reason="remboursement", session_id=s.id))
     db.flush()

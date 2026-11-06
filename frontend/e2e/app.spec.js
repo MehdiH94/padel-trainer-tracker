@@ -465,17 +465,14 @@ test("réserver: seul toujours 1 h, à deux ou en groupe 1 h 30 par défaut, 1 h
   await expect(page.getByText("toujours 1 h")).toBeVisible();
 });
 
-test("séance effectuée: le coach rembourse un joueur absent (somme choisie), depuis le planning", async ({ page }) => {
+test("séance effectuée: le coach rembourse un joueur absent (en entier), depuis le planning", async ({ page }) => {
   await login(page, "demo@padel.tn");
   await nav(page, "Planning").click();
   await expect(page.getByText(/séances? à noter/).first()).toBeVisible(); // toutes les séances à noter, point rouge
   await page.locator(".donechip").first().click();
   const panel = page.locator(".donepanel");
   await expect(panel.locator(".paycard")).toHaveCount(1); // un joueur à la fois
-  await panel.getByRole("button", { name: "Absent ? Rembourser" }).first().click();
-  const amount = panel.getByLabel("Somme à rembourser");
-  if (await amount.count()) await amount.fill("10"); // une partie seulement
-  await panel.getByRole("button", { name: /^Rembourser/ }).click();
+  await panel.getByRole("button", { name: /Absent \? Rembourser/ }).first().click(); // tout ce qu'il a payé, jamais une partie
   await expect(page.getByRole("dialog").getByText(/Êtes-vous sûr de vouloir rembourser/)).toBeVisible();
   await page.getByRole("dialog").getByRole("button", { name: "Oui, rembourser" }).click();
   await expect(panel.getByText("Absent · remboursé")).toBeVisible();
@@ -511,4 +508,16 @@ test("réserver: coachs et clubs favoris choisis d'office", async ({ page }) => 
   await page.locator("nav").getByRole("button", { name: "Réserver" }).click();
   await expect(page.getByRole("group", { name: "Coachs" }).getByRole("button", { name: /Coach Démo ★/ })).toHaveAttribute("aria-pressed", "true");
   await expect(page.getByRole("group", { name: "Coachs" }).getByRole("button", { name: "Tous" })).toHaveAttribute("aria-pressed", "false");
+});
+
+test("planning › calendrier: une séance passée à noter s'ouvre sur le panneau complet, sans « Préparer la séance »", async ({ page }) => {
+  await login(page, "demo@padel.tn");
+  await nav(page, "Planning").click();
+  const block = page.locator(".cal-block", { has: page.locator(".todo-dot") }).first();
+  await block.click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog.locator(".donepanel")).toBeVisible();
+  await expect(dialog.getByRole("button", { name: /Absent \? Rembourser/ })).toBeVisible();
+  await expect(dialog.getByRole("button", { name: "Pas eu lieu ? Annuler" })).toBeVisible();
+  await expect(dialog.getByText("Préparer la séance")).toHaveCount(0);
 });

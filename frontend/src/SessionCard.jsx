@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { hhmm, tnd } from "./api.js";
+import { hhmm, tnd, toDate } from "./api.js";
 import InvitePlayers from "./InvitePlayers.jsx";
 import MessagePlayers from "./MessagePlayers.jsx";
 import Icon from "./Icon.jsx";
@@ -43,7 +43,7 @@ export default function SessionCard({ s, name, byId, onStatus, onDuplicate, onPr
           )}
         </div>
       </div>
-      {onPrepare && s.status !== "annulee" && (
+      {onPrepare && s.status === "prevue" && toDate(s.start).getTime() + s.duration_min * 60000 > Date.now() && ( /* séance passée: plus rien à préparer */
         <button className={"prepare" + (s.has_plan ? " done" : "")} onClick={() => onPrepare(s)}>
           <Icon name={s.has_plan ? "checkCircle" : "sparkles"} size={16} />
           <span>{s.has_plan ? "Plan de séance prêt" : "Préparer la séance"}<small>{s.has_plan ? "Voir les exercices" : "Points faibles et exercices"}</small></span>

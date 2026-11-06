@@ -52,7 +52,9 @@ function Details({ cb, session, promo, cardProps, onClose, onRemove, onStopPromo
       {cb.state === "sans_terrain" && <p className="small-p warn-txt">Pensez à réserver un terrain pour cette séance : ajoutez-le avec « + Terrain » (il sera utilisé automatiquement s'il couvre l'horaire) ou demandez-le au club.</p>}
       {cb.state === "demande" && <p className="mut small-p">{cb.sent_at ? "SMS envoyé au club, en attente de sa réponse." : "Demande prête : le SMS part 7 jours avant la séance (ou depuis Mes terrains)."}</p>}
       {/* Séance: la même carte que dans la liste du jour (joueurs, compléter, effectuée, annuler…) */}
-      {session && cardProps && <SessionCard s={session} {...cardProps} onPrepare={(x) => { onClose(); cardProps.onPrepare(x); }} />}
+      {session && cardProps && (session.status === "effectuee" && cardProps.renderDone
+        ? cardProps.renderDone(session, onClose)
+        : <SessionCard s={session} {...cardProps} onPrepare={(x) => { onClose(); cardProps.onPrepare(x); }} />)}
       {!session && cb.players?.length > 0 && (
         <div className="card" style={{ marginBottom: 8 }}>
           <b className="small-p">{cb.players_count} joueur{cb.players_count > 1 ? "s" : ""}{cb.min_needed > 1 && ` · minimum voulu ${cb.min_needed}`}</b>

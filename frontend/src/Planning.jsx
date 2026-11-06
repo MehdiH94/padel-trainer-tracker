@@ -175,7 +175,16 @@ export default function Planning({ go, summary }) {
           {adding && <SessionForm key={JSON.stringify(prefill)} initial={prefill} players={players} onDone={created} />}
           {sessions === null ? <Loading rows={2} /> : (
             <CourtCalendar list={courts} promos={promos} sessions={sessions} offs={offs} monday={monday} onWeek={setMonday} maxMonday={maxMonday}
-              cardProps={{ byId, name, onStatus: setStatus, onDuplicate: duplicate, onPrepare: (x) => go(`session/${x.id}`), onChanged: load }}
+              cardProps={{ byId, name, onStatus: setStatus, onDuplicate: duplicate, onPrepare: (x) => go(`session/${x.id}`), onChanged: load,
+                // séance effectuée: noter, encaisser, rembourser un absent, annuler (même panneau que l'accueil)
+                renderDone: (s, close) => (
+                  <DonePanel s={s} name={name} byId={byId} strokes={strokes} onSaved={load} scroll={false}>
+                    <div className="actions" style={{ marginTop: 10 }}>
+                      <button className="small sec" onClick={() => { close(); duplicate(s); }}><Icon name="copy" size={14} /> Copier à la semaine suivante</button>
+                      <button className="small sec" onClick={() => { close(); setStatus(s.id, "annulee"); }}>Pas eu lieu ? Annuler</button>
+                    </div>
+                  </DonePanel>
+                ) }}
               onRemove={removeCourt} onStopPromo={stopPromo} onChanged={load} onCreateAt={createAt} onRemoveOff={removeOff} />
           )}
         </>
