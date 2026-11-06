@@ -109,6 +109,7 @@ class Attendance(Base):
     credit_paid_millimes: Mapped[int] = mapped_column(Integer, default=0)  # payé avec les crédits: rien à facturer
     accepted_kinds: Mapped[str] = mapped_column(String(40), default="")  # formules acceptées (séance formée par les joueurs, services/groups)
     refunded: Mapped[bool] = mapped_column(default=False)  # absent, remboursé par le coach: rien à payer
+    accepted_opts: Mapped[str] = mapped_column(String(120), default="")  # formules et durées acceptées (« duo:60,duo:90 »)
 
 
 class Club(Base):
@@ -220,6 +221,7 @@ class Booking(Base):
     player_id: Mapped[int] = mapped_column(ForeignKey("players.id"), index=True)
     kind: Mapped[str] = mapped_column(String(10), default="individuel")
     accepted_kinds: Mapped[str] = mapped_column(String(40), default="")  # formules acceptées par le joueur (affichées au coach)
+    accepted_opts: Mapped[str] = mapped_column(String(120), default="")  # formules et durées acceptées (« duo:60,duo:90,groupe:90 »)
     start: Mapped[datetime] = mapped_column(UTCDateTime)
     duration_min: Mapped[int] = mapped_column(Integer, default=60)
     # en_attente (à traiter) / acceptee (terrain à confirmer) / confirmee / refusee / annulee

@@ -29,12 +29,6 @@ def player_durations(chosen: dict | None) -> dict[str, list[int]]:
             for k, allowed in PLAYER_DURATIONS.items()}
 
 
-def kinds_at(kinds: list[str], durations: dict | None, minutes: int) -> list[str]:
-    """Formules du joueur possibles pour une séance de cette durée (jamais seul pendant 1 h 30)."""
-    d = player_durations(durations)
-    return [k for k in ("individuel", "duo", "groupe") if k in kinds and minutes in d[k]]
-
-
 def base_price(coach: Coach, kind: str, minutes: int | None = None) -> int:
     """Prix par joueur: prix de l'heure de la formule (Réglages) au prorata de la durée (1 h 30 = 1,5 fois)."""
     price = {"individuel": coach.price_individuel, "duo": coach.price_duo, "groupe": coach.price_groupe}[kind]

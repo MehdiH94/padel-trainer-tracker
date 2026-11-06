@@ -12,7 +12,7 @@ from . import groups
 from ..notify import letter
 from .common import TUNIS, aware, quand
 from .finance import credit_balance
-from .pricing import duration_for, kinds_at, quote, reduced
+from .pricing import duration_for, quote, reduced
 
 HORIZON_DAYS = 14
 MIN_NOTICE_H = 2
@@ -42,8 +42,13 @@ def pending_joins(db: Session, s: TrainingSession) -> int:
     return len(pending_bookings(db, s))
 
 
-def pending_kinds(db: Session, s: TrainingSession) -> list[list[str]]:
-    return [groups.split(b.accepted_kinds) for b in pending_bookings(db, s)]
+def booking_pairs(b: Booking, s: TrainingSession) -> set[tuple[int, int]]:
+    """(taille, durée) acceptées par une demande (anciennes données: ses formules, à la durée de la séance)."""
+    return groups.pairs_of(groups.parse_opts(b.accepted_opts)) or groups.pairs_of({(k, s.duration_min) for k in groups.split(b.accepted_kinds)})
+
+
+def pending_kinds(db: Session, s: TrainingSession) -> list:
+    return [booking_pairs(b, s) for b in pending_bookings(db, s)]
 
 
 def spots_left(db: Session, s: TrainingSession) -> int:
@@ -51,9 +56,16 @@ def spots_left(db: Session, s: TrainingSession) -> int:
     return groups.capacity(s, pending_kinds(db, s)) - len(s.attendances) - pending_joins(db, s)
 
 
-def join_target(db: Session, s: TrainingSession, kinds: list[str] | None) -> int | None:
-    """Taille visée si un joueur qui accepte ces formules rejoint la séance (None = pas possible)."""
-    return groups.join_target(s, kinds, len(s.attendances) + pending_joins(db, s), pending_kinds(db, s))
+def join_target(db: Session, s: TrainingSession, kinds: list[str] | None, durations: dict | None = None, opts=None) -> int | None:
+    """Taille visée si un joueur qui accepte ces formules (et ces durées) rejoint la séance (None = pas possible)."""
+    mine = groups.pairs_of(opts) if opts else groups.pairs_of(groups.opts_of(kinds, durations, s.duration_min)) if kinds else None
+    return groups.join_target(s, mine, len(s.attendances) + pending_joins(db, s), pending_kinds(db, s))
+
+
+def join_minutes(db: Session, s: TrainingSession, target: int, opts) -> int:
+    """Durée jouée si ce joueur rejoint à cette taille: la plus longue que tous acceptent (lui compris)."""
+    pairs = groups.allowed_pairs(s, pending_kinds(db, s)) & (groups.pairs_of(opts) if opts else groups.allowed_pairs(s))
+    return max([m for n, m in pairs if n == target] or [s.duration_min])
 
 
 def join_price(coach: Coach, s: TrainingSession, target: int) -> int:
@@ -66,13 +78,10 @@ def join_price(coach: Coach, s: TrainingSession, target: int) -> int:
 # --- Créneaux libres ----------------------------------------------------
 
 def _busy(db: Session, coach: Coach) -> list[tuple[datetime, datetime]]:
-    """Périodes déjà prises chez ce coach: séances et demandes de nouvelles séances pas encore traitées
-    (la durée est fixée à l'ouverture: choisie par le joueur ou par le coach)."""
+    """Périodes déjà prises chez ce coach: ses séances (durée la plus longue encore possible)."""
     busy = [(aware(s.start), aware(s.start) + timedelta(minutes=s.duration_min))
             for s in db.scalars(select(TrainingSession).where(TrainingSession.coach_id == coach.id, TrainingSession.status != "annulee"))]
-    for b in db.scalars(select(Booking).where(Booking.coach_id == coach.id, Booking.status == "en_attente", Booking.session_id.is_(None))):
-        busy.append((aware(b.start), aware(b.start) + timedelta(minutes=b.duration_min)))
-    return busy
+    return busy  # les demandes pas encore traitées ne bloquent pas: le coach voit ensemble celles d'un même créneau
 
 
 def _fits(cur: datetime, length: timedelta, lo: datetime, hi: datetime, busy, shortest: timedelta) -> bool:
@@ -240,27 +249,28 @@ def _debit(db: Session, b: Booking) -> None:
 def request_join(db: Session, coach: Coach, player: Player, s: TrainingSession, sms: SmsProvider | None = None, *, force_accept: bool = False,
                  kinds: list[str] | None = None, durations: dict | None = None) -> Booking:
     """Le joueur demande une place dans une séance existante (kinds: formules qu'il a choisies, s'il les a précisées;
-    durations: durées acceptées par formule, seules comptent les formules possibles à la durée de cette séance).
-    La taille de la séance après son arrivée doit convenir à tous (voir services/groups)."""
-    if kinds and durations is not None:
-        kinds = kinds_at(kinds, durations, s.duration_min)
-        if not kinds:
-            raise BookingError(f"Cette séance dure {s.duration_min} min : ce n'est pas la durée que vous avez choisie")
+    durations: durées acceptées par formule). La taille et la durée de la séance après son arrivée doivent convenir
+    à tous (voir services/groups); la durée la plus courte demandée l'emporte."""
     if not s.open or s.status != "prevue" or aware(s.start) < datetime.now(timezone.utc):
         raise BookingError("Cette séance n'est plus disponible")
     if player.id in attendee_ids(s) or db.scalar(select(Booking).where(Booking.session_id == s.id, Booking.player_id == player.id, Booking.status.in_(ACTIVE))):
         raise BookingError("Vous êtes déjà inscrit à cette séance")
     if spots_left(db, s) <= 0:
         raise BookingError("Cette séance est complète")
-    target = join_target(db, s, kinds)
+    opts = groups.opts_of(kinds, durations, s.duration_min) if kinds else None
+    target = join_target(db, s, kinds, opts=opts)
     if target is None:
+        if kinds and durations is not None and join_target(db, s, kinds) is not None:
+            raise BookingError(f"Cette séance dure {s.duration_min} min : ce n'est pas la durée que vous avez choisie")
         raise BookingError("Cette séance ne correspond pas aux formules que vous avez choisies")
     if not force_accept and not fits_session(db, player, s)[0]:
         raise BookingError("Votre classement n'est pas compatible avec les joueurs de cette séance")
-    price = join_price(coach, s, target)
-    b = Booking(coach_id=coach.id, player_id=player.id, kind=groups.kind_for_size(target) if groups.is_dynamic(s) or kinds else s.kind,
-                start=s.start, duration_min=s.duration_min, session_id=s.id, charged_millimes=0,
-                price_millimes=price, accepted_kinds=",".join(k for k in groups.ORDER if k in (kinds or [])))
+    dynamic = groups.is_dynamic(s)
+    minutes = join_minutes(db, s, target, opts) if dynamic else s.duration_min
+    price = price_for(coach, groups.kind_for_size(target), minutes) if dynamic else join_price(coach, s, target)
+    b = Booking(coach_id=coach.id, player_id=player.id, kind=groups.kind_for_size(target) if dynamic or kinds else s.kind,
+                start=s.start, duration_min=minutes, session_id=s.id, charged_millimes=0, price_millimes=price,
+                accepted_kinds=",".join(k for k in groups.ORDER if k in (kinds or [])), accepted_opts=groups.dump_opts(opts or []))
     db.add(b)
     db.flush()
     if force_accept or coach.auto_confirm:
@@ -272,34 +282,46 @@ def request_join(db: Session, coach: Coach, player: Player, s: TrainingSession, 
 
 def request_new(db: Session, coach: Coach, player: Player, kind: str, start: datetime, sms: SmsProvider | None = None,
                 accepted_kinds: list[str] | None = None, minutes: int | None = None, durations: dict | None = None) -> Booking:
-    """Le joueur demande un nouveau créneau (séance ouverte aux autres joueurs si duo/groupe), de la durée choisie.
-    accepted_kinds: formules qu'il accepte (seul, duo, groupe), durations: durées acceptées pour chacune
-    (seul = toujours 1 h). Seules les formules possibles à cette durée sont retenues et montrées au coach."""
+    """Le joueur demande un nouveau créneau (séance ouverte aux autres joueurs si duo/groupe).
+    accepted_kinds: formules qu'il accepte (seul, duo, groupe); durations: durées acceptées pour chacune (seul = 1 h).
+    Il ne choisit pas la durée: la séance retient la plus longue possible à ce début, et raccourcit si un joueur qui
+    la rejoint n'accepte que 1 h (la condition la plus stricte l'emporte). minutes: durée imposée (facultatif)."""
     if kind not in CAPACITY:
         raise BookingError("Type de séance invalide")
     wanted = [k for k in groups.ORDER if k in (accepted_kinds or []) or k == kind]
-    minutes = minutes or 60
-    accepted = kinds_at(wanted, durations, minutes)
-    if not accepted:
+    feasible = [m for m in (60, 90) if minutes in (None, m) and aware(start) in free_slots(db, coach, minutes=m)]
+    # sans durées précisées (anciens appels): 1 h, ou la durée imposée
+    opts = {(k, m) for k, m in (groups.opts_of(wanted, durations, 60) if durations is not None else groups.opts_of(wanted, None, minutes or 60))
+            if m in feasible and (k != "individuel" or m == 60)}  # seul: toujours 1 h
+    if not opts:
+        if not feasible:
+            raise BookingError("Ce créneau n'est plus disponible")
         raise BookingError("Une séance seul dure toujours 1 h" if wanted == ["individuel"] else "Durée impossible pour ces formules (1 h ou 1 h 30)")
+    accepted = [k for k in groups.ORDER if any(o[0] == k for o in opts)]
     kind = groups.smallest(accepted)  # s'il reste seul (ou au minimum voulu), c'est cette formule qui est jouée
     if not groups.can_open(kind, start):
         raise BookingError("Pour ouvrir une séance à deux ou en groupe, elle doit avoir lieu dans plus de 24 h (le temps de compléter le groupe)")
-    if aware(start) not in free_slots(db, coach, minutes=minutes):
-        raise BookingError("Ce créneau n'est plus disponible")
-    q = quote(db, coach, kind, start, minutes)  # prix de l'heure au prorata, heures creuses / promotion
-    price = q["price_millimes"]
-    b = Booking(coach_id=coach.id, player_id=player.id, kind=kind, start=aware(start), duration_min=minutes, charged_millimes=0,
-                accepted_kinds=",".join(accepted), price_millimes=price, discount_pct=q["discount_pct"],
-                discount_millimes=q["discount_millimes"])
+    length = max(m for k, m in opts if k == kind)  # durée jouée s'il reste à la taille minimale voulue
+    q = quote(db, coach, kind, start, length)  # prix de l'heure au prorata, heures creuses / promotion
+    b = Booking(coach_id=coach.id, player_id=player.id, kind=kind, start=aware(start), duration_min=max(m for _, m in opts), charged_millimes=0,
+                accepted_kinds=",".join(accepted), accepted_opts=groups.dump_opts(opts), price_millimes=q["price_millimes"],
+                discount_pct=q["discount_pct"], discount_millimes=q["discount_millimes"])
     db.add(b)
     db.flush()
     held = courts.held_covering(db, coach, b.start, b.duration_min)
-    if coach.auto_confirm and held:
+    if coach.auto_confirm and held and not same_slot(db, b):
         accept(db, coach, b, sms, court=held[0])  # terrain disponible: validation automatique
     _tell_coach_new(db, coach, player, b)
     db.commit()
     return b
+
+
+def same_slot(db: Session, b: Booking) -> list[Booking]:
+    """Autres demandes de nouvelle séance pas encore traitées qui chevauchent celle-ci (même créneau)."""
+    end = aware(b.start) + timedelta(minutes=b.duration_min)
+    return [x for x in db.scalars(select(Booking).where(Booking.coach_id == b.coach_id, Booking.status == "en_attente",
+                                                       Booking.session_id.is_(None), Booking.id != b.id))
+            if aware(x.start) < end and aware(b.start) < aware(x.start) + timedelta(minutes=x.duration_min)]
 
 
 def _tell_coach_new(db: Session, coach: Coach, player: Player, b: Booking) -> None:
@@ -318,16 +340,25 @@ def accept(db: Session, coach: Coach, b: Booking, sms: SmsProvider | None = None
     if b.status != "en_attente":
         raise BookingError("Demande déjà traitée")
     player = db.get(Player, b.player_id)
+    if not b.session_id:
+        # même créneau qu'une séance déjà acceptée (plusieurs joueurs ont demandé le même): compatible = il la rejoint
+        other = same_time_session(db, coach, b)
+        if other:
+            b.session_id = other.id
+            b.start, b.duration_min = other.start, other.duration_min
     if b.session_id:  # rejoindre une séance existante
         s = db.get(TrainingSession, b.session_id)
         kinds = groups.split(b.accepted_kinds)
         n = len(s.attendances)
-        if n + 1 > groups.capacity(s) or (kinds and not any(x >= n + 1 for x in groups.allowed(s) & groups.sizes(kinds))):
+        pairs = booking_pairs(b, s) if kinds else None
+        if n + 1 > groups.capacity(s) or (pairs and not any(x >= n + 1 for x, _ in groups.allowed_pairs(s) & pairs)):
             raise BookingError("Cette séance est complète")
         _debit(db, b)
         # formules retenues: celles qui permettent sa taille actuelle ou plus
         mine = [k for k in kinds if max(groups.SIZES[k]) >= n + 1]
-        s.attendances.append(Attendance(player_id=player.id, credit_paid_millimes=b.charged_millimes, accepted_kinds=",".join(mine)))
+        opts = {(k, m) for k, m in groups.parse_opts(b.accepted_opts) if k in mine}
+        s.attendances.append(Attendance(player_id=player.id, credit_paid_millimes=b.charged_millimes, accepted_kinds=",".join(mine),
+                                        accepted_opts=groups.dump_opts(opts)))
         b.status = "acceptee"
         refresh(db, s)
         _announce_accepted(db, coach, b, s)
@@ -347,7 +378,8 @@ def accept(db: Session, coach: Coach, b: Booking, sms: SmsProvider | None = None
     )
     # toutes les formules cochées: la plus petite = taille minimale voulue, les autres restent possibles
     mine = groups.split(b.accepted_kinds) or [b.kind]
-    s.attendances = [Attendance(player_id=player.id, credit_paid_millimes=b.charged_millimes, accepted_kinds=",".join(mine))]
+    s.attendances = [Attendance(player_id=player.id, credit_paid_millimes=b.charged_millimes, accepted_kinds=",".join(mine),
+                                accepted_opts=b.accepted_opts or "")]
     db.add(s)
     db.flush()
     b.session_id = s.id
@@ -366,6 +398,26 @@ def accept(db: Session, coach: Coach, b: Booking, sms: SmsProvider | None = None
         b.status = "acceptee"
     refresh(db, s)  # pas encore assez de joueurs: « en attente d'autres joueurs »
     _announce_accepted(db, coach, b, s)
+
+
+def same_time_session(db: Session, coach: Coach, b: Booking) -> TrainingSession | None:
+    """Demande d'un nouveau créneau alors qu'une séance du coach le chevauche déjà (souvent: une autre demande du même
+    créneau, acceptée juste avant). Même début, formules, durées et niveaux compatibles: la séance qu'il peut rejoindre.
+    Sinon, refus expliqué: le coach n'est jamais à deux séances en même temps."""
+    end = aware(b.start) + timedelta(minutes=b.duration_min)
+    clash = [s for s in db.scalars(select(TrainingSession).where(TrainingSession.coach_id == coach.id, TrainingSession.status == "prevue"))
+             if aware(s.start) < end and aware(b.start) < aware(s.start) + timedelta(minutes=s.duration_min)]
+    if not clash:
+        return None
+    player = db.get(Player, b.player_id)
+    for s in clash:
+        if aware(s.start) == aware(b.start) and s.open and groups.is_dynamic(s) and fits_session(db, player, s)[0] \
+                and groups.join_target(s, booking_pairs(b, s), len(s.attendances) + pending_joins(db, s), pending_kinds(db, s)) is not None:
+            return s
+    s = clash[0]
+    names = ", ".join(db.get(Player, a.player_id).name.split()[0] for a in s.attendances) or "sans joueur"
+    raise BookingError(f"Ce créneau est déjà pris par une autre séance ({quand(s.start, s.duration_min)}, {names}) qui ne lui convient pas : "
+                       "refusez cette demande ou proposez-lui un autre horaire.")
 
 
 def _announce_accepted(db: Session, coach: Coach, b: Booking, s: TrainingSession) -> None:
@@ -447,6 +499,8 @@ def refresh(db: Session, s: TrainingSession) -> None:
     if groups.is_dynamic(s):
         s.kind = groups.kind_for_size(max(len(s.attendances), groups.min_needed(s)))
         s.open = groups.capacity(s) > len(s.attendances)
+        # durée: la plus longue que tous acceptent (un joueur qui ne veut que 1 h raccourcit la séance de 1 h 30)
+        s.duration_min = min(s.duration_min, groups.best_minutes(s))
     complete, state = groups.is_complete(s), court_state(db, s)
     coach = db.get(Coach, s.coach_id)
     if groups.is_dynamic(s):
@@ -472,7 +526,7 @@ def _reprice(db: Session, coach: Coach, s: TrainingSession, b: Booking) -> None:
     """Prix de la formule réellement jouée (taille de la séance), avec la remise obtenue à la réservation.
     Déjà débité: la différence est rendue ou débitée (« ajustement »)."""
     price = reduced(price_for(coach, s.kind, s.duration_min), b.discount_pct, b.discount_millimes)
-    b.kind = s.kind
+    b.kind, b.duration_min = s.kind, s.duration_min
     if price == b.price_millimes:
         return
     b.price_millimes = price
@@ -495,12 +549,16 @@ def reconsider(db: Session, coach: Coach, b: Booking, kind: str) -> None:
     mine = [k for k in groups.ORDER if k in set(groups.split(b.accepted_kinds)) | {kind}]
     if s and b.status != "en_attente":
         a = next(x for x in s.attendances if x.player_id == b.player_id)
-        old = a.accepted_kinds
+        old = a.accepted_kinds, a.accepted_opts
         a.accepted_kinds = ",".join(mine)
+        if a.accepted_opts:  # nouvelle formule acceptée à la durée de la séance (seul: toujours 1 h)
+            a.accepted_opts = groups.dump_opts(groups.parse_opts(a.accepted_opts) | {(kind, 60 if kind == "individuel" else s.duration_min)})
         if len(s.attendances) > groups.capacity(s):
-            a.accepted_kinds = old
+            a.accepted_kinds, a.accepted_opts = old
             raise BookingError("Cette formule n'est pas compatible avec les autres joueurs de la séance")
     b.accepted_kinds = ",".join(mine)
+    if b.accepted_opts:
+        b.accepted_opts = groups.dump_opts(groups.parse_opts(b.accepted_opts) | {(kind, 60 if kind == "individuel" else (s.duration_min if s else b.duration_min))})
     if s and b.status != "en_attente":
         refresh(db, s)
     else:  # pas encore validée par le coach: formule de départ et prix mis à jour

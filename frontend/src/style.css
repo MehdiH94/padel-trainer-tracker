@@ -823,3 +823,10 @@ button.saved { background: var(--green); border-color: var(--green); color: #fff
 .todo-dot.mini { width: 7px; height: 7px; margin-right: 3px; box-shadow: 0 0 0 2px #fff; vertical-align: middle; }
 .slotgroup .chips { gap: 6px; }
 .slotgroup .card.offer { margin: 10px 0 0; box-shadow: none; border-color: var(--brand-ring); }
+/* Demandes du même créneau: choix proposés */
+.req.conflict { border: 2px solid var(--brand-ring); }
+.conflict-tag { font-size: .74rem; font-weight: 700; padding: 3px 9px; border-radius: 99px; background: var(--red-l); color: var(--red); white-space: nowrap; }
+.choice-opt { border: 1.5px solid var(--line); border-radius: 14px; padding: 10px 12px; margin: 8px 0; }
+.choice-opt.best { border-color: var(--green); background: var(--green-l); }
+.banner.bad { background: var(--red-l); color: var(--red); }
+.price-cells { display: flex; gap: 12px; }

@@ -142,12 +142,43 @@ def booking_out(db: Session, coach: Coach, b: Booking) -> dict:
         "price_millimes": b.price_millimes or b.charged_millimes or (s.price_millimes if s else 0) or base_price(coach, b.kind, b.duration_min),
         "base_millimes": base_price(coach, b.kind, b.duration_min),
     }
+    if b.status == "en_attente" and not s:
+        out |= slot_conflicts(db, coach, b)
     if b.status == "en_attente":
         # y a-t-il un terrain pour ce créneau ?
         out["courts_available"] = [] if s else [_court_out(cb, db) for cb in courts.held_covering(db, coach, b.start, b.duration_min)]
     if b.status == "confirmee":
         where = f" ({s.club})" if s and s.club else ""
         out["message"] = f"Bonjour {p.name.split()[0]}, votre séance de padel {KIND_LABEL[b.kind]} du {_fmt(b.start)}{where} est confirmée. À bientôt ! — {coach.name}"
+    return out
+
+
+def wish(b: Booking) -> list[dict]:
+    """Ce que veut le joueur: formules et durées acceptées (« À deux · 1 h ou 1 h 30 »)."""
+    opts = grp.parse_opts(b.accepted_opts) or {(k, b.duration_min) for k in grp.split(b.accepted_kinds) or [b.kind]}
+    return [{"kind": k, "minutes": sorted(m for kk, m in opts if kk == k)} for k in grp.ORDER if any(kk == k for kk, _ in opts)]
+
+
+def slot_conflicts(db: Session, coach: Coach, b: Booking) -> dict:
+    """Demandes d'un même créneau (elles se chevauchent): avec qui ce joueur peut jouer (même début, une taille et
+    une durée qui conviennent à tous, niveaux compatibles), et ce qui se passe si une séance est déjà acceptée là."""
+    from ..constants import compatible
+    me = db.get(Player, b.player_id)
+    mine = grp.pairs_of(grp.parse_opts(b.accepted_opts)) or grp.pairs_of({(k, b.duration_min) for k in grp.split(b.accepted_kinds) or [b.kind]})
+    others = svc.same_slot(db, b)
+    fits = []
+    for x in others:
+        p = db.get(Player, x.player_id)
+        theirs = grp.pairs_of(grp.parse_opts(x.accepted_opts)) or grp.pairs_of({(k, x.duration_min) for k in grp.split(x.accepted_kinds) or [x.kind]})
+        if aware(x.start) == aware(b.start) and any(n >= 2 for n, _ in mine & theirs) and compatible(me.category, me.gender, p.category, p.gender):
+            fits.append(x.id)
+    out = {"wish": wish(b), "same_slot": [x.id for x in others], "fits_with": fits, "session_here": None}
+    try:
+        s = svc.same_time_session(db, coach, b)
+        if s:  # une séance acceptée au même début lui convient: accepter = il la rejoint
+            out["session_here"] = {"join": True, "players": [db.get(Player, a.player_id).name for a in s.attendances]}
+    except svc.BookingError as e:  # séance acceptée incompatible: accepter est impossible
+        out["session_here"] = {"join": False, "why": str(e)}
     return out
 
 

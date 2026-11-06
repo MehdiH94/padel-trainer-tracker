@@ -552,3 +552,30 @@ test("terrain hors des horaires de travail (mode disponibilités): avertissement
     await request.put("/api/booking/settings", { headers, data: st });
   }
 });
+
+test("trois demandes pour le même créneau: le coach voit les choix possibles et accepte en un geste", async ({ page, request }) => {
+  const tok = async (email) => (await (await request.post("/api/auth/login", { data: { email, password: "demo1234" } })).json()).token;
+  const as = async (email) => ({ Authorization: `Bearer ${await tok(email)}` });
+  const sami = await as("sami@demo.tn"), karim = await as("karim@demo.tn"), mehdi = await as("mehdi@demo.tn");
+  const coach = await as("demo@padel.tn");
+  const day = new Date(Date.now() + 5 * 86400000).toLocaleDateString("fr-CA", { timeZone: "Africa/Tunis" });
+  const [club] = await (await request.get("/api/clubs", { headers: coach })).json();
+  await request.post("/api/court-bookings/manual", { headers: coach, data: { club_id: club.id, start: `${day}T20:00:00+01:00`, duration_min: 180, court_label: "Terrain soir" } });
+  const off = await (await request.get(`/api/me/offers?day=${day}&kinds=individuel,groupe&groupe_min=90`, { headers: sami })).json();
+  const slot = [...off.slots_with_court, ...off.slots_other].find((x) => x.coach.name === "Coach Démo"
+    && x.options.some((o) => o.kind === "groupe" && o.duration_min === 90) && x.options.some((o) => o.kind === "individuel"));
+  const group = { kind: "groupe", start: slot.start, coach_id: slot.coach.id, kinds: ["groupe"], durations: { groupe: [90] } };
+  expect((await request.post("/api/me/book", { headers: sami, data: group })).ok()).toBeTruthy();
+  expect((await request.post("/api/me/book", { headers: karim, data: group })).ok()).toBeTruthy();
+  expect((await request.post("/api/me/book", { headers: mehdi, data: { kind: "individuel", start: slot.start, coach_id: slot.coach.id, kinds: ["individuel"] } })).ok()).toBeTruthy();
+
+  await login(page, "demo@padel.tn");
+  await nav(page, "Demandes").click();
+  const card = page.locator(".req.conflict", { hasText: "Mehdi" }).filter({ hasText: "Karim" });
+  await expect(card.getByText(/3 demandes · même créneau/)).toBeVisible();
+  await expect(card.getByText("Elles ne sont pas toutes compatibles : choisissez qui joue.")).toBeVisible();
+  await card.getByRole("button", { name: /Accepter Sami et Karim/ }).click();
+  await expect(page.getByRole("dialog").getByText(/Mehdi sera refusé/)).toBeVisible();
+  await page.getByRole("dialog").getByRole("button", { name: "Accepter ce choix" }).click();
+  await expect(page.locator(".req.conflict", { hasText: "Mehdi" }).filter({ hasText: "Karim" })).toHaveCount(0);
+});

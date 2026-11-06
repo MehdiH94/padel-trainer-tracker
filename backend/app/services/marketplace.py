@@ -9,14 +9,14 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from ..constants import CAPACITY
-from ..models import Attendance, Availability, Club, Coach, CourtBooking, HappyHour, Player, TrainingSession
+from ..models import Attendance, Availability, Booking, Club, Coach, CourtBooking, HappyHour, Player, TrainingSession
 from . import courts
 from .accounts import linked
 from .isolation import visible_coaches
 from . import groups as grp
-from .booking import attendee_ids, edges, fits_session, free_slots, join_price, join_target, pending_joins, price_for, spots_left
+from .booking import attendee_ids, edges, fits_session, free_slots, join_minutes, join_price, join_target, pending_joins, price_for, spots_left
 from .common import TUNIS, aware
-from .pricing import duration_for, kinds_at, player_durations, quote
+from .pricing import duration_for, player_durations, quote
 
 PERIODS = {"matin": (0, 12), "apres-midi": (12, 17), "soir": (17, 24)}
 
@@ -108,8 +108,8 @@ def offers(db: Session, account: Player, day: date, kinds: list[str], coach_ids:
             ok, gap = fits_session(db, account, s)
             if not ok:
                 continue
-            mine = kinds_at(kinds, durations, s.duration_min)
-            target = join_target(db, s, mine) if mine else None
+            opts = grp.opts_of(kinds, durations, s.duration_min)
+            target = join_target(db, s, kinds, opts=opts)
             # bonne formule mais autre durée (ex. 1 h au lieu d'1 h 30): montrée quand même, avec une petite note
             other_duration = target is None and join_target(db, s, kinds) is not None
             if other_duration:
@@ -122,19 +122,25 @@ def offers(db: Session, account: Player, day: date, kinds: list[str], coach_ids:
                 continue
             others = [db.get(Player, i) for i in attendee_ids(s)]
             taken = len(others) + pending_joins(db, s)
+            # durée jouée s'il la rejoint: la plus longue que tous acceptent, lui compris (la plus stricte l'emporte)
+            minutes = join_minutes(db, s, target, None if other_duration else opts) if grp.is_dynamic(s) else s.duration_min
             groups.append({
-                "type": "group", "session_id": s.id, "coach": who, "start": s.start, "duration_min": s.duration_min, "kind": grp.kind_for_size(target),
-                "club": s.club, "court": courts_state(db, s), "price_millimes": join_price(c, s, target),
+                "type": "group", "session_id": s.id, "coach": who, "start": s.start, "duration_min": minutes, "kind": grp.kind_for_size(target),
+                "club": s.club, "court": courts_state(db, s),
+                "price_millimes": price_for(c, grp.kind_for_size(target), minutes) if grp.is_dynamic(s) else join_price(c, s, target),
                 "spots_left": spots_left(db, s), "players": [{"name": p.name, "category": p.category, "gender": p.gender} for p in others],
                 "count": taken, "missing": max(0, target - taken - 1),  # joueurs qu'il manquera encore après lui
                 "other_duration": other_duration, "_gap": gap + (10 if other_duration else 0),
             })
-        # 2. Nouveaux créneaux: pour chaque durée choisie (1 h, 1 h 30), les débuts possibles et le prix de chaque
-        #    formule acceptée à cette durée (la séance démarre avec la plus petite, le prix suit la formule jouée)
+        # 2. Nouveaux créneaux: pour chaque durée acceptée (1 h, 1 h 30), les débuts possibles et le prix de chaque
+        #    formule à cette durée. Le joueur ne choisit pas: la séance garde la plus longue possible et le prix suit
+        #    la formule et la durée réellement jouées (un joueur qui n'accepte que 1 h la raccourcit)
         starts: dict[datetime, list[dict]] = {}
+        pending = list(db.scalars(select(Booking).where(Booking.coach_id == c.id, Booking.status == "en_attente", Booking.session_id.is_(None),
+                                                        Booking.player_id.not_in(my_ids))))
         snug = edges(db, c)  # créneaux collés à un bord de plage libre: mis en avant
         for minutes in (60, 90):
-            ks = kinds_at(kinds, durations, minutes)
+            ks = [k for k in kinds if minutes in durations[k]]
             if not ks:
                 continue
             for start in free_slots(db, c, minutes=minutes):
@@ -148,7 +154,9 @@ def offers(db: Session, account: Player, day: date, kinds: list[str], coach_ids:
             held = [cb for cb in courts.held_covering(db, c, start, min(o["duration_min"] for o in options))
                     if in_clubs(db.get(Club, cb.club_id).name)]
             first = options[0]
-            item = {"type": "slot", "coach": who, "start": start, "options": options, "kind": first["kind"],
+            requested = sum(1 for b in pending if aware(b.start) < start + timedelta(minutes=max(o["duration_min"] for o in options))
+                            and start < aware(b.start) + timedelta(minutes=b.duration_min))  # autres demandes du même créneau
+            item = {"type": "slot", "coach": who, "start": start, "options": options, "kind": first["kind"], "requested": requested,
                     "duration_min": first["duration_min"], "price_millimes": first["price_millimes"],
                     "discount_pct": max(o["discount_pct"] for o in options), "reduction_millimes": max(o["reduction_millimes"] for o in options),
                     "reason": next((o["reason"] for o in options if o["reason"]), None),

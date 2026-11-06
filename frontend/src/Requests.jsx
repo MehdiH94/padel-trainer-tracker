@@ -5,6 +5,8 @@ import { confirmDialog } from "./feedback.jsx";
 import InvitePlayers from "./InvitePlayers.jsx";
 import { Avatar, CategoryBadge, ContactLinks, KIND, Loading, PlayerTag } from "./ui.jsx";
 
+const dur = (m) => (m % 60 ? `${Math.floor(m / 60) ? Math.floor(m / 60) + " h " : ""}${m % 60}` : `${m / 60} h`);
+const wishText = (w) => (w ?? []).map((x) => `${KIND[x.kind].label} ${x.minutes.map(dur).join(" ou ")}`).join(" · ");
 const hm = (iso, min) => `${hhmm(iso)} – ${hhmm(new Date(toDate(iso).getTime() + min * 60000).toISOString())}`;
 
 function Head({ r }) {
@@ -33,7 +35,8 @@ function Head({ r }) {
           <span className="mut small-p">Formules acceptées :</span>
           {Object.keys(KIND).map((k) => {
             const ok = r.accepted_kinds?.includes(k);
-            return <span key={k} className={"kind-pill" + (ok ? "" : " refused")} style={ok ? { background: KIND[k].color + "1a", color: KIND[k].color } : undefined}><Icon name={ok ? "check" : "x"} size={13} /> {KIND[k].label}</span>;
+            const mins = r.wish?.find((x) => x.kind === k)?.minutes; // durées acceptées (1 h, 1 h 30 ou les deux)
+            return <span key={k} className={"kind-pill" + (ok ? "" : " refused")} style={ok ? { background: KIND[k].color + "1a", color: KIND[k].color } : undefined}><Icon name={ok ? "check" : "x"} size={13} /> {KIND[k].label}{ok && mins ? ` · ${mins.map(dur).join(" ou ")}` : ""}</span>;
           })}
         </div>
       )}
@@ -90,14 +93,106 @@ function Pending({ r, clubs, reload }) {
           </div>
         </div>
       )}
+      {r.session_here && (r.session_here.join
+        ? <div className="banner ok"><Icon name="users" size={18} /><span>Une séance est déjà acceptée à cette heure avec {r.session_here.players.join(", ")} : accepter = il la rejoint.</span></div>
+        : <div className="banner bad"><Icon name="alert" size={18} /><span>{r.session_here.why}</span></div>)}
       {err && <div className="err">{err}</div>}
       <div className="actions">
-        {r.join ? <button onClick={() => act("accept", {})}><Icon name="check" size={16} /> Accepter</button>
+        {r.session_here && !r.session_here.join ? null : r.join ? <button onClick={() => act("accept", {})}><Icon name="check" size={16} /> Accepter</button>
           : hasCourt ? <button onClick={() => act("accept", { court_booking_id: +courtId })}><Icon name="check" size={16} /> Accepter avec ce terrain</button>
           : <button className="amber" onClick={() => act("accept", { club_id: clubId ? +clubId : null })}><Icon name="clock" size={16} /> Accepter · terrain à confirmer</button>}
         <button className="sec danger" onClick={async () => (await confirmDialog({ title: `Refuser la demande de ${r.name} ?`, message: r.charged_millimes ? `${tnd(r.charged_millimes)} de crédits lui seront rendus.` : "Rien n'a été débité de ses crédits.", confirm: "Refuser", cancel: "Retour", danger: true })) && act("refuse")}><Icon name="x" size={16} /> Refuser</button>
       </div>
       <div className="mut small-p">Accepter débite {tnd(r.price_millimes)} des crédits du joueur (le solde peut devenir négatif). Refuser ne débite rien.</div>
+    </div>
+  );
+}
+
+// Plusieurs demandes pour le même créneau (elles se chevauchent): on propose les choix possibles — qui peut jouer
+// ensemble (même heure, une taille et une durée qui conviennent à tous, niveaux compatibles) — et un seul geste
+// accepte ce choix et refuse les autres (rien n'a été débité). On peut aussi les traiter une par une.
+function teams(list) {
+  const byId = Object.fromEntries(list.map((r) => [r.id, r]));
+  const out = [];
+  const used = new Set();
+  for (const r of list) {
+    if (used.has(r.id)) continue;
+    const team = [r];
+    for (const id of r.fits_with ?? []) {
+      const o = byId[id];
+      if (o && !used.has(id) && team.every((t) => (t.fits_with ?? []).includes(id))) team.push(o);
+    }
+    if (team.length > 1) team.forEach((t) => used.add(t.id));
+    out.push(team);
+  }
+  // une équipe à plusieurs d'abord, puis les demandes seules qui n'en font pas partie
+  const seen = new Set();
+  return out.filter((t) => t.length > 1 || !used.has(t[0].id)).filter((t) => { const k = t.map((x) => x.id).sort().join(); return !seen.has(k) && seen.add(k); })
+    .sort((a, b) => b.length - a.length);
+}
+
+function common(team) {
+  // formules et durées acceptées par tous les membres du choix
+  const sets = team.map((r) => new Set((r.wish ?? []).flatMap((w) => w.minutes.map((m) => `${w.kind}:${m}`))));
+  const all = [...sets[0]].filter((x) => sets.every((s) => s.has(x)));
+  const kinds = [...new Set(all.map((x) => x.split(":")[0]))].filter((k) => team.length === 1 || k !== "individuel");
+  return kinds.map((k) => `${KIND[k].label} · ${all.filter((x) => x.startsWith(k + ":")).map((x) => dur(+x.split(":")[1])).join(" ou ")}`).join(" / ");
+}
+
+function SlotConflict({ list, clubs, reload }) {
+  const [oneByOne, setOneByOne] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const options = teams(list);
+  const start = list.reduce((a, r) => (r.start < a ? r.start : a), list[0].start);
+  const end = list.reduce((a, r) => Math.max(a, toDate(r.start).getTime() + r.duration_min * 60000), 0);
+  const choose = async (team) => {
+    const others = list.filter((r) => !team.includes(r));
+    const ok = await confirmDialog({
+      title: `Accepter ${team.map((r) => r.name.split(" ")[0]).join(" et ")} ?`,
+      message: others.length ? `${others.map((r) => r.name.split(" ")[0]).join(" et ")} ${others.length > 1 ? "seront refusés" : "sera refusé"} (rien n'a été débité de ses crédits).` : "",
+      confirm: "Accepter ce choix", cancel: "Retour",
+    });
+    if (!ok) return;
+    setBusy(true);
+    try {
+      const first = team[0];
+      const court = first.courts_available?.[0];
+      const club = clubs.find((c) => c.phone);
+      // le premier ouvre la séance (avec le terrain libre s'il y en a un), les autres la rejoignent
+      await api(`/booking/requests/${first.id}/accept`, { method: "POST", body: court ? { court_booking_id: court.id } : { club_id: club ? club.id : null } });
+      for (const r of team.slice(1)) await api(`/booking/requests/${r.id}/accept`, { method: "POST", body: {} });
+      for (const r of others) await api(`/booking/requests/${r.id}/refuse`, { method: "POST" });
+      reload();
+    } catch (x) {
+      setErr(x.message);
+      setBusy(false);
+      reload();
+    }
+  };
+  return (
+    <div className="card req conflict">
+      <div className="row">
+        <b className="cap1">{dayLabel(start)} · {hm(start, Math.round((end - toDate(start).getTime()) / 60000))}</b>
+        <span className="conflict-tag">{list.length} demandes · même créneau</span>
+      </div>
+      <div className="mut small-p">{options.length > 1 ? "Elles ne sont pas toutes compatibles : choisissez qui joue." : "Elles sont compatibles : ces joueurs peuvent jouer ensemble."}</div>
+      {options.map((team, i) => {
+        const others = list.filter((r) => !team.includes(r));
+        return (
+          <div key={team.map((r) => r.id).join()} className={"choice-opt" + (i === 0 ? " best" : "")}>
+            <div className="row"><b>{common(team) || wishText(team[0].wish)}</b><span className="mut small-p">{team.length > 1 ? `${team.length} joueurs` : tnd(team[0].price_millimes)}</span></div>
+            <div className="partners">{team.map((r) => <span key={r.id} className="partner"><Avatar name={r.name} size={22} /> <PlayerTag p={r} /></span>)}</div>
+            {others.length > 0 && <div className="mut small-p">{others.map((r) => r.name.split(" ")[0]).join(" et ")} {others.length > 1 ? "seront refusés" : "sera refusé"}</div>}
+            <button className={i === 0 ? "" : "sec"} style={{ width: "100%", marginTop: 6 }} disabled={busy} onClick={() => choose(team)}>
+              <Icon name="check" size={15} /> Accepter {team.map((r) => r.name.split(" ")[0]).join(" et ")}
+            </button>
+          </div>
+        );
+      })}
+      {err && <div className="err">{err}</div>}
+      <button className="link" onClick={() => setOneByOne(!oneByOne)}>{oneByOne ? "Masquer le détail" : "Ou les traiter une par une"} <Icon name={oneByOne ? "chevD" : "chevR"} size={14} /></button>
+      {oneByOne && list.map((r) => <Pending key={r.id} r={r} clubs={clubs} reload={reload} />)}
     </div>
   );
 }
@@ -195,6 +290,17 @@ function Groups({ reload: refresh }) {
   );
 }
 
+// Demandes regroupées par créneau: celles qui se chevauchent (same_slot) forment un seul bloc
+function slots(pending) {
+  const groups = [];
+  const where = {};
+  for (const r of pending) {
+    const g = [r.id, ...(r.same_slot ?? [])].map((id) => where[id]).find((x) => x);
+    if (g) { g.push(r); where[r.id] = g; } else { const n = [r]; groups.push(n); where[r.id] = n; }
+  }
+  return groups;
+}
+
 export default function Requests({ go, refreshSummary }) {
   const [items, setItems] = useState(() => peek("/booking/requests") ?? null);
   const [clubs, setClubs] = useState([]);
@@ -224,7 +330,9 @@ export default function Requests({ go, refreshSummary }) {
         <>
           {items.length === 0 && <div className="card empty"><Icon name="checkCircle" size={34} /><b>Tout est à jour</b><div className="mut">Aucune demande en attente.</div></div>}
           {pending.length > 0 && <h2 className="red-h"><span className="dot" /> À traiter ({pending.length})</h2>}
-          {pending.map((r) => <Pending key={r.id} r={r} clubs={clubs} reload={load} />)}
+          {slots(pending).map((list) => list.length > 1
+            ? <SlotConflict key={list.map((r) => r.id).join()} list={list} clubs={clubs} reload={load} />
+            : <Pending key={list[0].id} r={list[0]} clubs={clubs} reload={load} />)}
           {waitingPlayers.length > 0 && <h2>En attente d'autres joueurs ({waitingPlayers.length})</h2>}
           {waitingPlayers.map((r) => <WaitingPlayers key={r.id} r={r} reload={load} />)}
           {waiting.length > 0 && <h2>En attente du terrain ({waiting.length})</h2>}

@@ -45,23 +45,21 @@ function CourtTag({ court }) {
 function Offer({ o, me, kinds, durs, onBooked, openCoach, startOpen }) {
   const [open, setOpen] = useState(!!startOpen);
   const [busy, setBusy] = useState(false);
-  // Créneau proposé en 1 h et/ou 1 h 30 (durées choisies par le joueur): il choisit la durée, chacune son prix.
-  // Pas de formule à choisir: on démarre avec la plus petite formule cochée, et le prix suit la formule
-  // réellement jouée (seul, à deux, en groupe) selon le nombre de joueurs final.
-  const lengths = [...new Set((o.options ?? []).map((x) => x.duration_min))].sort((a, b) => a - b);
-  const [chosenLen, setLen] = useState(null);
-  const len = lengths.includes(chosenLen) ? chosenLen : lengths[lengths.length - 1]; // 1 h 30 par défaut
-  const options = (o.options ?? []).filter((x) => x.duration_min === len);
-  const start = options[0]; // plus petite formule cochée possible sur ce créneau, à cette durée
-  const pick = start?.kind ?? o.kind;
-  const shown = o.type === "slot" ? { ...o, options, chosen: start } : o;
-  const firstAt = (m) => (o.options ?? []).find((x) => x.duration_min === m);
+  // Rien à choisir: ni la formule ni la durée. Le joueur est prêt pour tout ce qu'il a coché (ex. à deux ou en groupe,
+  // 1 h ou 1 h 30); la séance démarre avec la plus petite formule et la plus longue durée, et le prix suit ce qui
+  // est réellement joué: nombre de joueurs final et durée (un joueur qui n'accepte que 1 h la raccourcit).
+  const options = o.options ?? [];
+  const lengths = [...new Set(options.map((x) => x.duration_min))].sort((a, b) => a - b);
+  const pick = options[0]?.kind ?? o.kind;
+  const start = [...options].filter((x) => x.kind === pick).sort((a, b) => b.duration_min - a.duration_min)[0]; // départ: plus petite formule, plus longue durée
+  const shown = o.type === "slot" ? { ...o, chosen: start } : o;
+  const rows = [...new Set(options.map((x) => x.kind))].map((k) => [k, options.filter((x) => x.kind === k).sort((a, b) => a.duration_min - b.duration_min)]);
   const book = async () => {
     setBusy(true);
     try {
       // séance d'une autre durée que celle choisie: le joueur l'accepte en la rejoignant
       const accept = o.other_duration ? { duo: [...durs.duo, o.duration_min], groupe: [...durs.groupe, o.duration_min] } : durs;
-      const body = o.type === "group" ? { session_id: o.session_id, kinds, durations: accept } : { kind: pick, start: o.start, coach_id: o.coach.id, kinds, minutes: len, durations: durs };
+      const body = o.type === "group" ? { session_id: o.session_id, kinds, durations: accept } : { kind: pick, start: o.start, coach_id: o.coach.id, kinds, durations: durs };
       onBooked({ ...(await api("/me/book", { method: "POST", body })), start: o.start });
     } catch (x) {
       toastError(x);
@@ -77,9 +75,7 @@ function Offer({ o, me, kinds, durs, onBooked, openCoach, startOpen }) {
           <small>{o.club || "Club à confirmer"}</small>
           <span><CourtTag court={o.court} />{o.other_duration && <span className="court-badge wait"><Icon name="clock" size={12} /> Autre durée</span>}{o.type === "group" && <span className="court-badge idle"><Icon name="users" size={12} /> {o.count} inscrit{o.count > 1 ? "s" : ""} · {o.spots_left} place{o.spots_left > 1 ? "s" : ""}</span>}</span>
         </span>
-        {o.type === "slot" && lengths.length > 1 && !open
-          ? <span className="offer-price two">{lengths.map((m) => <span key={m}><small className="mut">{dur(m)} </small>{tnd(firstAt(m).price_millimes)}</span>)}</span>
-          : <Price o={shown} open={open} />}
+        <Price o={shown} open={open} />
       </button>
       {o.type === "group" && (
         <div className="partners">
@@ -88,20 +84,20 @@ function Offer({ o, me, kinds, durs, onBooked, openCoach, startOpen }) {
       )}
       {open && (
         <div className="confirm-box">
-          {lengths.length > 1 && (
-            <div className="seg-choice" role="group" aria-label="Durée">
-              {lengths.map((m) => <button key={m} type="button" className={len === m ? "on" : ""} aria-pressed={len === m} onClick={() => setLen(m)}>{dur(m)} · {tnd(firstAt(m).price_millimes)}</button>)}
-            </div>
-          )}
           {o.other_duration && <div className="note warn small-p"><Icon name="clock" size={13} /> Cette séance dure {dur(o.duration_min)}, pas la durée choisie. Ça vous va quand même ?</div>}
-          {options.length > 1 && (
-            <div className="price-table" aria-label="Prix selon la formule jouée">
-              <div className="small-p"><b>Vous paierez selon le nombre de joueurs final :</b></div>
-              {options.map((x) => (
-                <div key={x.kind} className="row small-p"><span>{HOW[x.kind]}{x.kind === pick && " (si personne ne vous rejoint)"}</span><b>{tnd(x.price_millimes)}</b></div>
+          {o.type === "slot" && options.length > 1 && (
+            <div className="price-table" aria-label="Prix selon la formule et la durée jouées">
+              <div className="small-p"><b>Vous paierez selon le nombre de joueurs final{lengths.length > 1 ? " et la durée" : ""} :</b></div>
+              {rows.map(([k, xs]) => (
+                <div key={k} className="row small-p">
+                  <span>{HOW[k]}{k === pick && rows.length > 1 && " (si personne ne vous rejoint)"}</span>
+                  <span className="price-cells">{xs.map((x) => <span key={x.duration_min}><small className="mut">{dur(x.duration_min)}</small> <b>{tnd(x.price_millimes)}</b></span>)}</span>
+                </div>
               ))}
+              {lengths.length > 1 && <div className="mut small-p" style={{ marginTop: 4 }}><Icon name="clock" size={12} /> {dur(lengths[lengths.length - 1])} au départ ; {dur(lengths[0])} si un joueur qui vous rejoint ne veut jouer que {dur(lengths[0])}.</div>}
             </div>
           )}
+          {o.requested > 0 && <div className="mut small-p"><Icon name="users" size={13} /> {o.requested === 1 ? "Un autre joueur a déjà demandé" : `${o.requested} autres joueurs ont déjà demandé`} ce créneau : le coach choisira.</div>}
           <div className="mut small-p"><Icon name="wallet" size={13} /> {payment(me, o.coach.id, (start ?? o).price_millimes)}</div>
           {o.type === "slot" && pick !== "individuel" && (
             <div className="mut small-p"><Icon name="users" size={13} /> Vous serez le premier : la séance sera confirmée dès que {pick === "duo" ? "1 autre joueur" : "2 autres joueurs"} vous aur{pick === "duo" ? "a" : "ont"} rejoint (les places sont proposées aux joueurs de votre niveau). Sinon, 6 h avant, vous pourrez accepter une autre formule ou annuler (remboursé).</div>

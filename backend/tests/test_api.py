@@ -257,8 +257,14 @@ def test_double_booking_prevented(client):
     for p in (p1, p2):
         client.post(f"/players/{p['id']}/credits", json={"amount_millimes": 60000})
     slot = c1.get("/me/slots").json()[0]
-    assert c1.post("/me/book", json={"kind": "individuel", "start": slot}).status_code == 201
-    assert c2.post("/me/book", json={"kind": "individuel", "start": slot}).status_code == 409
+    r1 = c1.post("/me/book", json={"kind": "individuel", "start": slot})
+    assert r1.status_code == 201
+    # une demande pas encore traitée ne bloque pas le créneau: le coach voit les deux ensemble et choisit
+    r2 = c2.post("/me/book", json={"kind": "individuel", "start": slot})
+    assert r2.status_code == 201
+    assert client.post(f"/booking/requests/{r1.json()['id']}/accept", json={}).status_code == 200
+    r = client.post(f"/booking/requests/{r2.json()['id']}/accept", json={})
+    assert r.status_code == 409 and "déjà pris" in r.json()["detail"]  # deux joueurs seuls: jamais en même temps
 
 
 def test_refusal_refunds(client):
@@ -1733,6 +1739,8 @@ def test_slots_never_overlap_and_leave_no_unusable_gap(client):
     assert [x["ideal"] for x in sorted(first, key=lambda x: x["start"])] == [True, False, False, False, True]  # collés au bord
     r = pc.post("/me/book", json={"kind": "groupe", "start": eight.isoformat(), "kinds": ["groupe"], "minutes": 90})
     assert r.status_code == 201
+    assert "08:00" in hhmm(pc.get(f"/me/offers?day={day}&kinds=individuel").json()["slots_with_court"])  # demande pas encore traitée: le créneau reste proposé
+    client.post(f"/booking/requests/{r.json()['id']}/accept", json={})
     after = pc.get(f"/me/offers?day={day}&kinds=individuel,duo,groupe").json()["slots_with_court"]
     assert hhmm(after)[0] == "09:30" and "09:00" not in hhmm(after)  # à la suite du groupe (8 h-9 h 30)
 
@@ -2150,3 +2158,44 @@ def test_favorite_coaches_and_clubs_and_several_clubs_filter(client):
     both = pc.get(f"/me/offers?day={day}&kinds=individuel&clubs=Padel Club La Marsa|Autre Club").json()
     none = pc.get(f"/me/offers?day={day}&kinds=individuel&clubs=Autre Club").json()
     assert both["slots_other"] and not none["slots_other"]
+
+
+def test_open_duration_shortened_by_the_strictest_and_same_slot_requests(client):
+    """Le joueur accepte 1 h ou 1 h 30 sans choisir: la séance prend 1 h 30, puis 1 h quand un joueur qui ne veut
+    que 1 h la rejoint (prix recalculés). Plusieurs demandes du même créneau: le coach les voit ensemble; accepter
+    une demande compatible la fait rejoindre la séance, une demande incompatible est refusée avec une explication."""
+    open_week(client, auto_confirm=False)  # 40 TND l'heure à deux, 30 en groupe
+    a, pa = player_client(client, name="Ali", phone="20111111")
+    b, pb = player_client(client, name="Bea", phone="20222222")
+    for p in (a, b):
+        client.post(f"/players/{p['id']}/credits", json={"amount_millimes": 200000})
+    start = _future_slot(pa, 50)
+    r = pa.post("/me/book", json={"kind": "duo", "start": start, "kinds": ["duo"], "durations": {"duo": [60, 90]}}).json()
+    req = next(x for x in client.get("/booking/requests").json() if x["id"] == r["id"])
+    assert req["duration_min"] == 90 and req["wish"] == [{"kind": "duo", "minutes": [60, 90]}]
+    client.post(f"/booking/requests/{r['id']}/accept", json={})
+    sid = next(x["id"] for x in client.get("/sessions").json() if x["player_ids"] == [a["id"]])
+    rb = pb.post("/me/book", json={"session_id": sid, "kinds": ["duo"], "durations": {"duo": [60]}}).json()
+    assert rb["price_millimes"] == 40000  # 1 h à deux
+    client.post(f"/booking/requests/{rb['id']}/accept", json={})
+    s = next(x for x in client.get("/sessions").json() if x["id"] == sid)
+    assert s["duration_min"] == 60 and pa.get("/me").json()["credits_millimes"] == 160000  # Ali repaie 1 h, pas 1 h 30
+
+    # trois demandes du même créneau: deux en groupe 1 h 30, une seule 1 h
+    later = (datetime.fromisoformat(start) + timedelta(days=2)).isoformat()
+    x, px = player_client(client, name="Xavier", phone="20333333")
+    y, py = player_client(client, name="Yasmine", phone="20444444")
+    z, pz = player_client(client, name="Zied", phone="20555555")
+    rx = px.post("/me/book", json={"kind": "groupe", "start": later, "kinds": ["groupe"], "durations": {"groupe": [90]}}).json()
+    ry = py.post("/me/book", json={"kind": "groupe", "start": later, "kinds": ["groupe"], "durations": {"groupe": [90]}}).json()
+    rz = pz.post("/me/book", json={"kind": "individuel", "start": later, "kinds": ["individuel"]}).json()
+    reqs = {q["id"]: q for q in client.get("/booking/requests").json()}
+    assert set(reqs[rx["id"]]["same_slot"]) == {ry["id"], rz["id"]} and reqs[rx["id"]]["fits_with"] == [ry["id"]]
+    assert reqs[rz["id"]]["fits_with"] == []
+    client.post(f"/booking/requests/{rx['id']}/accept", json={})
+    reqs = {q["id"]: q for q in client.get("/booking/requests").json()}
+    assert reqs[ry["id"]]["session_here"]["join"] is True and reqs[rz["id"]]["session_here"]["join"] is False
+    assert client.post(f"/booking/requests/{ry['id']}/accept", json={}).status_code == 200  # Yasmine rejoint le groupe de Xavier
+    assert client.post(f"/booking/requests/{rz['id']}/accept", json={}).status_code == 409
+    grp_session = next(x2 for x2 in client.get("/sessions").json() if set(x2["player_ids"]) == {x["id"], y["id"]})
+    assert grp_session["duration_min"] == 90
