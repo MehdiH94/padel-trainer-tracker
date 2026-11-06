@@ -802,3 +802,18 @@ button.saved { background: var(--green); border-color: var(--green); color: #fff
 .news-row.ok .news-ico { background: var(--green-l); color: var(--ok-txt); }
 .news-row.warn .news-ico { background: var(--amber-l); color: var(--warn-txt); }
 .news-txt { flex: 1; font-size: .92rem; }
+
+/* Règlement d'une séance effectuée: un joueur à la fois */
+.pswitch { margin: 8px 0; }
+.pswitch-nav { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
+.pswitch-nav span { font-size: .9rem; color: var(--mut); }
+.paybox { padding: 4px 0; }
+.paylist .paybox, .donerow .paybox { padding: 4px 12px 8px; }
+.paycard { background: var(--soft); border-radius: 14px; padding: 10px 12px; }
+.paycard-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+.pay-actions { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 8px; }
+.pay-actions button { width: 100%; }
+.payform { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 0; }
+.payform .pay-actions { grid-column: 1 / -1; }
+.payform select { width: 100%; }
+.donepanel { scroll-margin-top: 76px; }

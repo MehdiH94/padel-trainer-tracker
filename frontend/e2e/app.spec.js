@@ -469,8 +469,10 @@ test("séance effectuée: le coach rembourse un joueur absent", async ({ page })
   await login(page, "demo@padel.tn");
   await page.locator(".donechip").first().click();
   const panel = page.locator(".donepanel");
+  await expect(panel.locator(".paycard")).toHaveCount(1); // un joueur à la fois
   await panel.getByRole("button", { name: "Absent ? Rembourser" }).first().click();
-  await page.getByRole("dialog").getByRole("button", { name: "Rembourser" }).click();
+  await expect(page.getByRole("dialog").getByText("Êtes-vous sûr de vouloir rembourser ce joueur ?")).toBeVisible();
+  await page.getByRole("dialog").getByRole("button", { name: /Oui, rembourser/ }).click();
   await expect(panel.getByText("Absent · remboursé")).toBeVisible();
 });
 

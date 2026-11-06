@@ -16,61 +16,90 @@ export function PaySummary({ s }) {
     : <span className="paytag ok"><Icon name="check" size={12} /> Tout réglé</span>;
 }
 
-// Séance effectuée: ce que chaque joueur a réglé, et encaissement du reste
-export default function SessionPayments({ s, name, byId, onPaid }) {
-  const [form, setForm] = useState(null); // { player_id, amount, method }
+// Choix du joueur affiché (un seul à la fois): pastilles + « Joueur 2/3 » avec flèches
+export function PlayerSwitch({ ids, cur, setCur, byId, name, mark }) {
+  if (ids.length < 2) return null;
+  const i = Math.max(0, ids.indexOf(cur));
+  return (
+    <div className="pswitch">
+      <div className="pswitch-nav">
+        <button className="small sec iconbtn" aria-label="Joueur précédent" disabled={i === 0} onClick={() => setCur(ids[i - 1])}><Icon name="chevL" size={16} /></button>
+        <span>Joueur <b>{i + 1}</b> / {ids.length}</span>
+        <button className="small sec iconbtn" aria-label="Joueur suivant" disabled={i === ids.length - 1} onClick={() => setCur(ids[i + 1])}><Icon name="chevR" size={16} /></button>
+      </div>
+      <div className="chips" role="tablist" aria-label="Joueurs de la séance">
+        {ids.map((id) => (
+          <button key={id} role="tab" aria-selected={id === cur} className={"chip small" + (id === cur ? " on" : "")} onClick={() => setCur(id)}>
+            {byId?.(id) ? <PlayerTag p={byId(id)} first /> : name(id).split(" ")[0]}{mark?.(id) ? " •" : ""}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// Séance effectuée: règlement d'UN joueur à la fois (playerId imposé par le panneau de la séance, sinon choix ici):
+// ce qu'il a réglé, « Encaisser » le reste, ou « Absent ? Rembourser » (avec confirmation)
+export default function SessionPayments({ s, name, byId, onPaid, playerId }) {
+  const ids = s.payments.map((x) => x.player_id);
+  const [own, setOwn] = useState(ids[0]);
+  const cur = playerId ?? (ids.includes(own) ? own : ids[0]);
+  const [form, setForm] = useState(null); // { amount, method }
   const [err, setErr] = useState("");
+  const x = s.payments.find((p) => p.player_id === cur);
+  if (!x) return null;
+  const first = name(cur).split(" ")[0];
+  const left = leftToPay(x);
   async function save(e) {
     e.preventDefault();
     try {
-      await api("/payments", { method: "POST", body: { player_id: form.player_id, session_id: s.id, amount_millimes: Math.round(Number(String(form.amount).replace(",", ".")) * 1000), method: form.method } });
-      toast(`Paiement de ${name(form.player_id).split(" ")[0]} enregistré`);
+      await api("/payments", { method: "POST", body: { player_id: cur, session_id: s.id, amount_millimes: Math.round(Number(String(form.amount).replace(",", ".")) * 1000), method: form.method } });
+      toast(`Paiement de ${first} enregistré`);
       setForm(null);
       setErr("");
       onPaid?.();
-    } catch (x) {
-      setErr(x.message);
+    } catch (y) {
+      setErr(y.message);
     }
   }
   // Joueur absent: le coach peut le rembourser (ses crédits lui reviennent, la séance ne lui est plus facturée)
-  async function refund(pid) {
-    const first = name(pid).split(" ")[0];
-    const ok = await confirmDialog({ title: `Rembourser ${first} ?`, message: `${first} n'est pas venu : ce qu'il a payé pour cette séance lui revient en crédits, et elle ne lui est plus facturée.`, confirm: "Rembourser", cancel: "Retour" });
+  async function refund() {
+    const ok = await confirmDialog({
+      title: "Êtes-vous sûr de vouloir rembourser ce joueur ?",
+      message: `${name(cur)} n'est pas venu : ce qu'il a payé pour cette séance lui revient en crédits, et elle ne lui est plus facturée.`,
+      confirm: `Oui, rembourser ${first}`, cancel: "Non", danger: true,
+    });
     if (!ok) return;
-    api(`/sessions/${s.id}/refund/${pid}`, { method: "POST" }).then(() => { toast(`${first} remboursé`); onPaid?.(); }).catch(toastError);
+    api(`/sessions/${s.id}/refund/${cur}`, { method: "POST" }).then(() => { toast(`${first} remboursé`); onPaid?.(); }).catch(toastError);
   }
   return (
-    <div className="paylist">
-      {s.payments.map((x) => {
-        const left = leftToPay(x);
-        return (
-          <div key={x.player_id}>
-            <div className="payrow">
-              <b>{byId?.(x.player_id) ? <PlayerTag p={byId(x.player_id)} /> : name(x.player_id)}</b>
-              {x.refunded ? (
-                <span className="paytag">Absent · remboursé</span>
-              ) : x.credit_millimes > 0 ? (
-                <span className="paytag ok">Payé en crédits · {tnd(x.credit_millimes)}</span>
-              ) : (
-                <span className={"paytag " + (left ? "ko" : "ok")}>Réglé {tnd(x.paid_millimes)} / {tnd(x.due_millimes)}</span>
-              )}
-              {!x.refunded && <button className="small sec" onClick={() => refund(x.player_id)}>Absent ? Rembourser</button>}
-              {left > 0 && form?.player_id !== x.player_id && (
-                <button className="small sec" onClick={() => setForm({ player_id: x.player_id, amount: (left / 1000).toFixed(3), method: "especes" })}>Encaisser</button>
-              )}
-            </div>
-            {form?.player_id === x.player_id && (
-              <form className="payform" onSubmit={save}>
-                <span className="inputunit"><input inputMode="decimal" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} required /><em>TND</em></span>
-                <select value={form.method} onChange={(e) => setForm({ ...form, method: e.target.value })}><option value="especes">Espèces</option><option value="virement">Virement</option></select>
-                <button className="small">OK</button>
-                <button type="button" className="small sec iconbtn" aria-label="Annuler" onClick={() => setForm(null)}><Icon name="x" size={14} /></button>
-              </form>
-            )}
+    <div className="paybox">
+      {playerId == null && <PlayerSwitch ids={ids} cur={cur} setCur={(id) => { setOwn(id); setForm(null); }} byId={byId} name={name} mark={(id) => leftToPay(s.payments.find((p) => p.player_id === id)) > 0} />}
+      <div className="paycard">
+        <div className="paycard-head">
+          <b>{byId?.(cur) ? <PlayerTag p={byId(cur)} /> : name(cur)}</b>
+          {x.refunded ? <span className="paytag">Absent · remboursé</span>
+            : x.credit_millimes > 0 ? <span className="paytag ok">Payé en crédits · {tnd(x.credit_millimes)}</span>
+              : <span className={"paytag " + (left ? "ko" : "ok")}>Réglé {tnd(x.paid_millimes)} / {tnd(x.due_millimes)}</span>}
+        </div>
+        {!x.refunded && !form && (
+          <div className="pay-actions">
+            {left > 0 && <button className="small" onClick={() => setForm({ amount: (left / 1000).toFixed(3), method: "especes" })}><Icon name="wallet" size={15} /> Encaisser {tnd(left)}</button>}
+            <button className="small sec" onClick={refund}><Icon name="x" size={15} /> Absent ? Rembourser</button>
           </div>
-        );
-      })}
-      {err && <div className="err">{err}</div>}
+        )}
+        {form && (
+          <form className="payform" onSubmit={save}>
+            <span className="inputunit"><input inputMode="decimal" aria-label="Montant encaissé" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} required /><em>TND</em></span>
+            <select aria-label="Moyen de paiement" value={form.method} onChange={(e) => setForm({ ...form, method: e.target.value })}><option value="especes">Espèces</option><option value="virement">Virement</option></select>
+            <div className="pay-actions">
+              <button className="small">Enregistrer</button>
+              <button type="button" className="small sec" onClick={() => setForm(null)}>Annuler</button>
+            </div>
+          </form>
+        )}
+        {err && <div className="err">{err}</div>}
+      </div>
     </div>
   );
 }

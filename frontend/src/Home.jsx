@@ -1,9 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api, dayKey, dayLabel, hhmm, peek, shortDate, tnd, toDate, useLive } from "./api.js";
 import { Modal } from "./feedback.jsx";
 import FeedbackEditor from "./FeedbackEditor.jsx";
 import { monthRange } from "./Finance.jsx";
-import SessionPayments from "./SessionPayments.jsx";
+import SessionPayments, { PlayerSwitch } from "./SessionPayments.jsx";
 import Icon from "./Icon.jsx";
 import { guideHidden, guideSteps, hideGuide } from "./guide.js";
 import { sessionStatus } from "./sessionActions.js";
@@ -29,34 +29,39 @@ function phase(s, now) {
 
 // Panneau d'une séance terminée: un retour par joueur
 function DonePanel({ s, name, byId, strokes, onSaved, onClose }) {
+  const ref = useRef(null);
   const [list, setList] = useState(null);
   const [who, setWho] = useState(null);
   const load = () => api(`/sessions/${s.id}/feedback`).then((l) => { setList(l); setWho((w) => w ?? l[0]?.player_id); });
   useEffect(() => { setList(null); setWho(null); load(); }, [s.id]);
+  // le panneau s'ouvre sous la liste: on l'amène à l'écran pour ne pas avoir à descendre
+  useEffect(() => { if (list) ref.current?.scrollIntoView({ behavior: "smooth", block: "start" }); }, [s.id, !!list]);
   if (!list) return null;
   const cur = list.find((x) => x.player_id === who) ?? list[0];
+  const idx = list.indexOf(cur);
   return (
-    <div className="card donepanel">
+    <div className="card donepanel" ref={ref}>
       <div className="row">
         <b className="cap1">{shortDate(s.start)} · {hhmm(s.start)} · {KIND[s.kind].label}</b>
         <button className="small sec iconbtn" aria-label="Fermer" onClick={onClose}><Icon name="x" size={15} /></button>
       </div>
-      {s.payments?.length > 0 && (
+      {/* un joueur à la fois: règlement puis retour de séance */}
+      <PlayerSwitch ids={list.map((x) => x.player_id)} cur={cur?.player_id} setCur={setWho} byId={byId} name={name}
+        mark={(id) => { const x = list.find((y) => y.player_id === id); return !(x.worked_on.length || x.note || x.to_improve); }} />
+      {list.length === 1 && <div className="mut" style={{ margin: "4px 0" }}><PlayerTag p={byId?.(cur.player_id) ?? cur} /></div>}
+      {s.payments?.length > 0 && cur && (
         <>
-          <div className="mut" style={{ marginTop: 8 }}>Règlements</div>
-          <SessionPayments s={s} name={name} byId={byId} onPaid={onSaved} />
+          <div className="mut small-p" style={{ marginTop: 8 }}>Règlement</div>
+          <SessionPayments s={s} name={name} byId={byId} onPaid={onSaved} playerId={cur.player_id} />
         </>
       )}
-      {list.length > 1 && (
-        <div className="chips" style={{ margin: "8px 0" }}>
-          {list.map((x) => {
-            const filled = x.worked_on.length || x.note || x.to_improve;
-            return <button key={x.player_id} className={"chip small" + (cur.player_id === x.player_id ? " on" : "")} onClick={() => setWho(x.player_id)}><PlayerTag p={byId?.(x.player_id) ?? x} first />{filled ? "" : " •"}</button>;
-          })}
-        </div>
-      )}
-      {list.length === 1 && <div className="mut" style={{ margin: "4px 0" }}><PlayerTag p={byId?.(cur.player_id) ?? cur} /></div>}
+      <div className="mut small-p" style={{ marginTop: 8 }}>Retour de séance</div>
       {cur && <FeedbackEditor key={cur.player_id} h={cur} playerId={cur.player_id} name={byId?.(cur.player_id)?.name} strokes={strokes} rate onSaved={() => { load(); onSaved(); }} />}
+      {idx >= 0 && idx < list.length - 1 && (
+        <button className="sec" style={{ width: "100%", marginTop: 8 }} onClick={() => { setWho(list[idx + 1].player_id); ref.current?.scrollIntoView({ behavior: "smooth", block: "start" }); }}>
+          Joueur suivant : {name(list[idx + 1].player_id).split(" ")[0]} <Icon name="chevR" size={16} />
+        </button>
+      )}
     </div>
   );
 }
