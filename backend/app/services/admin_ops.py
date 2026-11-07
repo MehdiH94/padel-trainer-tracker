@@ -7,7 +7,7 @@ le joueur garde l'accès à ses autres coachs.
 from sqlalchemy import delete, select, update
 from sqlalchemy.orm import Session
 
-from ..models import (PlayerEvent, Attendance, Availability, TimeOff, Booking, Club, Coach, CourtBooking, CreditTx, Exercise, HappyHour, Payment,
+from ..models import (Notification, PlayerEvent, Attendance, Availability, TimeOff, Booking, Club, Coach, CourtBooking, CreditTx, Exercise, HappyHour, Payment,
                       Player, Promotion, Proposal, ReminderLog, SessionReminder, SkillRating, TrainingSession)
 
 PLAYER_TABLES = (SkillRating, Attendance, Payment, CreditTx, Booking, ReminderLog, Proposal, SessionReminder)
@@ -28,6 +28,8 @@ def _hand_over_account(db: Session, p: Player) -> None:
         o.account_id = heir.id
     for e in db.scalars(select(PlayerEvent).where(PlayerEvent.account_id == p.id)):  # son planning (matchs, tournois) suit le compte
         e.account_id = heir.id
+    for n in db.scalars(select(Notification).where(Notification.account_id == p.id)):  # ses notifications aussi
+        n.account_id = heir.id
 
 
 def _empty_sessions(db: Session, session_ids: set[int]) -> None:
@@ -49,6 +51,9 @@ def delete_player(db: Session, p: Player) -> None:
     for table in PLAYER_TABLES:
         db.execute(delete(table).where(table.player_id == p.id))
     db.execute(delete(PlayerEvent).where(PlayerEvent.account_id == p.id))
+    db.execute(delete(Notification).where(Notification.account_id == p.id))
+    mine = select(Booking.id).where(Booking.player_id == p.id)
+    db.execute(update(Notification).where(Notification.booking_id.in_(mine)).values(booking_id=None))
     db.delete(p)
     db.flush()
     db.expire_all()
@@ -61,6 +66,7 @@ def delete_coach(db: Session, coach: Coach) -> None:
         delete_player(db, p)
     sessions = [s.id for s in db.scalars(select(TrainingSession).where(TrainingSession.coach_id == coach.id))]
     db.execute(update(PlayerEvent).where(PlayerEvent.coach_id == coach.id).values(coach_id=None, coach_feedback=""))
+    db.execute(update(Notification).where(Notification.coach_id == coach.id).values(coach_id=None, booking_id=None, promotion_id=None))
     for table in (Payment, CreditTx, Booking, ReminderLog, Proposal, SessionReminder):  # restes liés à ses séances
         db.execute(delete(table).where(table.coach_id == coach.id))
     db.execute(delete(Attendance).where(Attendance.session_id.in_(sessions)))

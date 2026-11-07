@@ -3,7 +3,7 @@ import { api, dayLabel, hhmm, peek, tnd, toDate, useLive } from "./api.js";
 import Icon from "./Icon.jsx";
 import { confirmDialog } from "./feedback.jsx";
 import InvitePlayers from "./InvitePlayers.jsx";
-import { Avatar, CategoryBadge, ContactLinks, KIND, Loading, PlayerTag } from "./ui.jsx";
+import { Avatar, CategoryBadge, ContactLinks, DateSelect, KIND, Loading, PlayerTag, TimeSelect } from "./ui.jsx";
 
 const dur = (m) => (m % 60 ? `${Math.floor(m / 60) ? Math.floor(m / 60) + " h " : ""}${m % 60}` : `${m / 60} h`);
 const wishText = (w) => (w ?? []).map((x) => `${KIND[x.kind].label} ${x.minutes.map(dur).join(" ou ")}`).join(" · ");
@@ -55,14 +55,43 @@ function Head({ r }) {
   );
 }
 
+// Comme une invitation de réunion: d'accord pour l'entraîner, mais pas à cette heure-là → autre horaire proposé.
+// Le joueur est notifié (appli + e-mail) et accepte (séance acceptée d'office) ou refuse.
+function ProposeTime({ r, onDone, onCancel }) {
+  const day = toDate(r.start).toLocaleDateString("fr-CA", { timeZone: "Africa/Tunis" });
+  const [f, setF] = useState({ day, time: hhmm(r.start), minutes: r.duration_min });
+  const [err, setErr] = useState("");
+  const send = () => api(`/booking/requests/${r.id}/propose`, { method: "POST", body: { start: `${f.day}T${f.time}:00+01:00`, duration_min: +f.minutes } })
+    .then(onDone).catch((x) => setErr(x.message));
+  return (
+    <div className="propose-box">
+      <b>Proposer un autre horaire à {r.name.split(" ")[0]}</b>
+      <div className="grid">
+        <label className="field"><span className="mut">Jour</span><DateSelect label="Jour proposé" value={f.day} onChange={(v) => setF({ ...f, day: v })} /></label>
+        <label className="field"><span className="mut">Heure</span><TimeSelect label="Heure proposée" value={f.time} onChange={(v) => setF({ ...f, time: v })} /></label>
+      </div>
+      <label className="field"><span className="mut">Durée</span>
+        <select aria-label="Durée proposée" value={f.minutes} onChange={(e) => setF({ ...f, minutes: e.target.value })}>{[60, 90, 120].map((m) => <option key={m} value={m}>{m % 60 ? `${Math.floor(m / 60)} h 30` : `${m / 60} h`}</option>)}</select>
+      </label>
+      {err && <div className="err">{err}</div>}
+      <div className="actions">
+        <button onClick={send}><Icon name="send" size={15} /> Envoyer la proposition</button>
+        <button className="sec" onClick={onCancel}>Annuler</button>
+      </div>
+      <div className="mut small-p">{r.name.split(" ")[0]} est prévenu dans l'appli et par e-mail : s'il accepte, la séance est acceptée à ce nouvel horaire.</div>
+    </div>
+  );
+}
+
 function Pending({ r, clubs, reload }) {
+  const [proposing, setProposing] = useState(false);
   const [clubId, setClubId] = useState(clubs.find((c) => c.phone)?.id ?? "");
   const [courtId, setCourtId] = useState(r.courts_available?.[0]?.id ?? "");
   const [err, setErr] = useState("");
   const act = (path, body) => api(`/booking/requests/${r.id}/${path}`, { method: "POST", body }).then(reload).catch((x) => setErr(x.message));
   const hasCourt = (r.courts_available ?? []).length > 0;
   return (
-    <div className="card req">
+    <div className="card req" data-id={r.id}>
       <Head r={r} />
       {r.join ? (
         <div className={"banner " + (r.court_state === "confirmee" || r.court_state === null ? "ok" : "warn")}>
@@ -101,8 +130,10 @@ function Pending({ r, clubs, reload }) {
         {r.session_here && !r.session_here.join ? null : r.join ? <button onClick={() => act("accept", {})}><Icon name="check" size={16} /> Accepter</button>
           : hasCourt ? <button onClick={() => act("accept", { court_booking_id: +courtId })}><Icon name="check" size={16} /> Accepter avec ce terrain</button>
           : <button className="amber" onClick={() => act("accept", { club_id: clubId ? +clubId : null })}><Icon name="clock" size={16} /> Accepter · terrain à confirmer</button>}
+        {!r.join && <button className="sec" onClick={() => setProposing(!proposing)}><Icon name="clock" size={16} /> Autre horaire</button>}
         <button className="sec danger" onClick={async () => (await confirmDialog({ title: `Refuser la demande de ${r.name} ?`, message: r.charged_millimes ? `${tnd(r.charged_millimes)} de crédits lui seront rendus.` : "Rien n'a été débité de ses crédits.", confirm: "Refuser", cancel: "Retour", danger: true })) && act("refuse")}><Icon name="x" size={16} /> Refuser</button>
       </div>
+      {proposing && <ProposeTime r={r} onDone={() => { setProposing(false); reload(); }} onCancel={() => setProposing(false)} />}
       <div className="mut small-p">Accepter débite {tnd(r.price_millimes)} des crédits du joueur (le solde peut devenir négatif). Refuser ne débite rien.</div>
     </div>
   );
@@ -311,6 +342,7 @@ export default function Requests({ go, refreshSummary }) {
   if (!items) return <><h1>Demandes</h1><Loading rows={3} /></>;
 
   const pending = items.filter((i) => i.status === "en_attente");
+  const proposed = items.filter((i) => i.status === "contre_proposition"); // autre horaire proposé: réponse du joueur attendue
   const waiting = items.filter((i) => i.status === "acceptee");
   const waitingPlayers = items.filter((i) => i.status === "attente_joueurs");
   const toNotify = items.filter((i) => i.status === "confirmee");
@@ -333,6 +365,14 @@ export default function Requests({ go, refreshSummary }) {
           {slots(pending).map((list) => list.length > 1
             ? <SlotConflict key={list.map((r) => r.id).join()} list={list} clubs={clubs} reload={load} />
             : <Pending key={list[0].id} r={list[0]} clubs={clubs} reload={load} />)}
+          {proposed.length > 0 && <h2>Autre horaire proposé · réponse du joueur ({proposed.length})</h2>}
+          {proposed.map((r) => (
+            <div className="card req" key={r.id}>
+              <div className="row"><div className="row g10"><Avatar name={r.name} size={36} /><b><PlayerTag p={r} /></b></div><span className="court-badge wait"><Icon name="clock" size={12} /> En attente</span></div>
+              <div className="small-p" style={{ marginTop: 6 }}>Demandé : <s className="cap1">{dayLabel(r.start)} · {hhmm(r.start)}</s></div>
+              <div className="small-p">Proposé : <b className="cap1">{dayLabel(r.proposed_start)} · {hm(r.proposed_start, r.proposed_minutes)}</b></div>
+            </div>
+          ))}
           {waitingPlayers.length > 0 && <h2>En attente d'autres joueurs ({waitingPlayers.length})</h2>}
           {waitingPlayers.map((r) => <WaitingPlayers key={r.id} r={r} reload={load} />)}
           {waiting.length > 0 && <h2>En attente du terrain ({waiting.length})</h2>}

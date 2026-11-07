@@ -611,3 +611,31 @@ test("lien d'inscription du coach: le joueur choisit main, côté et objectifs, 
   await expect(page.getByText("Gagner un tableau P250")).toBeVisible();
   await expect(page.getByText(/gaucher · les deux côtés/)).toBeVisible();
 });
+
+test("le coach propose un autre horaire: le joueur est notifié dans l'appli et accepte", async ({ page, browser, request }) => {
+  const tok = async (email) => (await (await request.post("/api/auth/login", { data: { email, password: "demo1234" } })).json()).token;
+  const sami = { Authorization: `Bearer ${await tok("sami@demo.tn")}` };
+  const slots = await (await request.get("/api/me/slots", { headers: sami })).json();
+  const later = slots.filter((x) => new Date(x) - Date.now() > 3 * 86400000);
+  const r = await (await request.post("/api/me/book", { headers: sami, data: { kind: "individuel", start: later[0], kinds: ["individuel"] } })).json();
+  await login(page, "demo@padel.tn");
+  await nav(page, "Demandes").click();
+  await expect(page.locator(".card.req").first()).toBeVisible();
+  let card = page.locator(`.card.req[data-id="${r.id}"]`);
+  if (!(await card.count())) { await page.getByRole("button", { name: /une par une/ }).first().click(); card = page.locator(`.card.req[data-id="${r.id}"]`); }
+  await card.getByRole("button", { name: "Autre horaire" }).click();
+  await card.getByLabel("Heure proposée").selectOption("21:00");
+  await card.getByRole("button", { name: "Envoyer la proposition" }).click();
+  await expect(page.getByRole("heading", { name: /Autre horaire proposé/ })).toBeVisible();
+
+  const p = await (await browser.newContext()).newPage();
+  await login(p, "sami@demo.tn");
+  await expect(p.getByRole("button", { name: /Notifications \(\d+ non lues\)/ })).toBeVisible();
+  const prop = p.locator(".proposal-card").first();
+  await expect(prop.getByText(/vous propose/)).toBeVisible();
+  await prop.getByRole("button", { name: "Accepter" }).click();
+  await expect(p.getByText("C'est noté : séance acceptée à ce nouvel horaire")).toBeVisible();
+  await p.getByRole("button", { name: /Notifications/ }).click();
+  await expect(p.getByRole("dialog").getByText(/vous propose un autre horaire/).first()).toBeVisible();
+  await p.close();
+});

@@ -2221,3 +2221,35 @@ def test_coach_signup_link_profile_and_goals(client):
     p, pc2 = player_client(client)
     coach_id = next(c["id"] for c in pc2.get("/me/coaches").json() if c["mine"])
     assert pc2.get("/me").json()["favorites"]["coach_ids"] == [coach_id]
+
+
+def test_coach_proposes_another_time_and_player_notifications(client):
+    """Comme une invitation de réunion: le coach propose un autre horaire, le joueur est notifié dans l'appli et
+    accepte (séance acceptée d'office) ou refuse. Les messages des coachs arrivent aussi dans l'appli."""
+    open_week(client, auto_confirm=False)
+    p, pc = player_client(client)
+    client.post(f"/players/{p['id']}/credits", json={"amount_millimes": 100000})
+    slots = [s for s in pc.get("/me/slots").json() if s[14:16] == "00"]
+    r = pc.post("/me/book", json={"kind": "individuel", "start": slots[0]}).json()
+    later = datetime.fromisoformat(slots[-1]) + timedelta(days=1)
+    out = client.post(f"/booking/requests/{r['id']}/propose", json={"start": later.isoformat(), "duration_min": 60})
+    assert out.status_code == 200 and out.json()["status"] == "contre_proposition"
+    n = pc.get("/me/notifications").json()
+    assert n["unread"] == 2 and n["items"][1]["kind"] == "message"  # la recharge de crédits est aussi notifiée
+    assert n["items"][0]["kind"] == "contre_proposition" and n["items"][0]["proposal"]["open"] is True
+    up = pc.get("/me/sessions").json()["upcoming"]
+    assert up[0]["status"] == "contre_proposition" and up[0]["proposed_start"]
+    assert pc.post(f"/me/bookings/{r['id']}/proposal", json={"accept": True}).json()["status"] in ("acceptee", "confirmee")
+    s = next(x for x in client.get("/sessions").json() if x["player_ids"] == [p["id"]] and x["start"][:13] == later.isoformat()[:13])
+    assert s["duration_min"] == 60 and pc.get("/me").json()["credits_millimes"] == 40000  # débité à l'acceptation
+    assert pc.post(f"/me/bookings/{r['id']}/proposal", json={"accept": True}).status_code == 409  # déjà répondu
+    pc.post("/me/notifications/read")
+    assert pc.get("/me/notifications").json()["unread"] == 0
+    # refus: la demande est abandonnée
+    r2 = pc.post("/me/book", json={"kind": "individuel", "start": slots[1]}).json()
+    client.post(f"/booking/requests/{r2['id']}/propose", json={"start": (later + timedelta(hours=3)).isoformat()})
+    pc.post(f"/me/bookings/{r2['id']}/proposal", json={"accept": False})
+    assert all(x["id"] != r2["id"] for x in client.get("/booking/requests").json())
+    # un horaire où le coach a déjà une séance est refusé
+    r3 = pc.post("/me/book", json={"kind": "individuel", "start": slots[2]}).json()
+    assert client.post(f"/booking/requests/{r3['id']}/propose", json={"start": later.isoformat()}).status_code == 409

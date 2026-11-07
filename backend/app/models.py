@@ -233,6 +233,8 @@ class Booking(Base):
     price_millimes: Mapped[int] = mapped_column(Integer, default=0)  # prix actuel (formule réellement jouée, remise comprise)
     discount_pct: Mapped[int] = mapped_column(Integer, default=0)
     discount_millimes: Mapped[int] = mapped_column(Integer, default=0)  # réduction en dinars (heures creuses / promotion)
+    proposed_start: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)  # autre horaire proposé par le coach
+    proposed_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
     replace_token: Mapped[str | None] = mapped_column(String(40), nullable=True, unique=True)  # lien « remplacez-moi » (après le délai d'annulation)  # remise obtenue à la réservation (happy hour / promotion)
     session_id: Mapped[int | None] = mapped_column(ForeignKey("sessions.id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
@@ -339,3 +341,20 @@ class PlayerEvent(Base):
     coach_id: Mapped[int | None] = mapped_column(ForeignKey("coaches.id"), nullable=True)  # coaché par
     coach_feedback: Mapped[str] = mapped_column(Text, default="")
     feedback_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+
+
+class Notification(Base):
+    """Notification dans l'appli du joueur (en plus de l'e-mail): message d'un coach (promotion, place libre,
+    invitation, nouvel horaire proposé…) ou suivi d'une réservation. Rattachée à la fiche compte du joueur."""
+
+    __tablename__ = "notifications"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    account_id: Mapped[int] = mapped_column(ForeignKey("players.id"), index=True)
+    coach_id: Mapped[int | None] = mapped_column(ForeignKey("coaches.id"), nullable=True)
+    kind: Mapped[str] = mapped_column(String(20), default="message")  # message / promo / invitation / contre_proposition / reservation
+    title: Mapped[str] = mapped_column(String(160), default="")
+    body: Mapped[str] = mapped_column(Text, default="")
+    booking_id: Mapped[int | None] = mapped_column(ForeignKey("bookings.id"), nullable=True)
+    promotion_id: Mapped[int | None] = mapped_column(ForeignKey("promotions.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+    read_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)

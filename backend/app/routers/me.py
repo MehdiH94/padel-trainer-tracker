@@ -145,6 +145,52 @@ def set_favorites(body: FavoritesIn, player: Player = Depends(current_player), d
     return {"coach_ids": body.coach_ids, "clubs": [c for c in player.fav_clubs.split("|") if c]}
 
 
+@router.get("/notifications")
+def notifications(player: Player = Depends(current_player), db: Session = Depends(get_db)):
+    """Notifications de l'appli (messages des coachs, promotions, places libres, horaires proposés, réservations)."""
+    from ..models import Notification
+    rows = db.scalars(select(Notification).where(Notification.account_id == player.id).order_by(Notification.id.desc()).limit(50)).all()
+    out = []
+    for n in rows:
+        b = db.get(Booking, n.booking_id) if n.booking_id else None
+        coach = db.get(Coach, n.coach_id) if n.coach_id else None
+        out.append({"id": n.id, "kind": n.kind, "title": n.title, "body": n.body, "created_at": n.created_at, "read": n.read_at is not None,
+                    "coach_id": n.coach_id, "coach_name": coach.name if coach else "", "promotion_id": n.promotion_id,
+                    # autre horaire proposé: encore à répondre ?
+                    "proposal": {"booking_id": b.id, "start": b.proposed_start, "minutes": b.proposed_minutes, "old_start": b.start,
+                                 "kind": b.kind, "open": b.status == "contre_proposition"} if b and n.kind == "contre_proposition" else None})
+    return {"items": out, "unread": sum(1 for n in rows if n.read_at is None)}
+
+
+@router.post("/notifications/read")
+def notifications_read(player: Player = Depends(current_player), db: Session = Depends(get_db)):
+    from ..models import Notification
+    now = datetime.now(timezone.utc)
+    for n in db.scalars(select(Notification).where(Notification.account_id == player.id, Notification.read_at.is_(None))):
+        n.read_at = now
+    db.commit()
+    return {"ok": True}
+
+
+class AnswerIn(BaseModel):
+    accept: bool
+
+
+@router.post("/bookings/{booking_id}/proposal")
+def answer_proposal(booking_id: int, body: AnswerIn, player: Player = Depends(current_player), db: Session = Depends(get_db),
+                    sms: SmsProvider = Depends(get_sms_provider)):
+    """Réponse à l'autre horaire proposé par le coach: oui = séance acceptée à ce nouvel horaire, non = demande abandonnée."""
+    b = db.get(Booking, booking_id)
+    if not b or b.player_id not in {p.id for p in linked(db, player)}:
+        raise HTTPException(404, "Réservation introuvable")
+    try:
+        svc.answer_proposal(db, b, body.accept, sms)
+    except svc.BookingError as e:
+        raise HTTPException(409, str(e))
+    db.commit()
+    return {"status": b.status, "start": b.start}
+
+
 class BookIn(BaseModel):
     kind: str | None = None
     start: datetime | None = None  # nouveau créneau
@@ -214,14 +260,15 @@ def my_sessions(player: Player = Depends(current_player), db: Session = Depends(
             "worked_on": [t for t in a.worked_on.split(",") if t], "note": a.note, "to_improve": a.to_improve,
         }
         (upcoming if s.status == "prevue" and aware(s.start) >= now else history).append(item)
-    for b in bookings:  # demandes pas encore traitées par le coach
-        if b.status == "en_attente" and aware(b.start) >= now:
+    for b in bookings:  # demandes pas encore traitées par le coach (ou autre horaire proposé)
+        if b.status in ("en_attente", "contre_proposition") and aware(b.proposed_start if b.status == "contre_proposition" else b.start) >= now:
             s = db.get(TrainingSession, b.session_id) if b.session_id else None
             upcoming.append({
                 "session_id": None, "booking_id": b.id, "start": b.start, "duration_min": b.duration_min, "kind": b.kind,
                 "club": s.club if s else "", "court_state": None, "spots_left": 0, "partners": _partners(db, s, ids) if s else [],
                 "coach_name": coach_names.get(b.coach_id, ""), "can_cancel": True, "cancel_until": None,
-                "status": "en_attente", "session_status": "prevue", "worked_on": [], "note": "", "to_improve": "",
+                "status": b.status, "session_status": "prevue", "worked_on": [], "note": "", "to_improve": "",
+                "proposed_start": b.proposed_start, "proposed_minutes": b.proposed_minutes,
             })
     return {"upcoming": sorted(upcoming, key=lambda x: aware(x["start"])), "history": history[::-1][:60]}
 

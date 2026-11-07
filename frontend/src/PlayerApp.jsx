@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { api, dayKey, dayLabel, hhmm, setToken, tnd, toDate, useLive } from "./api.js";
 import Icon from "./Icon.jsx";
-import { toast, toastError } from "./feedback.jsx";
+import { Modal, toast, toastError } from "./feedback.jsx";
 import { Book, CoachPage } from "./PlayerBook.jsx";
 import { Planning } from "./PlayerPlanning.jsx";
 import { Credits, Progression } from "./PlayerProgress.jsx";
@@ -22,6 +22,66 @@ function bookPromo(p, go) {
 // « 12 décembre » à partir de « 2026-12-12 »
 const shortDay = (ymd) => new Date(ymd + "T12:00:00Z").toLocaleDateString("fr-FR", { day: "numeric", month: "long", timeZone: "UTC" });
 const absenceText = (a) => (a.now ? `absent jusqu'au ${shortDay(a.end_date)}` : a.start_date === a.end_date ? `absent le ${shortDay(a.end_date)}` : `absent du ${shortDay(a.start_date)} au ${shortDay(a.end_date)}`) + (a.reason ? ` (${a.reason})` : "");
+
+// Autre horaire proposé par le coach (comme une invitation de réunion): accepter = séance acceptée à ce nouvel horaire
+export const answerProposal = (bookingId, yes, reload) => api(`/me/bookings/${bookingId}/proposal`, { method: "POST", body: { accept: yes } })
+  .then(() => { toast(yes ? "C'est noté : séance acceptée à ce nouvel horaire" : "Proposition refusée"); reload(); })
+  .catch(toastError);
+
+function ProposalCard({ s, reload }) {
+  return (
+    <div className="card proposal-card">
+      <div className="mut small-p"><b>{s.coach_name}</b> ne peut pas <s>{dayLabel(s.start)} à {hhmm(s.start)}</s>, mais vous propose :</div>
+      <div className="row g10" style={{ alignItems: "flex-start", marginTop: 6 }}>
+        <DateBlock iso={s.proposed_start} />
+        <div style={{ flex: 1 }}>
+          <b>{hhmm(s.proposed_start)} · {s.proposed_minutes} min</b>
+          <div><KindPill kind={s.kind} /></div>
+        </div>
+      </div>
+      <div className="actions">
+        <button onClick={() => answerProposal(s.booking_id, true, reload)}><Icon name="check" size={16} /> Accepter</button>
+        <button className="sec" onClick={() => answerProposal(s.booking_id, false, reload)}>Refuser</button>
+      </div>
+    </div>
+  );
+}
+
+// Notifications de l'appli: messages des coachs (promotions, places libres, invitations, horaires proposés)
+// et suivi des réservations. Ouvrir la liste les marque comme lues.
+const NOTIF_ICON = { promo: "sparkles", place: "pin", invitation: "users", contre_proposition: "clock", message: "bell" };
+function Notifications({ data, go, reload, onClose }) {
+  useEffect(() => { if (data.unread) api("/me/notifications/read", { method: "POST" }).catch(() => {}); }, []);
+  const book = (n) => {
+    try { sessionStorage.setItem("book-filters", JSON.stringify({ ...JSON.parse(sessionStorage.getItem("book-filters") || "{}"), coachIds: n.coach_id ? [n.coach_id] : [] })); } catch { /* stockage indisponible */ }
+    onClose();
+    go("book");
+  };
+  return (
+    <Modal onClose={onClose} label="Notifications">
+      <div className="row"><b className="sheet-title">Notifications</b><button className="small sec iconbtn" aria-label="Fermer" onClick={onClose}><Icon name="x" size={15} /></button></div>
+      {data.items.length === 0 && <p className="mut">Aucune notification pour l'instant.</p>}
+      {data.items.map((n) => (
+        <div key={n.id} className={"notif" + (n.read ? "" : " unread")}>
+          <span className="news-ico"><Icon name={NOTIF_ICON[n.kind] ?? "bell"} size={16} /></span>
+          <div style={{ flex: 1 }}>
+            <b className="notif-title">{n.title}</b>
+            <div className="mut small-p">{dayLabel(n.created_at)} · {hhmm(n.created_at)}</div>
+            <div className="notif-body">{n.body}</div>
+            {n.proposal?.open && (
+              <div className="actions">
+                <button className="small" onClick={() => { onClose(); answerProposal(n.proposal.booking_id, true, reload); }}>Accepter</button>
+                <button className="small sec" onClick={() => { onClose(); answerProposal(n.proposal.booking_id, false, reload); }}>Refuser</button>
+              </div>
+            )}
+            {(n.kind === "promo" || n.kind === "place") && <button className="small sec" style={{ marginTop: 6 }} onClick={() => book(n)}>Voir les créneaux</button>}
+            {n.kind === "invitation" && <button className="small sec" style={{ marginTop: 6 }} onClick={() => { onClose(); go("home"); }}>Voir la proposition</button>}
+          </div>
+        </div>
+      ))}
+    </Modal>
+  );
+}
 
 // Accueil: ce qui compte maintenant. La prochaine séance (en couleur, orange le jour même), un impayé s'il y en a,
 // réserver, puis « Quoi de neuf » (propositions, promotions, retours des coachs, résultats à saisir, absences):
@@ -59,7 +119,8 @@ function Home({ me, sessions, progress, proposals, promos, events, go, reload })
   events.filter((e) => e.coach_feedback && recent(e.feedback_at, 14)).forEach((e) => news.push({ k: "m" + e.id, icon: "swords", tone: "ok", text: <><b>{e.coach_name}</b> a commenté votre {e.kind === "tournoi" ? "tournoi" : "match"} du {dayLabel(e.start)}</>, go: "planning" }));
   events.filter((e) => e.kind !== "autre" && toDate(e.start) < new Date() && recent(e.start, 14) && !e.result && e.rating == null).forEach((e) => news.push({ k: "r" + e.id, icon: "edit", tone: "warn", text: <>Comment s'est passé votre {e.kind === "tournoi" ? "tournoi" : "match"} du {dayLabel(e.start)} ? Ajoutez le résultat.</>, go: "planning" }));
   (me.absences ?? []).forEach((a, i) => news.push({ k: "a" + i, icon: "sun", tone: "warn", text: <><b>{a.coach_name}</b> {absenceText(a)}</> }));
-  const nothing = !proposals.length && !promos.length && !news.length;
+  const counters = sessions.upcoming.filter((s) => s.status === "contre_proposition"); // autre horaire proposé par le coach
+  const nothing = !proposals.length && !promos.length && !news.length && !counters.length;
   return (
     <>
       <div className="hero home-hero">
@@ -86,6 +147,7 @@ function Home({ me, sessions, progress, proposals, promos, events, go, reload })
       <InstallCard />
 
       {!nothing && <h2 className="accent-h"><Icon name="sparkles" size={16} /> Quoi de neuf</h2>}
+      {counters.map((s) => <ProposalCard key={s.booking_id} s={s} reload={reload} />)}
       {proposals.map((p) => (
         <div className="card proposal" key={p.id}>
           <div className="row g10" style={{ alignItems: "flex-start" }}>
@@ -151,13 +213,15 @@ export default function PlayerApp() {
   const [[tab0 = "home", sub], setTab] = useRoute("home");
   const tab = tab0 === "mine" ? "planning" : tab0; // ancien lien « Mes séances »
   const [data, setData] = useState(null);
+  const [bell, setBell] = useState(false); // liste des notifications ouverte
   const last = useRef(null); // séances du chargement précédent: pour annoncer une validation du coach
   const load = () =>
-    Promise.all([api("/me"), api("/me/sessions"), api("/me/progress"), api("/me/credits"), api("/me/proposals"), api("/me/promotions").catch(() => []), api("/me/events").catch(() => [])])
-      .then(([me, sessions, progress, credits, proposals, promos, events]) => {
+    Promise.all([api("/me"), api("/me/sessions"), api("/me/progress"), api("/me/credits"), api("/me/proposals"), api("/me/promotions").catch(() => []), api("/me/events").catch(() => []),
+      api("/me/notifications").catch(() => ({ items: [], unread: 0 }))])
+      .then(([me, sessions, progress, credits, proposals, promos, events, notifs]) => {
         announce(last.current, sessions); // hors de setData: une mise à jour d'état doit rester pure
         last.current = sessions;
-        setData({ me, sessions, progress, credits, proposals, promos, events });
+        setData({ me, sessions, progress, credits, proposals, promos, events, notifs });
       });
   useEffect(() => { load(); }, []);
   useLive(load); // la validation du coach apparaît sans se reconnecter
@@ -185,7 +249,13 @@ export default function PlayerApp() {
           </button>
         ))}
       </nav>
-      <div className="topbtns"><button onClick={() => { setToken(null); location.reload(); }} title="Se déconnecter" aria-label="Se déconnecter"><Icon name="logout" size={17} /></button></div>
+      <div className="topbtns">
+        <button className="bell" onClick={() => setBell(true)} title="Notifications" aria-label={`Notifications${data.notifs.unread ? ` (${data.notifs.unread} non lues)` : ""}`}>
+          <Icon name="bell" size={17} />{data.notifs.unread > 0 && <b className="navbadge">{data.notifs.unread}</b>}
+        </button>
+        <button onClick={() => { setToken(null); location.reload(); }} title="Se déconnecter" aria-label="Se déconnecter"><Icon name="logout" size={17} /></button>
+      </div>
+      {bell && <Notifications data={data.notifs} go={setTab} reload={load} onClose={() => { setBell(false); load(); }} />}
     </>
   );
 }

@@ -130,7 +130,8 @@ def booking_out(db: Session, coach: Coach, b: Booking) -> dict:
     s = db.get(TrainingSession, b.session_id) if b.session_id else None
     out = {
         "id": b.id, "player_id": p.id, "name": p.name, "phone": p.phone, "email": p.email, "category": p.category, "gender": p.gender,
-        "kind": b.kind, "start": b.start, "duration_min": b.duration_min, "status": b.status, "charged_millimes": b.charged_millimes,
+        "kind": b.kind, "start": b.start, "duration_min": b.duration_min, "status": b.status,
+        "proposed_start": b.proposed_start, "proposed_minutes": b.proposed_minutes, "charged_millimes": b.charged_millimes,
         "session_id": b.session_id, "join": s is not None and b.status == "en_attente", "notified_at": b.notified_at,
         "partners": [x.name for x in (db.get(Player, i) for i in svc.attendee_ids(s)) if x.id != p.id] if s else [],
         "club": s.club if s else "", "court_state": svc.court_state(db, s) if s else None,
@@ -190,7 +191,7 @@ def list_requests(coach: Coach = Depends(current_coach), db: Session = Depends(g
     for b in db.scalars(select(Booking).where(Booking.coach_id == coach.id).order_by(Booking.start)):
         if aware(b.start) < now and b.status != "confirmee":
             continue
-        if b.status in ("en_attente", "attente_joueurs", "acceptee") or (b.status == "confirmee" and b.notified_at is None and aware(b.start) >= now):
+        if b.status in ("en_attente", "contre_proposition", "attente_joueurs", "acceptee") or (b.status == "confirmee" and b.notified_at is None and aware(b.start) >= now):
             items.append(booking_out(db, coach, b))
     return items
 
@@ -232,6 +233,23 @@ def accept(booking_id: int, body: AcceptIn, coach: Coach = Depends(current_coach
             raise HTTPException(404, "Club introuvable")
     try:
         svc.accept(db, coach, b, sms, court=court, club=club)
+    except svc.BookingError as e:
+        raise HTTPException(409, str(e))
+    db.commit()
+    return booking_out(db, coach, b)
+
+
+class ProposeTimeIn(BaseModel):
+    start: datetime
+    duration_min: int | None = None
+
+
+@router.post("/booking/requests/{booking_id}/propose")
+def propose_time(booking_id: int, body: ProposeTimeIn, coach: Coach = Depends(current_coach), db: Session = Depends(get_db)):
+    """Accepter, refuser… ou proposer un autre horaire (comme une invitation de réunion): le joueur répond dans l'appli."""
+    b = _owned(db, coach, booking_id)
+    try:
+        svc.counter_propose(db, coach, b, body.start, body.duration_min or b.duration_min)
     except svc.BookingError as e:
         raise HTTPException(409, str(e))
     db.commit()

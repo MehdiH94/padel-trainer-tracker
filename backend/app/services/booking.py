@@ -17,7 +17,7 @@ from .pricing import duration_for, quote, reduced
 HORIZON_DAYS = 14
 MIN_NOTICE_H = 2
 # attente_joueurs: acceptée par le coach, mais la séance n'a pas encore le nombre minimum de joueurs voulu
-ACTIVE = ("en_attente", "attente_joueurs", "acceptee", "confirmee")
+ACTIVE = ("en_attente", "contre_proposition", "attente_joueurs", "acceptee", "confirmee")  # contre_proposition: le coach propose un autre horaire
 
 
 class BookingError(Exception):
@@ -446,8 +446,29 @@ def _when(s: TrainingSession) -> str:
     return f"{courts.JOURS[t.weekday()]} {t:%d/%m} à {t:%H}h{t:%M}" + (f" ({s.club})" if s.club else "")
 
 
-def notify(db: Session, players: list[Player], subject: str, body_for) -> int:
-    """Message à des joueurs, par le moyen qu'ils ont choisi (voir app/notify.py)."""
+def short_text(text: str) -> str:
+    """Message pour l'appli: sans la formule de politesse du début ni la signature."""
+    lines = text.strip().splitlines()
+    if lines and lines[0].startswith("Bonjour"):
+        lines = lines[1:]
+    for i, line in enumerate(lines):
+        if line.strip() in ("À bientôt,", "À très vite,"):
+            lines = lines[:i]
+            break
+    return "\n".join(lines).strip()
+
+
+def app_notify(db: Session, p: Player, title: str, body: str, kind: str = "message", **refs) -> None:
+    """Notification dans l'appli du joueur (sur sa fiche compte), s'il a un compte."""
+    from ..models import Notification
+    from .accounts import account_of
+    acc = account_of(db, p)
+    if acc.password_hash:
+        db.add(Notification(account_id=acc.id, coach_id=p.coach_id, kind=kind, title=title[:160], body=short_text(body)[:2000], **refs))
+
+
+def notify(db: Session, players: list[Player], subject: str, body_for, kind: str = "message", **refs) -> int:
+    """Message à des joueurs, par le moyen qu'ils ont choisi (voir app/notify.py), et dans leur appli."""
     from ..notify import Notifier  # import local: notify importe les modèles
     from ..sms import get_sms_provider
     from .accounts import contact_email
@@ -455,6 +476,7 @@ def notify(db: Session, players: list[Player], subject: str, body_for) -> int:
     from ..notify import channel_for
     for p in players:
         channel = channel_for(p, contact_email(db, p))  # e-mail en version bêta
+        app_notify(db, p, subject, body_for(p), kind, **refs)
         try:
             notifier.send(p, channel, subject, body_for(p), email=contact_email(db, p))
             sent += 1
@@ -770,3 +792,51 @@ def candidates(db: Session, coach: Coach, s: TrainingSession) -> list[dict]:
         if ok:
             out.append({"player_id": p.id, "name": p.name, "category": p.category, "gender": p.gender, "has_account": p.password_hash is not None or p.account_id is not None, "gap": round(gap, 1)})
     return sorted(out, key=lambda x: (x["gap"], not x["has_account"]))[:6]
+
+
+# --- Autre horaire proposé par le coach (comme une réunion: accepter, refuser ou proposer un autre horaire) ---
+
+def counter_propose(db: Session, coach: Coach, b: Booking, start: datetime, minutes: int) -> None:
+    """Le coach veut bien entraîner ce joueur, mais pas à cette heure: il propose un autre horaire. Le joueur est
+    prévenu (appli + e-mail) et accepte (la séance est alors acceptée d'office) ou refuse."""
+    if b.status != "en_attente" or b.session_id:
+        raise BookingError("Seule une demande de nouvelle séance pas encore traitée peut recevoir un autre horaire.")
+    start = aware(start)
+    if start <= datetime.now(timezone.utc):
+        raise BookingError("Proposez un horaire à venir.")
+    if not 30 <= minutes <= 240:
+        raise BookingError("Durée invalide.")
+    end = start + timedelta(minutes=minutes)
+    clash = next((s for s in db.scalars(select(TrainingSession).where(TrainingSession.coach_id == coach.id, TrainingSession.status == "prevue"))
+                  if aware(s.start) < end and start < aware(s.start) + timedelta(minutes=s.duration_min)), None)
+    if clash:
+        raise BookingError(f"Vous avez déjà une séance à ce moment-là ({quand(clash.start, clash.duration_min)}).")
+    b.proposed_start, b.proposed_minutes, b.status = start, minutes, "contre_proposition"
+    p = db.get(Player, b.player_id)
+    notify(db, [p], f"{coach.name} vous propose un autre horaire", lambda x: letter(
+        x.name, f"{coach.name} ne peut pas vous entraîner {quand(b.start, b.duration_min)}, mais vous propose :",
+        [("Quand", quand(start, minutes)), ("Formule", KIND_FR.get(b.kind, ""))],
+        "Acceptez ou refusez dans l'application (onglet Accueil ou notifications).", sign=coach.name),
+        kind="contre_proposition", booking_id=b.id)
+
+
+def answer_proposal(db: Session, b: Booking, yes: bool, sms: SmsProvider | None = None) -> None:
+    """Réponse du joueur à l'autre horaire proposé: oui = la séance est acceptée à ce nouvel horaire (le coach l'a
+    proposé), non = la demande est abandonnée (rien n'avait été débité)."""
+    if b.status != "contre_proposition":
+        raise BookingError("Cette proposition n'est plus d'actualité.")
+    coach = db.get(Coach, b.coach_id)
+    p = db.get(Player, b.player_id)
+    old = quand(b.start, b.duration_min)
+    if not yes:
+        b.status = "annulee"
+        notify_coach(db, coach.id, f"{p.name} décline l'horaire proposé", f"{p.name} ne peut pas {quand(b.proposed_start, b.proposed_minutes)} (demande initiale : {old}).")
+        return
+    b.start, b.duration_min, b.status = b.proposed_start, b.proposed_minutes, "en_attente"
+    q = quote(db, coach, b.kind, b.start, b.duration_min)
+    b.price_millimes, b.discount_pct, b.discount_millimes = q["price_millimes"], q["discount_pct"], q["discount_millimes"]
+    opts = groups.parse_opts(b.accepted_opts)
+    if opts:  # nouvelle durée: celle proposée par le coach
+        b.accepted_opts = groups.dump_opts({(k, b.duration_min) for k, _ in opts if k != "individuel" or b.duration_min == 60} or {(b.kind, b.duration_min)})
+    accept(db, coach, b, sms)
+    notify_coach(db, coach.id, f"{p.name} accepte l'horaire proposé", f"Séance acceptée {quand(b.start, b.duration_min)} (demande initiale : {old}).")

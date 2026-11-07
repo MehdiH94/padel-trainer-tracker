@@ -98,12 +98,14 @@ def create_promotion(body: PromoIn, coach: Coach = Depends(current_coach), db: S
     message = body.message.strip() or default_message(db, coach, cb, body.discount_millimes)
     p = Promotion(coach_id=coach.id, court_booking_id=cb.id, discount_pct=0, discount_millimes=body.discount_millimes, message=message)
     db.add(p)
+    db.flush()
     # Prévenir les joueurs par le moyen qu'ils ont choisi (SMS par défaut)
     notifier, sent = Notifier(sms), 0
     for pl in recipients(db, coach):
         channel = channel_for(pl, contact_email(db, pl))  # e-mail en version bêta
         if channel == "email" and not contact_email(db, pl):
             channel = "sms"
+        booking_svc.app_notify(db, pl, f"Promo padel avec {coach.name}", message, "promo", promotion_id=p.id)
         try:
             notifier.send(pl, channel, f"Promo padel avec {coach.name}", message, email=contact_email(db, pl))
             sent += 1
@@ -177,7 +179,7 @@ def announce(cb_id: int, body: AnnounceIn, coach: Coach = Depends(current_coach)
         raise HTTPException(422, "Réduction invalide.")
     message = body.message.strip() or (default_message(db, coach, cb, off) if off else free_court_message(db, coach, cb))
     subject = f"Heures creuses -{dinars(off)} avec {coach.name}" if off else f"Créneau de padel libre avec {coach.name}"
-    sent = booking_svc.notify(db, chosen, subject, lambda _p: message)
+    sent = booking_svc.notify(db, chosen, subject, lambda _p: message, "promo" if off else "place")
     if off:  # la réduction s'applique aux réservations sur ce terrain (une seule promotion à la fois)
         for old in db.scalars(select(Promotion).where(Promotion.court_booking_id == cb.id, Promotion.active.is_(True))):
             old.active = False

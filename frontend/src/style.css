@@ -832,3 +832,12 @@ button.saved { background: var(--green); border-color: var(--green); color: #fff
 .price-cells { display: flex; gap: 12px; }
 .chips.goals .chip { text-align: left; white-space: normal; }
 .seg-choice button { min-width: 0; }
+.propose-box { border: 1.5px solid var(--brand-ring); background: var(--brand-xl); border-radius: 14px; padding: 10px 12px; margin: 8px 0; }
+/* Notifications du joueur */
+.bell { position: relative; }
+.bell .navbadge { top: -4px; right: -4px; }
+.notif { display: flex; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+.notif:last-child { border-bottom: 0; }
+.notif.unread .notif-title::before { content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--brand); margin-right: 6px; vertical-align: middle; }
+.notif-body { white-space: pre-line; font-size: .88rem; color: var(--mut); margin-top: 2px; }
+.proposal-card { border: 2px solid var(--brand-ring); }

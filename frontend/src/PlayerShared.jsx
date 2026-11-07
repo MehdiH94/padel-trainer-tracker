@@ -7,7 +7,7 @@ import { Avatar, KIND } from "./ui.jsx";
 // Morceaux communs aux écrans du joueur (accueil, planning): carte d'une séance, annulation, remplacement
 export const TZ = "Africa/Tunis";
 export const REASONS = { recharge: "Recharge", reservation: "Réservation", remboursement: "Remboursement", ajustement: "Ajustement", seance: "Séance effectuée", seance_annulee: "Séance effectuée" };
-export const STATUS_TXT = { en_attente: "En attente du coach", attente_joueurs: "En attente d'autres joueurs", acceptee: "Terrain à confirmer", confirmee: "Confirmée" };
+export const STATUS_TXT = { en_attente: "En attente du coach", contre_proposition: "Le coach propose un autre horaire", attente_joueurs: "En attente d'autres joueurs", acceptee: "Terrain à confirmer", confirmee: "Confirmée" };
 export const statusText = (s) => (s.status === "attente_joueurs" ? `En attente d'autres joueurs (${s.players_count}/${s.min_needed})` : STATUS_TXT[s.status] ?? "Confirmée");
 export const HOW = { individuel: "Seul", duo: "À deux", groupe: "En groupe" };
 
