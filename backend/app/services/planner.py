@@ -42,6 +42,7 @@ def player_weaknesses(db: Session, player: Player) -> dict:
         select(Attendance).join(TrainingSession, TrainingSession.id == Attendance.session_id)
         .where(Attendance.player_id == player.id, Attendance.to_improve != "", TrainingSession.status == "effectuee")
         .order_by(TrainingSession.start.desc()).limit(3))]
+    notes = list(dict.fromkeys(n.strip() for n in notes))  # même remarque sur plusieurs séances: une seule fois
     weak = sorted(([st, sc] for st, sc in latest.items() if sc <= 2), key=lambda x: x[1])
     if not weak and latest:  # rien de faible: on montre le coup le moins bien noté s'il est moyen
         st, sc = min(latest.items(), key=lambda x: x[1])
