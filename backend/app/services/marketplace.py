@@ -139,17 +139,23 @@ def offers(db: Session, account: Player, day: date, kinds: list[str], coach_ids:
         pending = list(db.scalars(select(Booking).where(Booking.coach_id == c.id, Booking.status == "en_attente", Booking.session_id.is_(None),
                                                         Booking.player_id.not_in(my_ids))))
         snug = edges(db, c)  # créneaux collés à un bord de plage libre: mis en avant
+        feasible: dict[datetime, set[int]] = {}
         for minutes in (60, 90):
-            ks = [k for k in kinds if minutes in durations[k]]
-            if not ks:
+            if any(minutes in durations[k] for k in kinds):
+                for start in free_slots(db, c, minutes=minutes):
+                    if _in_window(start, day, period):
+                        feasible.setdefault(start, set()).add(minutes)
+        for start, mins in feasible.items():
+            # la séance garde la plus longue durée possible ici; les formules plus courtes acceptées (seul 1 h…)
+            # restent possibles à l'intérieur: s'il reste seul, il joue 1 h
+            length = max((m for k in kinds for m in durations[k] if m in mins), default=None)
+            opts = [(k, m) for k in kinds for m in durations[k] if length and m <= length]
+            if not opts:
                 continue
-            for start in free_slots(db, c, minutes=minutes):
-                if not _in_window(start, day, period):
-                    continue
-                too_late.update(k for k in ks if not grp.can_open(k, start))
-                if not grp.can_open(ks[0], start):  # ouvrir un duo/groupe seul: seulement à plus de 24 h
-                    continue
-                starts.setdefault(start, []).extend(quote(db, c, k, start, minutes) for k in ks)
+            too_late.update(k for k, _ in opts if not grp.can_open(k, start))
+            if not grp.can_open(opts[0][0], start):  # ouvrir un duo/groupe seul: seulement à plus de 24 h
+                continue
+            starts[start] = [quote(db, c, k, start, m) for k, m in opts]
         for start, options in sorted(starts.items()):
             held = [cb for cb in courts.held_covering(db, c, start, min(o["duration_min"] for o in options))
                     if in_clubs(db.get(Club, cb.club_id).name)]

@@ -125,6 +125,7 @@ export function SessionTicket({ s, reload }) {
       <DateBlock iso={s.start} />
       <div style={{ flex: 1 }}>
         <div className="time">{hhmm(s.start)} <span className="mut">· {s.duration_min} min</span></div>
+        {s.spots_left > 0 && s.held_min > s.duration_min && <div className="mut small-p">Ouverte à d'autres joueurs : jusqu'à {s.held_min} min s'ils vous rejoignent</div>}
         <KindPill kind={s.kind} />
         <div className="mut" style={{ marginTop: 4 }}><Icon name="user" size={13} /> {s.coach_name}{s.club && <> · <Icon name="pin" size={13} /> {s.club}</>}</div>
         {s.partners?.length > 0 && <div className="partners">{s.partners.map((x) => <span key={x.name} className="partner"><Avatar name={x.name} size={20} /> {x.name.split(" ")[0]}</span>)}</div>}

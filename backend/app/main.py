@@ -114,6 +114,7 @@ async def _session_reminders():
         try:
             with SessionLocal() as db:
                 session_reminders.send_due(db, Notifier(get_sms_provider()))
+                booking_svc.settle_durations(db)  # moins de 24 h: durée réellement jouée (seul = 1 h)
                 booking_svc.remind_incomplete(db)  # 6 h avant: séance pas encore assez remplie
                 booking_svc.complete_finished(db)  # séances terminées: effectuées automatiquement
         except Exception:

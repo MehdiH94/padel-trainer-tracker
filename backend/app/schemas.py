@@ -132,6 +132,7 @@ class SessionOut(BaseModel):
     has_plan: bool = False  # plan de séance (exercices) enregistré
     min_players: int = 1  # nombre de joueurs voulu par tous pour que la séance soit confirmée
     max_players: int = 4  # places au total (services/groups)
+    played_min: int | None = None  # durée jouée à la taille actuelle (seul = 1 h dans un terrain gardé 1 h 30)
     court: str
     status: str
     price_millimes: int

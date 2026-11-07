@@ -251,7 +251,9 @@ def my_sessions(player: Player = Depends(current_player), db: Session = Depends(
         # séance montée par le coach (pas de réservation): mêmes règles d'annulation, d'après le type de séance
         deadline = svc.cancel_deadline(b) if b else aware(s.start) - svc.CANCEL_BEFORE.get(s.kind, svc.CANCEL_BEFORE["groupe"])
         item = {
-            "session_id": s.id, "booking_id": b.id if b else None, "start": s.start, "duration_min": s.duration_min,
+            # durée jouée à la taille actuelle (seul = 1 h); « jusqu'à » = durée gardée si d'autres joueurs le rejoignent
+            "session_id": s.id, "booking_id": b.id if b else None, "start": s.start,
+            "duration_min": groups.played_minutes(s) if groups.is_dynamic(s) else s.duration_min, "held_min": s.duration_min,
             "kind": s.kind, "club": s.club, "court_state": svc.court_state(db, s), "spots_left": svc.spots_left(db, s) if s.open else 0,
             "partners": _partners(db, s, ids), "status": b.status if b else "confirmee", "session_status": s.status,
             "coach_name": coach_names.get(s.coach_id, ""), "players_count": len(s.attendances), "min_needed": groups.min_needed(s),

@@ -291,8 +291,12 @@ def request_new(db: Session, coach: Coach, player: Player, kind: str, start: dat
     wanted = [k for k in groups.ORDER if k in (accepted_kinds or []) or k == kind]
     feasible = [m for m in (60, 90) if minutes in (None, m) and aware(start) in free_slots(db, coach, minutes=m)]
     # sans durées précisées (anciens appels): 1 h, ou la durée imposée
-    opts = {(k, m) for k, m in (groups.opts_of(wanted, durations, 60) if durations is not None else groups.opts_of(wanted, None, minutes or 60))
-            if m in feasible and (k != "individuel" or m == 60)}  # seul: toujours 1 h
+    every = {(k, m) for k, m in (groups.opts_of(wanted, durations, 60) if durations is not None else groups.opts_of(wanted, None, minutes or 60))
+             if k != "individuel" or m == 60}  # seul: toujours 1 h
+    # la séance retient la plus longue durée possible à ce début; les formules plus courtes cochées restent
+    # possibles à l'intérieur (seul 1 h dans un terrain d'1 h 30: s'il reste seul, il joue 1 h)
+    length = max((m for _, m in every if m in feasible), default=None)
+    opts = {(k, m) for k, m in every if length and m <= length}
     if not opts:
         if not feasible:
             raise BookingError("Ce créneau n'est plus disponible")
@@ -523,6 +527,11 @@ def refresh(db: Session, s: TrainingSession) -> None:
         s.open = groups.capacity(s) > len(s.attendances)
         # durée: la plus longue que tous acceptent (un joueur qui ne veut que 1 h raccourcit la séance de 1 h 30)
         s.duration_min = min(s.duration_min, groups.best_minutes(s))
+        # moins de 24 h avant (plus le temps de former un groupe): la séance prend la durée réellement jouée
+        # (seul = 1 h), le reste du terrain redevient libre
+        if aware(s.start) - datetime.now(timezone.utc) < groups.FORM_DELAY:
+            s.duration_min = min(s.duration_min, groups.played_minutes(s))
+        courts.fit_session(db, s)
     complete, state = groups.is_complete(s), court_state(db, s)
     coach = db.get(Coach, s.coach_id)
     if groups.is_dynamic(s):
@@ -547,8 +556,9 @@ def refresh(db: Session, s: TrainingSession) -> None:
 def _reprice(db: Session, coach: Coach, s: TrainingSession, b: Booking) -> None:
     """Prix de la formule réellement jouée (taille de la séance), avec la remise obtenue à la réservation.
     Déjà débité: la différence est rendue ou débitée (« ajustement »)."""
-    price = reduced(price_for(coach, s.kind, s.duration_min), b.discount_pct, b.discount_millimes)
-    b.kind, b.duration_min = s.kind, s.duration_min
+    played = groups.played_minutes(s)  # seul: 1 h, même si le terrain reste gardé 1 h 30 pour un groupe
+    price = reduced(price_for(coach, s.kind, played), b.discount_pct, b.discount_millimes)
+    b.kind, b.duration_min = s.kind, played
     if price == b.price_millimes:
         return
     b.price_millimes = price
@@ -586,6 +596,20 @@ def reconsider(db: Session, coach: Coach, b: Booking, kind: str) -> None:
     else:  # pas encore validée par le coach: formule de départ et prix mis à jour
         b.kind = groups.smallest(mine)
         b.price_millimes = reduced(price_for(coach, b.kind, b.duration_min), b.discount_pct, b.discount_millimes)
+
+
+def settle_durations(db: Session, now: datetime | None = None) -> int:
+    """Séances formées par les joueurs à moins de 24 h: durée réellement jouée (seul = 1 h), terrain libéré."""
+    now = now or datetime.now(timezone.utc)
+    count = 0
+    for s in db.scalars(select(TrainingSession).where(TrainingSession.status == "prevue", TrainingSession.start > now,
+                                                     TrainingSession.start <= now + groups.FORM_DELAY)):
+        if groups.is_dynamic(s) and groups.played_minutes(s) < s.duration_min:
+            refresh(db, s)
+            count += 1
+    if count:
+        db.commit()
+    return count
 
 
 def remind_incomplete(db: Session, now: datetime | None = None) -> int:

@@ -31,6 +31,7 @@ export default function SessionCard({ s, name, byId, onStatus, onDuplicate, onPr
       <div className="tags">
         {s.court_status && s.status === "prevue" && <span className={"court-badge " + COURT_STATUS[s.court_status].cls}><Icon name="pin" size={12} /> {COURT_STATUS[s.court_status].label}</span>}
         {s.open && s.status === "prevue" && free > 0 && <span className="court-badge wait"><Icon name="users" size={12} /> {free} place{free > 1 ? "s" : ""} libre{free > 1 ? "s" : ""}</span>}
+        {s.open && s.status === "prevue" && s.played_min < s.duration_min && <span className="court-badge idle"><Icon name="clock" size={12} /> {s.played_min} min s'il reste {s.player_ids.length > 1 ? "à " + s.player_ids.length : "seul"}</span>}
         {s.level && <span className="court-badge idle">Niveau {s.level}</span>}
         {short && <span className="court-badge wait"><Icon name="clock" size={12} /> En attente de joueurs {s.player_ids.length}/{s.min_players}</span>}
       </div>

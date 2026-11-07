@@ -119,6 +119,14 @@ def best_minutes(s: TrainingSession) -> int:
     return max(cand) if cand else s.duration_min
 
 
+def played_minutes(s: TrainingSession) -> int:
+    """Durée réellement jouée à la taille actuelle (ou minimale voulue): seul = 1 h même si la séance garde 1 h 30
+    pour un groupe qui pourrait encore se former."""
+    n = max(len(s.attendances), min_needed(s))
+    cand = [m for k, m in allowed_pairs(s) if k == n]
+    return max(cand) if cand else s.duration_min
+
+
 def capacity(s: TrainingSession, pending: list | None = None) -> int:
     a = allowed(s, pending)
     return max(a) if a else len(s.attendances)

@@ -33,6 +33,7 @@ def to_out(s: TrainingSession, court_status: str | None = None, paid: dict[tuple
     out.court_status = court_status
     out.has_plan = bool(s.plan)
     out.min_players, out.max_players = groups.min_needed(s) if s.attendances else 1, groups.capacity(s)
+    out.played_min = groups.played_minutes(s) if groups.is_dynamic(s) else s.duration_min
     out.feedback_missing = s.status == "effectuee" and any(not (a.worked_on or a.note or a.to_improve) for a in s.attendances)
     if s.status == "effectuee":  # ce que chaque joueur a réglé pour cette séance
         paid = paid or {}

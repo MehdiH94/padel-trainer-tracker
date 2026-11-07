@@ -2169,7 +2169,7 @@ def test_open_duration_shortened_by_the_strictest_and_same_slot_requests(client)
     b, pb = player_client(client, name="Bea", phone="20222222")
     for p in (a, b):
         client.post(f"/players/{p['id']}/credits", json={"amount_millimes": 200000})
-    start = _future_slot(pa, 50)
+    start = _future_slot(pa, 50, hour_utc=9)  # 10 h à Tunis: 1 h 30 possible
     r = pa.post("/me/book", json={"kind": "duo", "start": start, "kinds": ["duo"], "durations": {"duo": [60, 90]}}).json()
     req = next(x for x in client.get("/booking/requests").json() if x["id"] == r["id"])
     assert req["duration_min"] == 90 and req["wish"] == [{"kind": "duo", "minutes": [60, 90]}]
@@ -2253,3 +2253,40 @@ def test_coach_proposes_another_time_and_player_notifications(client):
     # un horaire où le coach a déjà une séance est refusé
     r3 = pc.post("/me/book", json={"kind": "individuel", "start": slots[2]}).json()
     assert client.post(f"/booking/requests/{r3['id']}/propose", json={"start": later.isoformat()}).status_code == 409
+
+
+def test_solo_accepted_keeps_session_open_and_plays_one_hour(client):
+    """Le joueur coche seul, à deux et en groupe sur un terrain d'1 h 30: la séance est validée tout de suite (il accepte
+    de jouer seul), reste ouverte aux autres joueurs, et il paie 1 h seul; à moins de 24 h, s'il est toujours seul, la
+    séance passe à 1 h et la fin du terrain redevient libre."""
+    st = client.get("/booking/settings").json()
+    client.put("/booking/settings", json={**st, "auto_confirm": False, "price_individuel": 60000, "price_duo": 40000,
+                                          "price_groupe": 30000, "booking_mode": "terrains"})
+    p, pc = player_client(client)
+    client.post(f"/players/{p['id']}/credits", json={"amount_millimes": 200000})
+    day = (datetime.now(timezone.utc) + timedelta(days=3)).date()
+    start = datetime(day.year, day.month, day.day, 9, 0, tzinfo=timezone.utc).isoformat()
+    club = mkclub(client)
+    free_court(client, start, 90, club=club)
+    all3 = {"kinds": ["individuel", "duo", "groupe"], "durations": {"duo": [60], "groupe": [90]}}
+    off = pc.get(f"/me/offers?day={day}&kinds=individuel,duo,groupe&duo_min=60&groupe_min=90").json()
+    slot = next(x for x in off["slots_with_court"] if x["start"].startswith(start[:16]))
+    assert {(o["kind"], o["duration_min"]) for o in slot["options"]} == {("individuel", 60), ("duo", 60), ("groupe", 90)}
+    r = pc.post("/me/book", json={"kind": "individuel", "start": start, **all3}).json()
+    assert client.post(f"/booking/requests/{r['id']}/accept", json={}).status_code == 200
+    s = next(x for x in client.get("/sessions").json() if x["player_ids"] == [p["id"]])
+    assert s["kind"] == "individuel" and s["duration_min"] == 90 and s["open"]  # terrain gardé 1 h 30 pour un groupe
+    mine = pc.get("/me/sessions").json()["upcoming"][0]
+    assert mine["status"] == "confirmee" and mine["min_needed"] == 1
+    assert pc.get("/me").json()["credits_millimes"] == 140000  # 1 h seul, pas 1 h 30
+    assert next(cb for cb in client.get("/court-bookings").json() if cb["session_id"] == s["id"])["state"] == "complet"
+
+    # à moins de 24 h et toujours seul: 1 h, la dernière demi-heure du terrain redevient libre
+    soon = (datetime.now(timezone.utc) + timedelta(hours=5)).replace(minute=0, second=0, microsecond=0)
+    free_court(client, soon.isoformat(), 90, club=club)
+    r2 = pc.post("/me/book", json={"kind": "individuel", "start": soon.isoformat(), **all3}).json()
+    client.post(f"/booking/requests/{r2['id']}/accept", json={})
+    s2 = next(x for x in client.get("/sessions").json() if x["id"] != s["id"])
+    assert s2["duration_min"] == 60 and s2["kind"] == "individuel"
+    free = [cb for cb in client.get("/court-bookings").json() if cb["free"]]
+    assert any(cb["start"].startswith((soon + timedelta(hours=1)).isoformat()[:16]) and cb["duration_min"] == 30 for cb in free)

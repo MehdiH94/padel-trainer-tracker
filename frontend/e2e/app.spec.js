@@ -48,7 +48,7 @@ test("le coach parcourt tous ses écrans", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "Mes terrains" })).toBeVisible();
 
   await nav(page, "Joueurs").click();
-  await expect(page.getByText("Sami Ben Ali")).toBeVisible();
+  await expect(page.getByText("Sami Ben Ali").first()).toBeVisible();
   await nav(page, "Demandes").click();
   await expect(page.getByRole("heading", { name: "Demandes" })).toBeVisible();
   // Finance remplace Relances: impayés, gagné, argent reçu
@@ -638,4 +638,24 @@ test("le coach propose un autre horaire: le joueur est notifié dans l'appli et 
   await p.getByRole("button", { name: /Notifications/ }).click();
   await expect(p.getByRole("dialog").getByText(/vous propose un autre horaire/).first()).toBeVisible();
   await p.close();
+});
+
+test("seul, à deux ou en groupe: validée tout de suite, ouverte aux autres joueurs, 1 h s'il reste seul", async ({ page, request }) => {
+  const tok = async (email) => (await (await request.post("/api/auth/login", { data: { email, password: "demo1234" } })).json()).token;
+  const sami = { Authorization: `Bearer ${await tok("sami@demo.tn")}` }, coach = { Authorization: `Bearer ${await tok("demo@padel.tn")}` };
+  const day = new Date(Date.now() + 6 * 86400000).toLocaleDateString("fr-CA", { timeZone: "Africa/Tunis" });
+  const [club] = await (await request.get("/api/clubs", { headers: coach })).json();
+  expect((await request.post("/api/court-bookings/manual", { headers: coach, data: { club_id: club.id, start: `${day}T06:00:00+01:00`, duration_min: 90, court_label: "Terrain matin" } })).ok()).toBeTruthy();
+  const r = await request.post("/api/me/book", { headers: sami, data: { kind: "individuel", start: `${day}T06:00:00+01:00`, kinds: ["individuel", "duo", "groupe"], durations: { duo: [60], groupe: [90] } } });
+  expect(r.ok()).toBeTruthy();
+  const b = await r.json();
+  if (b.status === "en_attente") expect((await request.post(`/api/booking/requests/${b.id}/accept`, { headers: coach, data: {} })).ok()).toBeTruthy();
+
+  await login(page, "sami@demo.tn");
+  await page.locator("nav").getByRole("button", { name: "Planning" }).click();
+  await page.getByRole("tab", { name: /Liste/ }).click();
+  const ticket = page.locator(".ticket", { hasText: "Ouverte à d'autres joueurs" }).first();
+  await expect(ticket.getByText("jusqu'à 90 min s'ils vous rejoignent")).toBeVisible();
+  await expect(ticket.getByText("· 60 min")).toBeVisible();
+  await expect(ticket.locator(".status-line")).toHaveText("Confirmée");
 });

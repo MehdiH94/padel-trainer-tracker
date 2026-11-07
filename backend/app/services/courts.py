@@ -67,6 +67,26 @@ def take_part(db: Session, cb: CourtBooking, s: TrainingSession) -> CourtBooking
     return cb
 
 
+def fit_session(db: Session, s: TrainingSession) -> None:
+    """La séance a raccourci (seul = 1 h dans un terrain gardé 1 h 30): son terrain aussi, la fin redevient libre
+    (rattachée au terrain libre qui suit, s'il y en a un)."""
+    for cb in db.scalars(select(CourtBooking).where(CourtBooking.session_id == s.id, CourtBooking.status == "confirmee",
+                                                   CourtBooking.start.is_not(None))):
+        end, cb_end = aware(s.start) + timedelta(minutes=s.duration_min), aware(cb.start) + timedelta(minutes=cb.duration_min)
+        if cb_end <= end or aware(cb.start) != aware(s.start):
+            continue
+        cb.duration_min = s.duration_min
+        nxt = db.scalar(select(CourtBooking).where(CourtBooking.coach_id == cb.coach_id, CourtBooking.club_id == cb.club_id,
+                                                   CourtBooking.session_id.is_(None), CourtBooking.status == "confirmee",
+                                                   CourtBooking.start == cb_end))
+        rest = int((cb_end - end).total_seconds() // 60)
+        if nxt and (nxt.court_label or "") == (cb.court_label or ""):
+            nxt.start, nxt.duration_min = end, nxt.duration_min + rest
+        else:
+            db.add(CourtBooking(coach_id=cb.coach_id, club_id=cb.club_id, start=end, duration_min=rest, court_label=cb.court_label,
+                                source=cb.source, status="confirmee", series_id=cb.series_id))
+
+
 def span(db: Session, cb: CourtBooking) -> tuple[datetime, datetime] | None:
     """Début et fin d'un terrain (celui d'une séance prend l'heure de la séance)."""
     s = db.get(TrainingSession, cb.session_id) if cb.session_id else None
