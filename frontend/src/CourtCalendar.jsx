@@ -91,7 +91,8 @@ export const offOn = (offs, key) => offs.find((o) => o.start_date <= key && key 
 // Calendrier: semaine (par défaut) ou un seul jour (toucher l'en-tête d'un jour). Terrains (couleur selon leur état),
 // séances qui n'ont pas encore de terrain, et absences du coach (vacances…).
 // sessions / cardProps (facultatifs): séances du coach, pour ouvrir leur carte complète depuis le calendrier.
-export default function CourtCalendar({ list, promos = [], sessions = [], offs = [], cardProps, monday: weekStart, onWeek, onRemove, onStopPromo, onChanged, onCreateAt, onRemoveOff, maxMonday }) {
+export default function CourtCalendar({ list, promos = [], sessions = [], offs = [], cardProps, monday: weekStart, onWeek, onRemove, onStopPromo, onChanged, onCreateAt, onRemoveOff, maxMonday, onAddAt }) {
+  const [adding, setAdding] = useState(null); // case vide touchée: { date, time }
   const [own, setOwn] = useState(mondayOf(new Date()));
   const monday = weekStart ?? own;
   const setMonday = onWeek ?? setOwn;
@@ -157,7 +158,7 @@ export default function CourtCalendar({ list, promos = [], sessions = [], offs =
           </div>
         </div>
       )}
-      {!day && <p className="mut small-p" style={{ margin: "0 0 6px" }}>Touchez un jour pour l'afficher en grand.</p>}
+      {!day && <p className="mut small-p" style={{ margin: "0 0 6px" }}>Touchez un jour pour l'afficher en grand, une case vide pour y ajouter une séance ou un terrain.</p>}
       {(legend.length > 0 || anyOff) && (
         <div className="cal-legend">
           {legend.map(([k, v]) => <span key={k}><i className={"cal-dot " + k} />{v.label}</span>)}
@@ -189,7 +190,13 @@ export default function CourtCalendar({ list, promos = [], sessions = [], offs =
           {days.map((d) => {
             const off = offOn(offs, ymd(d));
             return (
-              <div key={ymd(d)} className={"cal-col" + (ymd(d) === today ? " today" : "") + (off ? " off" : "")} style={{ backgroundSize: `100% ${PX}px` }}>
+              <div key={ymd(d)} className={"cal-col" + (ymd(d) === today ? " today" : "") + (off ? " off" : "") + (onAddAt ? " addable" : "")} style={{ backgroundSize: `100% ${PX}px` }}
+                onClick={(e) => { // case vide touchée: ajouter une séance ou un terrain à ce jour et cette heure (à la demi-heure)
+                  if (!onAddAt || e.target !== e.currentTarget) return;
+                  const y = (e.clientY - e.currentTarget.getBoundingClientRect().top) / PX;
+                  const t = Math.min(23.5, Math.max(6, Math.floor((minH + y) * 2) / 2));
+                  setAdding({ date: ymd(d), time: `${String(Math.floor(t)).padStart(2, "0")}:${t % 1 ? "30" : "00"}` });
+                }}>
                 {off && !day && <button className="cal-off" onClick={() => setDay(ymd(d))} title={off.reason || "Absent"}>{off.reason || "Absent"}</button>}
                 {byDay[ymd(d)].map(({ cb, s, e, lane, count }) => (
                   <button key={cb.id} className={"cal-block " + cb.state} onClick={() => setSel(cb)}
@@ -213,6 +220,15 @@ export default function CourtCalendar({ list, promos = [], sessions = [], offs =
       {all.length === 0 && <p className="mut center small-p">{day ? "Rien ce jour-là." : "Rien cette semaine."} Ajoutez un terrain réservé ou une séance.</p>}
       {sel && <Details cb={sel} session={byId[sel.session_id]} cardProps={cardProps} promo={promos.find((p) => p.court_booking_id === sel.id && p.active)}
         onClose={() => setSel(null)} onRemove={onRemove} onStopPromo={onStopPromo} onChanged={onChanged} onCreateAt={onCreateAt} />}
+      {adding && (
+        <Modal onClose={() => setAdding(null)} label="Ajouter">
+          <div className="row"><b className="sheet-title cap1">{new Date(adding.date + "T12:00:00Z").toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", timeZone: "UTC" })} · {adding.time.replace(":", " h ")}</b><button className="small sec iconbtn" aria-label="Fermer" onClick={() => setAdding(null)}><Icon name="x" size={15} /></button></div>
+          <div className="actions" style={{ flexDirection: "column" }}>
+            <button className="sec choice" onClick={() => { onAddAt("session", adding); setAdding(null); }}><Icon name="plus" size={18} /><span><b>Ajouter une séance</b><small>Formulaire prérempli à ce jour et cette heure.</small></span></button>
+            <button className="sec choice" onClick={() => { onAddAt("court", adding); setAdding(null); }}><Icon name="pin" size={18} /><span><b>Ajouter un terrain</b><small>Terrain réservé au club à partir de cette heure.</small></span></button>
+          </div>
+        </Modal>
+      )}
     </>
   );
 }

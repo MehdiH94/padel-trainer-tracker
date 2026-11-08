@@ -151,6 +151,25 @@ def _merge(db: Session, run: list[CourtBooking]) -> CourtBooking:
     return first
 
 
+def merge_free(db: Session, coach_id: int) -> int:
+    """Terrains libres qui se suivent au même club, sur le même terrain (même nom) et de la même série: réunis en un
+    seul bloc dans le planning (8-10 h + 10-12 h = 8-12 h libre). Les terrains déjà utilisés restent à part."""
+    merged = 0
+    for run in free_runs(db, coach_id):
+        group = [run[0]]
+        for cb in run[1:] + [None]:
+            last = group[-1]
+            if cb is not None and (cb.court_label or "") == (last.court_label or "") and cb.series_id == last.series_id \
+                    and cb.source == last.source:
+                group.append(cb)
+                continue
+            if len(group) > 1:
+                _merge(db, group)
+                merged += 1
+            group = [cb] if cb is not None else []
+    return merged
+
+
 def held_covering(db: Session, coach: Coach, start: datetime, duration_min: int, merge: bool = False) -> list[CourtBooking]:
     """Terrains confirmés et libres qui couvrent entièrement [start, start+durée], plages continues comprises.
     merge=True (au moment d'y placer une séance): les morceaux de la plage sont réunis en un seul terrain."""

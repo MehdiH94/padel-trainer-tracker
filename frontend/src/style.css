@@ -847,3 +847,4 @@ button.saved { background: var(--green); border-color: var(--green); color: #fff
 .formula.grid .formula-name { flex-basis: 100%; }
 .formula.grid .inputunit { max-width: 170px; }
 .book-mode { margin-bottom: 10px; }
+.cal-col.addable { cursor: cell; }

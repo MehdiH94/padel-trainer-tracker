@@ -2338,7 +2338,7 @@ def test_free_court_pieces_count_as_one_range(client):
     client.post(f"/booking/requests/{r['id']}/accept", json={})
     sid = next(s["id"] for s in client.get("/sessions").json() if s["player_ids"] == [p["id"]])
     assert client.patch(f"/sessions/{sid}", json={"status": "annulee"}).status_code == 200
-    assert len([cb for cb in client.get("/court-bookings").json() if cb["free"]]) == 3  # trois morceaux libres
+    assert len([cb for cb in client.get("/court-bookings").json() if cb["free"]]) == 1  # morceaux réunis: un seul bloc 8 h-12 h
     off = pc.get(f"/me/offers?day={day}&kinds=duo,groupe&duo_min=90&groupe_min=90").json()
     starts = {x["start"][11:16] for x in off["slots_with_court"]}
     assert {"08:00", "09:00", "09:30", "10:30"} <= starts

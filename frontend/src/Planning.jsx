@@ -69,6 +69,7 @@ export default function Planning({ go, summary }) {
   const [inviteFor, setInviteFor] = useState(null); // séance qui vient d'être créée: inviter des joueurs
   const [addingCourt, setAddingCourt] = useState(false);
   const [prefill, setPrefill] = useState(null); // « Créer une séance sur ce terrain »
+  const [courtAt, setCourtAt] = useState(null); // case vide touchée: nouveau terrain à ce jour et cette heure
   const load = () => {
     api("/sessions").then(setSessions);
     api("/players").then(setPlayers);
@@ -170,7 +171,7 @@ export default function Planning({ go, summary }) {
             <button className="small sec" onClick={() => { setAddingCourt(!addingCourt); setAddingOff(false); }}><Icon name="plus" size={15} /> Terrain</button>
             <button className="small sec" onClick={() => { setAddingOff(!addingOff); setAddingCourt(false); }}><Icon name="sun" size={15} /> Absence</button>
           </div>
-          {addingCourt && <ManualForm clubs={clubs} onCancel={() => setAddingCourt(false)} onDone={() => { setAddingCourt(false); load(); }} />}
+          {addingCourt && <ManualForm key={JSON.stringify(courtAt)} initial={courtAt} clubs={clubs} onCancel={() => { setAddingCourt(false); setCourtAt(null); }} onDone={() => { setAddingCourt(false); setCourtAt(null); load(); }} />}
           {addingOff && <TimeOffForm onCancel={() => setAddingOff(false)} onDone={() => { setAddingOff(false); load(); }} />}
           {adding && <SessionForm key={JSON.stringify(prefill)} initial={prefill} players={players} onDone={created} />}
           {sessions === null ? <Loading rows={2} /> : (
@@ -185,7 +186,12 @@ export default function Planning({ go, summary }) {
                     </div>
                   </DonePanel>
                 ) }}
-              onRemove={removeCourt} onStopPromo={stopPromo} onChanged={load} onCreateAt={createAt} onRemoveOff={removeOff} />
+              onRemove={removeCourt} onStopPromo={stopPromo} onChanged={load} onCreateAt={createAt} onRemoveOff={removeOff}
+              onAddAt={(what, at) => { // case vide touchée dans le calendrier
+                setAddingOff(false);
+                if (what === "court") { setCourtAt(at); setAddingCourt(true); setAdding(false); } else { setPrefill({ date: at.date, time: at.time }); setAdding(true); setAddingCourt(false); }
+                window.scrollTo({ top: 0, behavior: "smooth" });
+              }} />
           )}
         </>
       )}

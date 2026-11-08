@@ -49,9 +49,11 @@ function countOccurrences(f) {
   return n;
 }
 
-export function ManualForm({ clubs, onDone, onCancel }) {
-  const today = new Date().toLocaleDateString("fr-CA", { timeZone: "Africa/Tunis" });
-  const [f, setF] = useState({ club_id: clubs[0]?.id ?? "", date: today, time: "18:00", duration_min: 60, court_label: "", repeat: "none", weekdays: [weekdayOf(today)], until: plusDays(today, 55) }); // 8 semaines par défaut
+export const COURT_LABELS = ["Terrain 1", "Terrain 2", "Terrain 3", "Terrain 4", "Terrain 5", "Terrain 6"];
+
+export function ManualForm({ clubs, onDone, onCancel, initial }) {
+  const today = initial?.date ?? new Date().toLocaleDateString("fr-CA", { timeZone: "Africa/Tunis" });
+  const [f, setF] = useState({ club_id: clubs[0]?.id ?? "", date: today, time: initial?.time ?? "18:00", duration_min: 60, court_label: "Terrain 1", repeat: "none", weekdays: [weekdayOf(today)], until: plusDays(today, 55) }); // 8 semaines par défaut
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
@@ -97,7 +99,7 @@ export function ManualForm({ clubs, onDone, onCancel }) {
         <label className="field"><span className="mut">Durée</span>
           <select value={f.duration_min} onChange={set("duration_min")}>{[60, 90, 120, 180, 240].map((m) => <option key={m} value={m}>{m % 60 ? `${Math.floor(m / 60)} h ${m % 60}` : `${m / 60} h`}</option>)}</select>
         </label>
-        <label className="field"><span className="mut">Terrain</span><input placeholder="ex. Terrain 2" value={f.court_label} onChange={set("court_label")} /></label>
+        <label className="field"><span className="mut">Terrain</span><select value={f.court_label} onChange={set("court_label")}>{COURT_LABELS.map((l) => <option key={l}>{l}</option>)}</select></label>
       </div>
       <div className="field"><span className="mut">Répétition</span>
         <div className="seg">

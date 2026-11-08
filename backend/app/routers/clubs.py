@@ -157,6 +157,8 @@ def cb_out(db: Session, cb: CourtBooking) -> dict:
 
 @router.get("/court-bookings")
 def list_court_bookings(status: str | None = None, coach: Coach = Depends(current_coach), db: Session = Depends(get_db)):
+    if courts.merge_free(db, coach.id):  # terrains libres qui se suivent (même terrain): un seul bloc
+        db.commit()
     q = select(CourtBooking).where(CourtBooking.coach_id == coach.id, CourtBooking.status != "annulee")
     if status:
         q = q.where(CourtBooking.status == status)

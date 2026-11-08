@@ -746,3 +746,34 @@ test("réservation en groupe: le joueur invite un partenaire, qui accepte depuis
   await expect(c.getByText(/Réservation en groupe/).first()).toBeVisible();
   await c.close();
 });
+
+test("calendrier du coach: toucher une case vide propose séance ou terrain à ce jour et cette heure (terrain 1 à 6)", async ({ page }) => {
+  await login(page, "demo@padel.tn");
+  await nav(page, "Planning").click();
+  await page.getByRole("button", { name: "Semaine suivante" }).first().click();
+  const first = parseInt(await page.locator(".cal-times span").first().innerText(), 10); // première heure affichée
+  await page.locator(".cal-col.addable").nth(2).click({ position: { x: 4, y: 46 * (14 - first) + 10 } }); // vers 14 h
+  const dialog = page.getByRole("dialog");
+  await expect(dialog.getByText(/14 h 00/)).toBeVisible();
+  await dialog.getByRole("button", { name: /Ajouter un terrain/ }).click();
+  await expect(page.getByLabel("Début")).toHaveValue("14:00");
+  const label = page.locator("label.field", { hasText: "Terrain" }).locator("select");
+  await expect(label).toHaveValue("Terrain 1");
+  await expect(label.locator("option")).toHaveCount(6);
+  await page.locator(".cal-col.addable").nth(3).click({ position: { x: 4, y: 46 * (10 - first) + 10 } }); // vers 10 h
+  await page.getByRole("dialog").getByRole("button", { name: /Ajouter une séance/ }).click();
+  await expect(page.locator("form.card")).toBeVisible();
+});
+
+test("agenda du joueur: case vide puis « Entraînement » ouvre Réserver au bon jour et à la bonne heure", async ({ page }) => {
+  await login(page, "sami@demo.tn");
+  await page.locator("nav").getByRole("button", { name: "Planning" }).click();
+  await page.getByRole("button", { name: "Semaine suivante" }).click();
+  const grid = page.getByRole("grid", { name: "Mon agenda de la semaine" });
+  const first = parseInt(await grid.locator(".cal-times span").first().innerText(), 10); // première heure affichée
+  await grid.locator(".cal-col").nth(2).click({ position: { x: 4, y: 44 * (10 - first) + 10 } }); // vers 10 h
+  await page.getByRole("dialog").getByRole("button", { name: /Entraînement/ }).click();
+  await expect(page.getByRole("heading", { name: "Réserver" })).toBeVisible();
+  await expect(page.getByLabel("Heure idéale (facultatif)")).toHaveValue("10");
+  await expect(page.locator(".daypill.on")).toHaveCount(1);
+});

@@ -292,7 +292,10 @@ export function Planning({ me, sessions, events, progress, reload, go }) {
   const book = (at) => {
     try {
       const k = JSON.parse(sessionStorage.getItem("book-filters") || "{}");
-      if (at?.day && at.day >= dayKey(new Date().toISOString())) sessionStorage.setItem("book-filters", JSON.stringify({ ...k, day: at.day }));
+      if (at?.day && at.day >= dayKey(new Date().toISOString())) {
+        const hour = at.time ? +at.time.slice(0, 2) : ""; // heure touchée dans le planning: « vers 10 h »
+        sessionStorage.setItem("book-filters", JSON.stringify({ ...k, day: at.day, hour, period: hour === "" ? k.period ?? "" : "" }));
+      }
     } catch { /* stockage indisponible */ }
     go("book");
   };
