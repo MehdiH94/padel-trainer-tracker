@@ -93,6 +93,7 @@ function Pending({ r, clubs, reload }) {
   return (
     <div className="card req" data-id={r.id}>
       <Head r={r} />
+      {r.group && <div className="mut small-p"><Icon name="users" size={13} /> Réservation en groupe organisée par {r.group.host}</div>}
       {r.join ? (
         <div className={"banner " + (r.court_state === "confirmee" || r.court_state === null ? "ok" : "warn")}>
           <Icon name={r.court_state === "confirmee" || r.court_state === null ? "checkCircle" : "clock"} size={18} />
@@ -207,6 +208,7 @@ function SlotConflict({ list, clubs, reload }) {
         <b className="cap1">{dayLabel(start)} · {hm(start, Math.round((end - toDate(start).getTime()) / 60000))}</b>
         <span className="conflict-tag">{list.length} demandes · même créneau</span>
       </div>
+      {list.some((r) => r.group) && <div className="banner ok"><Icon name="users" size={18} /><span><b>Réservation en groupe</b> organisée par {list.find((r) => r.group).group.host} : ces joueurs veulent s'entraîner ensemble.</span></div>}
       <div className="mut small-p">{options.length > 1 ? "Elles ne sont pas toutes compatibles : choisissez qui joue." : "Elles sont compatibles : ces joueurs peuvent jouer ensemble."}</div>
       {options.map((team, i) => {
         const others = list.filter((r) => !team.includes(r));

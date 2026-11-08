@@ -4,6 +4,7 @@ import Icon from "./Icon.jsx";
 import { Modal, toast, toastError } from "./feedback.jsx";
 import { VerifyBanner } from "./VerifyEmail.jsx";
 import { Avatar, CategoryBadge, KIND, Loading, reduction } from "./ui.jsx";
+import { GroupStart } from "./PlayerGroup.jsx";
 
 const TZ = "Africa/Tunis";
 const fmt = (d, o) => d.toLocaleDateString("fr-FR", { ...o, timeZone: TZ });
@@ -45,6 +46,7 @@ function CourtTag({ court }) {
 function Offer({ o, me, kinds, durs, onBooked, openCoach, startOpen }) {
   const [open, setOpen] = useState(!!startOpen);
   const [busy, setBusy] = useState(false);
+  const [grouping, setGrouping] = useState(false); // réservation en groupe: choix de la formule puis invitations
   // Rien à choisir: ni la formule ni la durée. Le joueur est prêt pour tout ce qu'il a coché (ex. à deux ou en groupe,
   // 1 h ou 1 h 30); la séance démarre avec la plus petite formule et la plus longue durée, et le prix suit ce qui
   // est réellement joué: nombre de joueurs final et durée (un joueur qui n'accepte que 1 h la raccourcit).
@@ -111,6 +113,12 @@ function Offer({ o, me, kinds, durs, onBooked, openCoach, startOpen }) {
             <button className="sec" onClick={() => openCoach(o.coach.id)}>Voir le coach</button>
             <button disabled={busy || !me.can_book} title={me.can_book ? undefined : "Vérifiez d'abord votre adresse e-mail"} onClick={book}>{busy ? "Réservation…" : o.type === "group" ? "Rejoindre ce groupe" : "Réserver ce créneau"}</button>
           </div>
+          {o.type === "slot" && (
+            <button className="sec choice" style={{ width: "100%", marginTop: 8 }} disabled={!me.can_book} onClick={() => setGrouping(true)}>
+              <Icon name="users" size={18} /><span><b>Réserver en groupe</b><small>Vous invitez vos partenaires (liste ou lien) ; la demande part au coach dès que vous êtes assez nombreux.</small></span>
+            </button>
+          )}
+          {grouping && <GroupStart o={o} durs={durs} onClose={() => setGrouping(false)} />}
         </div>
       )}
     </div>

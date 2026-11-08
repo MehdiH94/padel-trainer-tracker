@@ -7,8 +7,9 @@ import { Avatar, KIND } from "./ui.jsx";
 // Morceaux communs aux écrans du joueur (accueil, planning): carte d'une séance, annulation, remplacement
 export const TZ = "Africa/Tunis";
 export const REASONS = { recharge: "Recharge", reservation: "Réservation", remboursement: "Remboursement", ajustement: "Ajustement", seance: "Séance effectuée", seance_annulee: "Séance effectuée" };
-export const STATUS_TXT = { en_attente: "En attente du coach", contre_proposition: "Le coach propose un autre horaire", attente_joueurs: "En attente d'autres joueurs", acceptee: "Terrain à confirmer", confirmee: "Confirmée" };
-export const statusText = (s) => (s.status === "attente_joueurs" ? `En attente d'autres joueurs (${s.players_count}/${s.min_needed})` : STATUS_TXT[s.status] ?? "Confirmée");
+export const STATUS_TXT = { en_formation: "Réservation en groupe : en formation", invitation: "Invitation à un entraînement en groupe", en_attente: "En attente du coach", contre_proposition: "Le coach propose un autre horaire", attente_joueurs: "En attente d'autres joueurs", acceptee: "Terrain à confirmer", confirmee: "Confirmée" };
+export const statusText = (s) => (s.status === "attente_joueurs" ? `En attente d'autres joueurs (${s.players_count}/${s.min_needed})`
+  : s.status === "en_formation" && s.group ? `Réservation en groupe : ${s.group.count}/${s.group.min} joueurs` : STATUS_TXT[s.status] ?? "Confirmée");
 export const HOW = { individuel: "Seul", duo: "À deux", groupe: "En groupe" };
 
 // Groupe pas encore formé: le joueur peut passer à une autre formule (ex. seul) ou annuler (remboursé)
@@ -130,6 +131,7 @@ export function SessionTicket({ s, reload }) {
         <div className="mut" style={{ marginTop: 4 }}><Icon name="user" size={13} /> {s.coach_name}{s.club && <> · <Icon name="pin" size={13} /> {s.club}</>}</div>
         {s.partners?.length > 0 && <div className="partners">{s.partners.map((x) => <span key={x.name} className="partner"><Avatar name={x.name} size={20} /> {x.name.split(" ")[0]}</span>)}</div>}
         <div className={"status-line " + s.status}>{statusText(s)}</div>
+        {s.group && <button className="small sec" style={{ marginTop: 6 }} onClick={() => { location.hash = "/groupe/" + s.group.token; }}><Icon name="users" size={14} /> {s.group.is_host ? "Inviter des joueurs" : s.status === "invitation" ? "Voir l'invitation" : "Voir le groupe"}</button>}
         <Reconsider s={s} reload={reload} />
         <CancelBox s={s} reload={reload} />
       </div>

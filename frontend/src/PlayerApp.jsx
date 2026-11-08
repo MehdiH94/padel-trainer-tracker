@@ -3,6 +3,7 @@ import { api, dayKey, dayLabel, hhmm, setToken, tnd, toDate, useLive } from "./a
 import Icon from "./Icon.jsx";
 import { Modal, toast, toastError } from "./feedback.jsx";
 import { Book, CoachPage } from "./PlayerBook.jsx";
+import { GroupPage } from "./PlayerGroup.jsx";
 import { Planning } from "./PlayerPlanning.jsx";
 import { Credits, Progression } from "./PlayerProgress.jsx";
 import { DateBlock, KindPill, statusText, TZ } from "./PlayerShared.jsx";
@@ -49,7 +50,7 @@ function ProposalCard({ s, reload }) {
 
 // Notifications de l'appli: messages des coachs (promotions, places libres, invitations, horaires proposés)
 // et suivi des réservations. Ouvrir la liste les marque comme lues.
-const NOTIF_ICON = { promo: "sparkles", place: "pin", invitation: "users", contre_proposition: "clock", message: "bell" };
+const NOTIF_ICON = { promo: "sparkles", place: "pin", invitation: "users", invitation_groupe: "users", contre_proposition: "clock", message: "bell" };
 function Notifications({ data, go, reload, onClose }) {
   useEffect(() => { if (data.unread) api("/me/notifications/read", { method: "POST" }).catch(() => {}); }, []);
   const book = (n) => {
@@ -75,6 +76,7 @@ function Notifications({ data, go, reload, onClose }) {
               </div>
             )}
             {(n.kind === "promo" || n.kind === "place") && <button className="small sec" style={{ marginTop: 6 }} onClick={() => book(n)}>Voir les créneaux</button>}
+            {n.kind === "invitation_groupe" && n.group_token && <button className="small" style={{ marginTop: 6 }} onClick={() => { onClose(); go(`groupe/${n.group_token}`); }}>Voir l'invitation</button>}
             {n.kind === "invitation" && <button className="small sec" style={{ marginTop: 6 }} onClick={() => { onClose(); go("home"); }}>Voir la proposition</button>}
           </div>
         </div>
@@ -118,6 +120,7 @@ function Home({ me, sessions, progress, proposals, promos, events, go, reload })
   if (last && recent(last.start, 7)) news.push({ k: "fb", icon: "message", tone: "ok", text: <>Nouveau retour de votre coach sur la séance du {dayLabel(last.start)}</>, go: "progress" });
   events.filter((e) => e.coach_feedback && recent(e.feedback_at, 14)).forEach((e) => news.push({ k: "m" + e.id, icon: "swords", tone: "ok", text: <><b>{e.coach_name}</b> a commenté votre {e.kind === "tournoi" ? "tournoi" : "match"} du {dayLabel(e.start)}</>, go: "planning" }));
   events.filter((e) => e.kind !== "autre" && toDate(e.start) < new Date() && recent(e.start, 14) && !e.result && e.rating == null).forEach((e) => news.push({ k: "r" + e.id, icon: "edit", tone: "warn", text: <>Comment s'est passé votre {e.kind === "tournoi" ? "tournoi" : "match"} du {dayLabel(e.start)} ? Ajoutez le résultat.</>, go: "planning" }));
+  sessions.upcoming.filter((s) => s.status === "invitation" && s.group).forEach((s) => news.push({ k: "g" + s.booking_id, icon: "users", tone: "ok", text: <><b>{s.group.host}</b> vous invite à un entraînement le {dayLabel(s.start)} à {hhmm(s.start)}</>, go: `groupe/${s.group.token}` }));
   (me.absences ?? []).forEach((a, i) => news.push({ k: "a" + i, icon: "sun", tone: "warn", text: <><b>{a.coach_name}</b> {absenceText(a)}</> }));
   const counters = sessions.upcoming.filter((s) => s.status === "contre_proposition"); // autre horaire proposé par le coach
   const nothing = !proposals.length && !promos.length && !news.length && !counters.length;
@@ -240,6 +243,7 @@ export default function PlayerApp() {
         {tab === "coach" && <CoachPage id={+sub} go={setTab} onBack={() => (history.length > 1 ? history.back() : setTab("book"))} />}
         {tab === "planning" && <Planning {...props} />}
         {tab === "credits" && <Credits {...props} />}
+        {tab === "groupe" && <GroupPage token={sub} {...props} />}
       </main>
       <nav>
         {TABS.map(([k, icon, label]) => (

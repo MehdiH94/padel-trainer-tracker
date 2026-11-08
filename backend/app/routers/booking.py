@@ -158,6 +158,10 @@ def booking_out(db: Session, coach: Coach, b: Booking) -> dict:
         "id": b.id, "player_id": p.id, "name": p.name, "phone": p.phone, "email": p.email, "category": p.category, "gender": p.gender,
         "kind": b.kind, "start": b.start, "duration_min": b.duration_min, "status": b.status,
         "proposed_start": b.proposed_start, "proposed_minutes": b.proposed_minutes, "charged_millimes": b.charged_millimes,
+        # réservation en groupe montée par un joueur: organisateur et nombre de joueurs du groupe
+        "group": {"host": db.get(Player, db.get(Booking, b.group_id).player_id).name,
+                  "size": db.scalar(select(func.count(Booking.id)).where(Booking.group_id == b.group_id, Booking.status.in_(svc.ACTIVE)))}
+                 if b.group_id and db.get(Booking, b.group_id) else None,
         "session_id": b.session_id, "join": s is not None and b.status == "en_attente", "notified_at": b.notified_at,
         "partners": [x.name for x in (db.get(Player, i) for i in svc.attendee_ids(s)) if x.id != p.id] if s else [],
         "club": s.club if s else "", "court_state": svc.court_state(db, s) if s else None,

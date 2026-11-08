@@ -2372,3 +2372,43 @@ def test_price_grid_per_duration_and_booking_horizon(client):
     r = pc.post("/me/book", json={"kind": "individuel", "start": datetime(far.year, far.month, far.day, 9, 0, tzinfo=timezone.utc).isoformat(), "kinds": ["individuel"]})
     assert r.status_code in (409, 422) and "1 semaine" in r.json()["detail"]
     assert next(c for c in pc.get("/me/coaches").json())["horizon_days"] == 7
+
+
+def test_player_group_booking_invites_then_reaches_coach(client):
+    """Réservation en groupe montée par un joueur: il choisit le créneau et « en groupe », invite des joueurs (liste ou
+    lien); le coach ne voit la demande qu'une fois le minimum (3) atteint, et les accepte ensemble en une séance."""
+    st = client.get("/booking/settings").json()
+    client.put("/booking/settings", json={**st, "auto_confirm": False, "price_groupe": 30000, "booking_mode": "terrains"})
+    a, pa = player_client(client, name="Ali", phone="20111111")
+    b, pb = player_client(client, name="Bea", phone="20222222")
+    c, pcl = player_client(client, name="Cyr", phone="20333333")
+    d, pd = player_client(client, name="Dan", phone="20444444")
+    day = (datetime.now(timezone.utc) + timedelta(days=3)).date()
+    start = datetime(day.year, day.month, day.day, 9, 0, tzinfo=timezone.utc).isoformat()
+    free_court(client, start, 180)
+    coach_id = pa.get("/me/coaches").json()[0]["id"]
+    assert pa.post("/me/group-bookings", json={"coach_id": coach_id, "start": start, "kinds": ["individuel"]}).status_code == 409  # jamais seul
+    g = pa.post("/me/group-bookings", json={"coach_id": coach_id, "start": start, "kinds": ["groupe"], "durations": {"groupe": [90]}}).json()
+    assert g["min"] == 3 and g["count"] == 1 and g["is_host"] and not g["formed"]
+    tok = g["token"]
+    names = {p["name"] for p in pa.get(f"/me/groups/{tok}/invitable").json()}
+    assert {"Bea", "Cyr", "Dan"} <= names and "Ali" not in names
+    assert pb.get(f"/me/groups/{tok}/invitable").status_code == 403  # seul l'organisateur invite
+    assert pa.post(f"/me/groups/{tok}/invite", json={"player_ids": [b["id"], c["id"]], "base": "https://padel.tn"}).json()["sent"] == 2
+    notif = next(n for n in pb.get("/me/notifications").json()["items"] if n["kind"] == "invitation_groupe")
+    assert notif["group_token"] == tok and "Ali" in notif["title"]
+    assert any(x["status"] == "invitation" for x in pb.get("/me/sessions").json()["upcoming"])
+    assert client.get("/booking/requests").json() == []  # le coach ne voit rien tant que le groupe n'est pas formé
+    assert pb.post(f"/me/groups/{tok}/join").json()["count"] == 2
+    assert client.get("/booking/requests").json() == []
+    assert pcl.post(f"/me/groups/{tok}/join").json()["formed"] is True  # 3 joueurs: envoyé au coach
+    reqs = client.get("/booking/requests").json()
+    assert len(reqs) == 3 and all(r["group"]["host"] == "Ali" for r in reqs)
+    for r in reqs:
+        assert client.post(f"/booking/requests/{r['id']}/accept", json={}).status_code == 200
+    s = next(x for x in client.get("/sessions").json() if x["status"] == "prevue" and len(x["player_ids"]) == 3)
+    assert s["kind"] == "groupe" and s["duration_min"] == 90 and {a["id"], b["id"], c["id"]} == set(s["player_ids"])
+    # Dan reçoit le lien plus tard: il rejoint directement la séance
+    assert pd.post(f"/me/groups/{tok}/join").status_code == 200
+    s = next(x for x in client.get("/sessions").json() if x["id"] == s["id"])
+    assert len(s["player_ids"]) == 4

@@ -696,3 +696,39 @@ test("seul, à deux ou en groupe: validée tout de suite, ouverte aux autres jou
   await expect(dialog.getByRole("button", { name: /Compléter la séance · 3 places libres/ })).toBeVisible();
   await c.close();
 });
+
+test("réservation en groupe: le joueur invite un partenaire, qui accepte depuis sa notification; le coach reçoit la demande", async ({ page, browser, request }) => {
+  const tok = async (email) => (await (await request.post("/api/auth/login", { data: { email, password: "demo1234" } })).json()).token;
+  const sami = { Authorization: `Bearer ${await tok("sami@demo.tn")}` };
+  const day = new Date(Date.now() + 4 * 86400000).toLocaleDateString("fr-CA", { timeZone: "Africa/Tunis" });
+  const off = await (await request.get(`/api/me/offers?day=${day}&kinds=duo&duo_min=60`, { headers: sami })).json();
+  const slot = [...off.slots_with_court, ...off.slots_other].find((x) => x.coach.name === "Coach Démo");
+  const g = await (await request.post("/api/me/group-bookings", { headers: sami, data: { coach_id: slot.coach.id, start: slot.start, kinds: ["duo"], durations: { duo: [60] } } })).json();
+  const invitable = await (await request.get(`/api/me/groups/${g.token}/invitable`, { headers: sami })).json();
+  const mate = invitable.find((p) => /Karim|Mehdi/.test(p.name));
+  const email = /Karim/.test(mate.name) ? "karim@demo.tn" : "mehdi@demo.tn";
+
+  await login(page, "sami@demo.tn");
+  await expect(page.getByRole("heading", { name: /^Salut / })).toBeVisible();
+  await page.goto(`/#/groupe/${g.token}`);
+  await expect(page.getByRole("heading", { name: "Entraînement en groupe" })).toBeVisible();
+  await expect(page.getByText(/1\/2 joueurs : encore 1/)).toBeVisible();
+  await expect(page.getByRole("button", { name: "Copier le lien" })).toBeVisible();
+  await page.getByRole("checkbox", { name: new RegExp(mate.name) }).check();
+  await page.getByRole("button", { name: /Inviter 1 joueur/ }).click();
+  await expect(page.getByText("1 invitation envoyée")).toBeVisible();
+
+  const p = await (await browser.newContext()).newPage();
+  await login(p, email);
+  await p.getByRole("button", { name: /Notifications/ }).click();
+  await p.getByRole("dialog").getByRole("button", { name: "Voir l'invitation" }).first().click();
+  await p.getByRole("button", { name: "Rejoindre l'entraînement" }).click();
+  await expect(p.getByText("C'est noté ! La demande est chez le coach.")).toBeVisible();
+  await p.close();
+
+  const c = await (await browser.newContext()).newPage();
+  await login(c, "demo@padel.tn");
+  await nav(c, "Demandes").click();
+  await expect(c.getByText(/Réservation en groupe/).first()).toBeVisible();
+  await c.close();
+});

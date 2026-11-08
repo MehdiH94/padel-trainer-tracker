@@ -13,7 +13,7 @@ from ..constants import CAPACITY
 from ..db import get_db
 from ..models import Attendance, Booking, Coach, CreditTx, Player, Proposal, TrainingSession
 from ..services import booking as svc
-from ..services import groups, isolation, marketplace
+from ..services import group_booking, groups, isolation, marketplace
 from ..services import email_verification as verification
 from ..services.accounts import linked, row_for_coach
 from ..services.common import aware
@@ -158,8 +158,14 @@ def notifications(player: Player = Depends(current_player), db: Session = Depend
                     "coach_id": n.coach_id, "coach_name": coach.name if coach else "", "promotion_id": n.promotion_id,
                     # autre horaire proposé: encore à répondre ?
                     "proposal": {"booking_id": b.id, "start": b.proposed_start, "minutes": b.proposed_minutes, "old_start": b.start,
-                                 "kind": b.kind, "open": b.status == "contre_proposition"} if b and n.kind == "contre_proposition" else None})
+                                 "kind": b.kind, "open": b.status == "contre_proposition"} if b and n.kind == "contre_proposition" else None,
+                    "group_token": _group_token(db, b) if b and n.kind == "invitation_groupe" else None})
     return {"items": out, "unread": sum(1 for n in rows if n.read_at is None)}
+
+
+def _group_token(db: Session, b: Booking) -> str | None:
+    org = db.get(Booking, b.group_id) if b.group_id else None
+    return org.group_token if org else None
 
 
 @router.post("/notifications/read")
@@ -262,6 +268,16 @@ def my_sessions(player: Player = Depends(current_player), db: Session = Depends(
             "worked_on": [t for t in a.worked_on.split(",") if t], "note": a.note, "to_improve": a.to_improve,
         }
         (upcoming if s.status == "prevue" and aware(s.start) >= now else history).append(item)
+    for b in db.scalars(select(Booking).where(Booking.player_id.in_(ids), Booking.status.in_((group_booking.FORMING, group_booking.INVITED)))):
+        org = db.get(Booking, b.group_id) if b.group_id else None
+        if org and aware(b.start) >= now:  # réservation en groupe pas encore envoyée au coach (ou invitation à répondre)
+            g = group_booking.summary(db, org, player)
+            upcoming.append({
+                "session_id": None, "booking_id": b.id, "start": b.start, "duration_min": b.duration_min, "kind": b.kind,
+                "club": "", "court_state": None, "spots_left": 0, "partners": [], "coach_name": coach_names.get(b.coach_id, db.get(Coach, b.coach_id).name),
+                "can_cancel": True, "cancel_until": None, "status": b.status, "session_status": "prevue", "worked_on": [], "note": "", "to_improve": "",
+                "group": {k: g[k] for k in ("token", "host", "is_host", "count", "min", "max", "kinds")},
+            })
     for b in bookings:  # demandes pas encore traitées par le coach (ou autre horaire proposé)
         if b.status in ("en_attente", "contre_proposition") and aware(b.proposed_start if b.status == "contre_proposition" else b.start) >= now:
             s = db.get(TrainingSession, b.session_id) if b.session_id else None
@@ -281,6 +297,10 @@ def cancel(booking_id: int, player: Player = Depends(current_player), db: Sessio
     if not b or b.player_id not in {p.id for p in linked(db, player)}:
         raise HTTPException(404, "Réservation introuvable")
     try:
+        if b.status in (group_booking.FORMING, group_booking.INVITED):  # groupe pas encore envoyé au coach
+            org = db.get(Booking, b.group_id)
+            group_booking.cancel(db, org) if org.id == b.id else group_booking.decline(db, player, org)
+            return {"refunded": False, "refunded_millimes": 0, "credits_millimes": credit_balance(db, b.player_id)}
         refunded = svc.cancel_booking(db, db.get(Coach, b.coach_id), b)
     except svc.BookingError as e:
         raise HTTPException(409, str(e))
@@ -490,3 +510,95 @@ def offers(day: date, kinds: str = "", kind: str = "", coach_id: int | None = No
     durations = {k: [int(x) for x in v.split(",") if x.strip().isdigit()] for k, v in (("individuel", individuel_min), ("duo", duo_min), ("groupe", groupe_min))}  # ex. duo_min=60,90
     places = [c for c in clubs.split("|") if c.strip()] or ([club] if club else [])  # clubs=La Marsa|Gammarth
     return marketplace.offers(db, player, day, wanted, chosen, places, period or None, hour, durations)
+
+
+# --- Réservation en groupe montée par un joueur (services/group_booking) ----------------------------------------
+
+class GroupIn(BaseModel):
+    coach_id: int
+    start: datetime
+    kinds: list[str]
+    durations: dict[str, list[int]] | None = None
+
+
+class GroupInviteIn(BaseModel):
+    player_ids: list[int]
+    base: str = ""  # adresse du site vue par le joueur (lien d'invitation)
+
+
+def _group(db: Session, token: str):
+    org = group_booking.by_token(db, token)
+    if not org:
+        raise HTTPException(404, "Invitation introuvable")
+    return org
+
+
+def _host(db: Session, player: Player, org: Booking) -> None:
+    if org.player_id not in {p.id for p in linked(db, player)}:
+        raise HTTPException(403, "Seul l'organisateur peut faire cela.")
+
+
+@router.post("/group-bookings", status_code=201)
+def create_group(body: GroupIn, player: Player = Depends(current_player), db: Session = Depends(get_db)):
+    """L'organisateur choisit un créneau et les formules (à deux, en groupe): il invite ensuite ses partenaires."""
+    _require_verified(player)
+    coach = db.get(Coach, body.coach_id)
+    if not coach or not isolation.same_world(db, coach, player):
+        raise HTTPException(404, "Coach introuvable")
+    start = body.start if body.start.tzinfo else body.start.replace(tzinfo=timezone.utc)
+    try:
+        org = group_booking.create(db, coach, row_for_coach(db, player, coach), start, body.kinds, body.durations)
+    except svc.BookingError as e:
+        raise HTTPException(409, str(e))
+    return group_booking.summary(db, org, player)
+
+
+@router.get("/groups/{token}")
+def group_detail(token: str, player: Player = Depends(current_player), db: Session = Depends(get_db)):
+    org = _group(db, token)
+    if not isolation.same_world(db, db.get(Coach, org.coach_id), player):
+        raise HTTPException(404, "Invitation introuvable")
+    return group_booking.summary(db, org, player)
+
+
+@router.get("/groups/{token}/invitable")
+def group_invitable(token: str, player: Player = Depends(current_player), db: Session = Depends(get_db)):
+    org = _group(db, token)
+    _host(db, player, org)
+    return group_booking.invitable(db, org)
+
+
+@router.post("/groups/{token}/invite")
+def group_invite(token: str, body: GroupInviteIn, player: Player = Depends(current_player), db: Session = Depends(get_db)):
+    org = _group(db, token)
+    _host(db, player, org)
+    return {"sent": group_booking.invite(db, org, body.player_ids, body.base.rstrip("/"))}
+
+
+@router.post("/groups/{token}/join")
+def group_join(token: str, player: Player = Depends(current_player), db: Session = Depends(get_db), sms: SmsProvider = Depends(get_sms_provider)):
+    _require_verified(player)
+    org = _group(db, token)
+    try:
+        group_booking.join(db, player, org, sms)
+    except svc.BookingError as e:
+        raise HTTPException(409, str(e))
+    return group_booking.summary(db, org, player)
+
+
+@router.post("/groups/{token}/decline")
+def group_decline(token: str, player: Player = Depends(current_player), db: Session = Depends(get_db)):
+    org = _group(db, token)
+    group_booking.decline(db, player, org)
+    return group_booking.summary(db, org, player)
+
+
+@router.post("/groups/{token}/cancel")
+def group_cancel(token: str, player: Player = Depends(current_player), db: Session = Depends(get_db)):
+    org = _group(db, token)
+    _host(db, player, org)
+    try:
+        group_booking.cancel(db, org)
+    except svc.BookingError as e:
+        raise HTTPException(409, str(e))
+    return {"ok": True}
