@@ -2438,3 +2438,22 @@ def test_pending_requests_never_block_only_accepted_ones(client):
     assert client.post(f"/booking/requests/{ry.json()['id']}/accept", json={}).status_code == 200
     assert not {"09:00", "09:30", "10:00"} & starts(pz, "kinds=individuel,groupe&groupe_min=90")
     assert pz.post("/me/book", json={"kind": "individuel", "start": at(9), "kinds": ["individuel"]}).status_code == 409
+
+
+def test_free_courts_entered_separately_with_other_names_form_one_range(client):
+    """Terrains libres saisis séparément au même club, 8-10 h « Terrain 1 » et 10-12 h « Terrain 2 »: une seule plage
+    (1 h 30 proposé à 8 h, 9 h, 9 h 30, 10 h 30); un jour où les terrains sont trop courts, l'offre explique pourquoi."""
+    st = client.get("/booking/settings").json()
+    client.put("/booking/settings", json={**st, "auto_confirm": False, "price_groupe": 30000, "booking_mode": "terrains"})
+    p, pc = player_client(client)
+    club = mkclub(client)
+    day = (datetime.now(timezone.utc) + timedelta(days=4)).date()
+    at = lambda d, h: datetime(d.year, d.month, d.day, h, 0, tzinfo=timezone.utc).isoformat()  # noqa: E731
+    client.post("/court-bookings/manual", json={"club_id": club["id"], "start": at(day, 8), "duration_min": 120, "court_label": "Terrain 1"})
+    client.post("/court-bookings/manual", json={"club_id": club["id"], "start": at(day, 10), "duration_min": 120, "court_label": "Terrain 2"})
+    off = pc.get(f"/me/offers?day={day}&kinds=duo,groupe&duo_min=90&groupe_min=90").json()
+    assert {"08:00", "09:00", "09:30", "10:30"} <= {x["start"][11:16] for x in off["slots_with_court"]}
+    other = day + timedelta(days=1)
+    client.post("/court-bookings/manual", json={"club_id": club["id"], "start": at(other, 18), "duration_min": 120})
+    off = pc.get(f"/me/offers?day={other}&kinds=groupe&groupe_min=90").json()
+    assert off["slots_with_court"] == [] and "trop courts pour 1 h 30" in off["hints"][0]

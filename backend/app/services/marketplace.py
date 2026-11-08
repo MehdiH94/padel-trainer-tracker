@@ -14,7 +14,7 @@ from . import courts
 from .accounts import linked
 from .isolation import visible_coaches
 from . import groups as grp
-from .booking import attendee_ids, edges, fits_session, free_slots, horizon, join_minutes, join_price, join_target, pending_joins, price_for, spots_left
+from .booking import KIND_FR, _dur, attendee_ids, edges, fits_session, free_slots, horizon, join_minutes, join_price, join_target, pending_joins, price_for, spots_left
 from .common import TUNIS, aware
 from .pricing import coach_durations, duration_for, grid, player_durations, quote
 
@@ -93,6 +93,7 @@ def offers(db: Session, account: Player, day: date, kinds: list[str], coach_ids:
     now = datetime.now(timezone.utc)
     groups, with_court, other = [], [], []
     other_kinds: dict[str, int] = {}  # séances ouvertes ce jour-là d'une formule que le joueur n'a pas choisie
+    hints: list[str] = []  # pourquoi rien n'est proposé chez un coach (durée pas proposée, terrains trop courts)
     too_late: set[str] = set()  # formules qu'on ne peut plus ouvrir seul ce jour-là (moins de 24 h)
     for c in filter(None, coaches):
         clubs = coach_clubs(db, c)
@@ -161,6 +162,16 @@ def offers(db: Session, account: Player, day: date, kinds: list[str], coach_ids:
             if not group and not grp.can_open(opts[0][0], start):  # ouvrir un duo/groupe seul: seulement à plus de 24 h
                 continue
             starts[start] = [quote(db, c, k, start, m) for k, m in opts]
+        # rien de proposé chez ce coach ce jour-là: on explique pourquoi (au lieu d'une liste vide)
+        if not starts:
+            label = lambda k, ms: f"{KIND_FR[k].lower()} {' ou '.join(_dur(m) for m in ms)}"  # noqa: E731
+            if not any(cdur.values()):
+                offered = ", ".join(label(k, coach_durations(c, k)) for k in kinds if coach_durations(c, k))
+                hints.append(f"{c.name} ne propose pas la durée choisie" + (f" (il propose : {offered})." if offered else " pour ces formules."))
+            elif not too_late and c.booking_mode != "disponibilites" and any(_in_window(courts.run_span(r)[0], day, None) for r in courts.free_runs(db, c.id)):
+                want = sorted({m for ms in cdur.values() for m in ms})
+                hints.append(f"Les terrains libres de {c.name} ce jour-là sont trop courts pour {' ou '.join(_dur(m) for m in want)} "
+                             "(une séance ne doit pas laisser un bout de terrain de moins d'1 h) : essayez une durée plus courte.")
         for start, options in sorted(starts.items()):
             held = [cb for cb in courts.held_covering(db, c, start, min(o["duration_min"] for o in options))
                     if in_clubs(db.get(Club, cb.club_id).name)]
@@ -185,7 +196,7 @@ def offers(db: Session, account: Player, day: date, kinds: list[str], coach_ids:
     groups.sort(key=lambda g: (g.pop("_gap"), closeness(g)))
     with_court.sort(key=lambda x: (-x["reduction_millimes"], closeness(x)))  # les réductions d'abord
     other.sort(key=closeness)
-    return {"groups": groups[:10], "slots_with_court": with_court[:80], "slots_other": other[:120], "other_kinds": other_kinds,
+    return {"groups": groups[:10], "slots_with_court": with_court[:80], "slots_other": other[:120], "other_kinds": other_kinds, "hints": hints,
             "too_late": [k for k in CAPACITY if k in too_late]}
 
 

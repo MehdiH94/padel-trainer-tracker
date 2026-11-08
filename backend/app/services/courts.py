@@ -119,16 +119,16 @@ def busy_message(db: Session, cb: CourtBooking) -> str:
 
 
 def free_runs(db: Session, coach_id: int) -> list[list[CourtBooking]]:
-    """Terrains libres regroupés en plages continues: des morceaux qui se suivent au même club et sur le même terrain
-    (terrain saisi en plusieurs fois, ou découpé par une séance ensuite annulée) forment une seule plage libre."""
+    """Terrains libres regroupés en plages continues: des morceaux qui se suivent au même club (terrain saisi en
+    plusieurs fois, même sous un autre nom de terrain, ou découpé par une séance ensuite annulée) forment une seule
+    plage libre: le coach n'a qu'un terrain à la fois, il s'organise avec le club."""
     blocks = sorted((cb for cb in db.scalars(select(CourtBooking).where(
         CourtBooking.coach_id == coach_id, CourtBooking.session_id.is_(None), CourtBooking.status == "confirmee",
         CourtBooking.start.is_not(None)))), key=lambda c: aware(c.start))
     runs: list[list[CourtBooking]] = []
     for cb in blocks:
         last = runs[-1][-1] if runs else None
-        if last and last.club_id == cb.club_id and (last.court_label or "") == (cb.court_label or "") \
-                and aware(last.start) + timedelta(minutes=last.duration_min) == aware(cb.start):
+        if last and last.club_id == cb.club_id and aware(last.start) + timedelta(minutes=last.duration_min) == aware(cb.start):
             runs[-1].append(cb)
         else:
             runs.append([cb])

@@ -381,6 +381,9 @@ export function Book({ me, reload, go, coachParam }) {
           )}
         </>
       )}
+      {offers && (offers.hints ?? []).length > 0 && !offers.slots_with_court.length && !offers.slots_other.length && (
+        <div className="card note warn" role="note">{offers.hints.map((h) => <div key={h} className="small-p"><Icon name="clock" size={13} /> {h}</div>)}</div>
+      )}
       {nothing && <div className="mut center small-p" style={{ marginTop: 8 }}>Essayez un autre jour, un autre moment ou tous les coachs.</div>}
     </>
   );
