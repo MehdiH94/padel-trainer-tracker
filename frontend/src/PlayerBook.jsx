@@ -58,7 +58,7 @@ function Offer({ o, me, kinds, durs, onBooked, openCoach, startOpen }) {
     setBusy(true);
     try {
       // séance d'une autre durée que celle choisie: le joueur l'accepte en la rejoignant
-      const accept = o.other_duration ? { duo: [...durs.duo, o.duration_min], groupe: [...durs.groupe, o.duration_min] } : durs;
+      const accept = o.other_duration ? { ...durs, duo: [...durs.duo, o.duration_min], groupe: [...durs.groupe, o.duration_min] } : durs;
       const body = o.type === "group" ? { session_id: o.session_id, kinds, durations: accept } : { kind: pick, start: o.start, coach_id: o.coach.id, kinds, durations: durs };
       onBooked({ ...(await api("/me/book", { method: "POST", body })), start: o.start });
     } catch (x) {
@@ -187,8 +187,8 @@ export function Book({ me, reload, go, coachParam }) {
   const [period, setPeriod] = useState(k0.hour ? "" : k0.period ?? ""); // heure précise choisie: pas de période en plus
   const [hour, setHour] = useState(k0.hour ?? "");
   const [kinds, setKinds] = useState(k0.kinds ?? me.pref_kinds);
-  // durées acceptées: seul = toujours 1 h; à deux / en groupe = 1 h 30 par défaut, 1 h ou les deux
-  const [durs, setDurs] = useState(k0.durs ?? { duo: [60], groupe: [90] });
+  // durées acceptées: seul et à deux 1 h par défaut, en groupe 1 h 30 (1 h, 1 h 30 ou les deux; chaque coach propose les siennes)
+  const [durs, setDurs] = useState({ individuel: [60], duo: [60], groupe: [90], ...k0.durs });
   const toggleDur = (k, m) => setDurs({ ...durs, [k]: durs[k].includes(m) ? (durs[k].length > 1 ? durs[k].filter((x) => x !== m) : durs[k]) : [...durs[k], m].sort() });
   const toggleKind = (k) => setKinds(kinds.includes(k) ? (kinds.length > 1 ? kinds.filter((x) => x !== k) : kinds) : ["individuel", "duo", "groupe"].filter((x) => x === k || kinds.includes(x)));
   const solo = kinds.length === 1 && kinds[0] === "individuel";
@@ -200,12 +200,14 @@ export function Book({ me, reload, go, coachParam }) {
   useEffect(() => { api("/me/coaches").then(setCoaches); api("/me/clubs").then(setClubs); }, []);
   useEffect(() => {
     if (!day) return;
-    const q = new URLSearchParams({ day, kinds: kinds.join(","), duo_min: durs.duo.join(","), groupe_min: durs.groupe.join(","), ...(coachIds.length && { coach_ids: coachIds.join(",") }), ...(places.length && { clubs: places.join("|") }), ...(period && { period }), ...(hour !== "" && { hour }) });
+    const q = new URLSearchParams({ day, kinds: kinds.join(","), individuel_min: durs.individuel.join(","), duo_min: durs.duo.join(","), groupe_min: durs.groupe.join(","), ...(coachIds.length && { coach_ids: coachIds.join(",") }), ...(places.length && { clubs: places.join("|") }), ...(period && { period }), ...(hour !== "" && { hour }) });
     setOffers(peek("/me/offers?" + q) ?? null); // même recherche déjà faite: affichée tout de suite, puis mise à jour
     api("/me/offers?" + q).then(setOffers).catch(toastError);
   }, [day, kinds.join(","), JSON.stringify(durs), coachIds.join(","), places.join("|"), period, hour]);
 
-  const days = Array.from({ length: 14 }, (_, i) => new Date(Date.now() + i * 86400000));
+  // jours proposés: jusqu'à la limite de réservation des coachs choisis (1 semaine à 3 mois, 2 semaines par défaut)
+  const horizon = Math.max(7, ...coaches.filter((c) => !coachIds.length || coachIds.includes(c.id)).map((c) => c.horizon_days ?? 14));
+  const days = Array.from({ length: horizon + 1 }, (_, i) => new Date(Date.now() + i * 86400000));
   const openCoach = (id) => go(`coach/${id}`);
   const booked = (r) => { setDone(r); reload(); };
   const coach = coachIds.length === 1 ? coaches.find((c) => c.id === coachIds[0]) : null;
@@ -301,8 +303,7 @@ export function Book({ me, reload, go, coachParam }) {
         ))}
       </div>
       <div className="dur-choice" aria-label="Durée de l'entraînement">
-        {kinds.includes("individuel") && <div className="dur-row"><span>Seul</span><span className="mut small-p">toujours 1 h</span></div>}
-        {["duo", "groupe"].filter((k) => kinds.includes(k)).map((k) => (
+        {["individuel", "duo", "groupe"].filter((k) => kinds.includes(k)).map((k) => (
           <div key={k} className="dur-row" role="group" aria-label={`Durée ${HOW[k].toLowerCase()}`}>
             <span>{HOW[k]}</span>
             <span className="chips">{[60, 90].map((m) => <button key={m} type="button" className={"chip small" + (durs[k].includes(m) ? " on" : "")} aria-pressed={durs[k].includes(m)} onClick={() => toggleDur(k, m)}>{dur(m)}</button>)}</span>

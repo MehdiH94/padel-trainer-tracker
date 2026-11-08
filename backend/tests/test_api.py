@@ -2346,3 +2346,29 @@ def test_free_court_pieces_count_as_one_range(client):
     assert client.post(f"/booking/requests/{r2['id']}/accept", json={}).status_code == 200
     cb = next(x for x in client.get("/court-bookings").json() if x["session_id"] and x["session_status"] == "prevue")
     assert cb["start"][11:16] == "09:30" and cb["duration_min"] == 90  # terrain réuni puis découpé à la bonne taille
+
+
+def test_price_grid_per_duration_and_booking_horizon(client):
+    """Le coach choisit les durées de chaque formule et leur prix (pas forcément au prorata), et jusqu'où ses joueurs
+    peuvent réserver (1 semaine à 3 mois)."""
+    st = client.get("/booking/settings").json()
+    grid = {"individuel": {"60": 60000, "90": 70000}, "duo": {"90": 50000}, "groupe": {}}
+    r = client.put("/booking/settings", json={**st, "auto_confirm": False, "booking_mode": "terrains", "price_grid": grid, "booking_horizon_days": 7})
+    assert r.status_code == 200, r.text
+    out = client.get("/booking/settings").json()
+    assert out["price_grid"]["individuel"] == {"60": 60000, "90": 70000} and out["booking_horizon_days"] == 7
+    assert client.put("/booking/settings", json={**out, "booking_horizon_days": 120}).status_code == 422  # jamais plus de 3 mois
+    p, pc = player_client(client)
+    soon = (datetime.now(timezone.utc) + timedelta(days=3)).date()
+    far = (datetime.now(timezone.utc) + timedelta(days=10)).date()
+    for d in (soon, far):
+        free_court(client, datetime(d.year, d.month, d.day, 9, 0, tzinfo=timezone.utc).isoformat(), 180)
+    off = pc.get(f"/me/offers?day={soon}&kinds=individuel,duo,groupe&individuel_min=60,90&duo_min=60,90&groupe_min=60,90").json()
+    opts = {(o["kind"], o["duration_min"], o["price_millimes"]) for x in off["slots_with_court"] for o in x["options"]}
+    assert ("individuel", 90, 70000) in opts and ("individuel", 60, 60000) in opts and ("duo", 90, 50000) in opts
+    assert not any(k == "groupe" or (k == "duo" and m == 60) for k, m, _ in opts)  # ni groupe ni duo d'1 h chez ce coach
+    # au-delà de la limite (7 jours): rien de proposé, réservation refusée avec une explication
+    assert pc.get(f"/me/offers?day={far}&kinds=individuel").json()["slots_with_court"] == []
+    r = pc.post("/me/book", json={"kind": "individuel", "start": datetime(far.year, far.month, far.day, 9, 0, tzinfo=timezone.utc).isoformat(), "kinds": ["individuel"]})
+    assert r.status_code in (409, 422) and "1 semaine" in r.json()["detail"]
+    assert next(c for c in pc.get("/me/coaches").json())["horizon_days"] == 7

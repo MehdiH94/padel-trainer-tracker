@@ -1,4 +1,5 @@
 """Côté coach: réglages, demandes de réservation (avec disponibilité des terrains), groupes à compléter."""
+import json
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -16,6 +17,7 @@ from ..services.common import TUNIS, aware
 from ..services.exercises_catalog import WORK_THEMES
 from ..services import groups as grp
 from ..services import signups
+from ..services import pricing
 from ..services.pricing import base_price, duration_for
 from ..sms import get_sms_provider
 from ..sms.base import SmsProvider
@@ -53,6 +55,8 @@ class Settings(BaseModel):
     name: str | None = None  # nom affiché aux joueurs (None = inchangé)
     bio: str | None = None  # page publique du coach (None = inchangé)
     specialties: list[str] | None = None
+    price_grid: dict[str, dict[str, int]] | None = None  # {"duo": {"60": 40000, "90": 55000}}: durées proposées et prix (None = inchangé)
+    booking_horizon_days: int | None = None  # réservation au plus N jours à l'avance (7 à 90; None = inchangé)
 
 
 def settings_out(db: Session, coach: Coach) -> dict:
@@ -62,6 +66,8 @@ def settings_out(db: Session, coach: Coach) -> dict:
         "price_individuel": coach.price_individuel, "price_duo": coach.price_duo, "price_groupe": coach.price_groupe,
         "availability": [{"weekday": r.weekday, "start_time": r.start_time, "end_time": r.end_time} for r in rows],
         "bio": coach.bio, "specialties": [x for x in coach.specialties.split(",") if x], "name": coach.name,
+        "price_grid": {k: {str(m): v for m, v in g.items()} for k, g in pricing.grid(coach).items()},
+        "booking_horizon_days": coach.booking_horizon_days or 14,
         "duration_duo": duration_for(coach, "duo"), "duration_groupe": duration_for(coach, "groupe"), "booking_mode": coach.booking_mode,
         "happy_hours": [{"weekday": h.weekday, "start_time": h.start_time, "end_time": h.end_time, "discount_pct": h.discount_pct, "discount_millimes": h.discount_millimes}
                         for h in db.scalars(select(HappyHour).where(HappyHour.coach_id == coach.id).order_by(HappyHour.weekday, HappyHour.start_time))],
@@ -100,7 +106,27 @@ def put_settings(body: Settings, coach: Coach = Depends(current_coach), db: Sess
             db.delete(old)
         db.add_all(HappyHour(coach_id=coach.id, **h.model_dump()) for h in body.happy_hours)
     coach.auto_confirm, coach.slot_minutes, coach.cancel_hours = body.auto_confirm, body.slot_minutes, body.cancel_hours
+    before = {k: {str(m): v for m, v in g.items()} for k, g in pricing.grid(coach).items()}
+    old_hourly = (coach.price_individuel, coach.price_duo, coach.price_groupe)
     coach.price_individuel, coach.price_duo, coach.price_groupe = prices
+    if coach.price_grid and prices != old_hourly and (body.price_grid is None or body.price_grid == before):
+        # seul le prix de l'heure a changé (ancien réglage): la grille suit, au prorata
+        g = pricing.grid(coach)
+        coach.price_grid = json.dumps({k: {str(m): round(prices[i] * m / 60) for m in g[k]} for i, k in enumerate(pricing.KINDS)})
+    elif body.price_grid is not None and body.price_grid != before:
+        g = {k: {int(m): int(v) for m, v in (body.price_grid.get(k) or {}).items()} for k in pricing.KINDS}
+        if any(m not in (60, 90) or v < 0 for x in g.values() for m, v in x.items()):
+            raise HTTPException(422, "Formules : durées de 1 h ou 1 h 30, prix positifs.")
+        if not any(g.values()):
+            raise HTTPException(422, "Formules : proposez au moins une formule et une durée à vos joueurs.")
+        coach.price_grid = json.dumps({k: {str(m): v for m, v in x.items()} for k, x in g.items()})
+        for k, x in g.items():  # prix de l'heure gardé à jour (ancien réglage, séances d'une autre durée)
+            if x:
+                setattr(coach, "price_" + k, x[60] if 60 in x else round(x[min(x)] * 60 / min(x)))
+    if body.booking_horizon_days is not None:
+        if body.booking_horizon_days not in pricing.HORIZONS:
+            raise HTTPException(422, "Limite de réservation : de 1 semaine à 3 mois.")
+        coach.booking_horizon_days = body.booking_horizon_days
     if body.name is not None:
         if not body.name.strip():
             raise HTTPException(422, "Nom : ce champ est obligatoire.")

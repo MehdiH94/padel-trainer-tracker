@@ -26,6 +26,11 @@ class Coach(Base):
     price_individuel: Mapped[int] = mapped_column(Integer, default=0)  # prix par joueur, en millimes
     price_duo: Mapped[int] = mapped_column(Integer, default=0)
     price_groupe: Mapped[int] = mapped_column(Integer, default=0)
+    # Durées proposées aux joueurs et prix par joueur pour chaque formule et durée (JSON {"duo": {"60": 40000, "90": 55000}}),
+    # pas forcément au prorata; None = prix de l'heure ci-dessus (seul 1 h, à deux et en groupe 1 h ou 1 h 30 au prorata)
+    price_grid: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Les joueurs réservent au plus ce nombre de jours à l'avance (une semaine à 3 mois)
+    booking_horizon_days: Mapped[int] = mapped_column(Integer, default=14)
     cancel_hours: Mapped[int] = mapped_column(Integer, default=24)  # remboursement si annulation >= N heures avant
     # Créneaux proposés aux joueurs: « terrains » = seulement sur ses terrains réservés libres (par défaut),
     # « disponibilites » = toutes ses plages de disponibilité (il réserve le terrain après coup)

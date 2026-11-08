@@ -478,7 +478,7 @@ def clubs(player: Player = Depends(current_player), db: Session = Depends(get_db
 
 @router.get("/offers")
 def offers(day: date, kinds: str = "", kind: str = "", coach_id: int | None = None, coach_ids: str = "", club: str | None = None, clubs: str = "", period: str | None = None,
-           hour: int | None = None, duo_min: str = "", groupe_min: str = "", player: Player = Depends(current_player), db: Session = Depends(get_db)):
+           hour: int | None = None, duo_min: str = "", groupe_min: str = "", individuel_min: str = "", player: Player = Depends(current_player), db: Session = Depends(get_db)):
     """Pour le jour choisi: groupes à rejoindre et créneaux à créer, selon le coach, le club et les formules acceptées
     (kinds=individuel,duo: plusieurs choix possibles)."""
     wanted = [k for k in (kinds or kind or "groupe").split(",") if k]
@@ -487,6 +487,6 @@ def offers(day: date, kinds: str = "", kind: str = "", coach_id: int | None = No
     player.pref_kinds = ",".join(wanted)  # préférences retenues (groupes proposés par le coach)
     db.commit()
     chosen = {int(x) for x in coach_ids.split(",") if x.strip().isdigit()} or ({coach_id} if coach_id else None)  # un ou plusieurs coachs
-    durations = {k: [int(x) for x in v.split(",") if x.strip().isdigit()] for k, v in (("duo", duo_min), ("groupe", groupe_min))}  # ex. duo_min=60,90
+    durations = {k: [int(x) for x in v.split(",") if x.strip().isdigit()] for k, v in (("individuel", individuel_min), ("duo", duo_min), ("groupe", groupe_min))}  # ex. duo_min=60,90
     places = [c for c in clubs.split("|") if c.strip()] or ([club] if club else [])  # clubs=La Marsa|Gammarth
     return marketplace.offers(db, player, day, wanted, chosen, places, period or None, hour, durations)

@@ -14,9 +14,9 @@ from . import courts
 from .accounts import linked
 from .isolation import visible_coaches
 from . import groups as grp
-from .booking import attendee_ids, edges, fits_session, free_slots, join_minutes, join_price, join_target, pending_joins, price_for, spots_left
+from .booking import attendee_ids, edges, fits_session, free_slots, horizon, join_minutes, join_price, join_target, pending_joins, price_for, spots_left
 from .common import TUNIS, aware
-from .pricing import duration_for, player_durations, quote
+from .pricing import coach_durations, duration_for, grid, player_durations, quote
 
 PERIODS = {"matin": (0, 12), "apres-midi": (12, 17), "soir": (17, 24)}
 
@@ -49,6 +49,8 @@ def coach_summary(db: Session, coach: Coach, account: Player | None = None) -> d
     return {
         "id": coach.id, "name": coach.name, "bio": coach.bio, "specialties": [s for s in coach.specialties.split(",") if s],
         "clubs": coach_clubs(db, coach), "prices": {k: price_for(coach, k) for k in CAPACITY}, "mine": mine,
+        # formules, durées et prix proposés, et jusqu'où on peut réserver (jours)
+        "grid": {k: {str(m): v for m, v in g.items()} for k, g in grid(coach).items()}, "horizon_days": horizon(coach),
     }
 
 
@@ -140,16 +142,17 @@ def offers(db: Session, account: Player, day: date, kinds: list[str], coach_ids:
                                                         Booking.player_id.not_in(my_ids))))
         snug = edges(db, c)  # créneaux collés à un bord de plage libre: mis en avant
         feasible: dict[datetime, set[int]] = {}
+        cdur = {k: [m for m in durations[k] if m in coach_durations(c, k)] for k in kinds}  # durées que ce coach propose
         for minutes in (60, 90):
-            if any(minutes in durations[k] for k in kinds):
+            if any(minutes in cdur[k] for k in kinds):
                 for start in free_slots(db, c, minutes=minutes):
                     if _in_window(start, day, period):
                         feasible.setdefault(start, set()).add(minutes)
         for start, mins in feasible.items():
             # la séance garde la plus longue durée possible ici; les formules plus courtes acceptées (seul 1 h…)
             # restent possibles à l'intérieur: s'il reste seul, il joue 1 h
-            length = max((m for k in kinds for m in durations[k] if m in mins), default=None)
-            opts = [(k, m) for k in kinds for m in durations[k] if length and m <= length]
+            length = max((m for k in kinds for m in cdur[k] if m in mins), default=None)
+            opts = [(k, m) for k in kinds for m in cdur[k] if length and m <= length]
             if not opts:
                 continue
             too_late.update(k for k, _ in opts if not grp.can_open(k, start))

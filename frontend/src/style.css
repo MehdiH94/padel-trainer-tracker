@@ -842,3 +842,7 @@ button.saved { background: var(--green); border-color: var(--green); color: #fff
 .notif.unread .notif-title::before { content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--brand); margin-right: 6px; vertical-align: middle; }
 .notif-body { white-space: pre-line; font-size: .88rem; color: var(--mut); margin-top: 2px; }
 .proposal-card { border: 2px solid var(--brand-ring); }
+/* Formules: durées proposées et prix de chacune */
+.formula.grid { display: flex; flex-wrap: wrap; gap: 8px 10px; align-items: center; }
+.formula.grid .formula-name { flex-basis: 100%; }
+.formula.grid .inputunit { max-width: 170px; }

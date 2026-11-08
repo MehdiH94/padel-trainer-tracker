@@ -12,9 +12,18 @@ from . import groups
 from ..notify import letter
 from .common import TUNIS, aware, quand
 from .finance import credit_balance
-from .pricing import duration_for, quote, reduced
+from .pricing import coach_durations, duration_for, quote, reduced
 
-HORIZON_DAYS = 14
+HORIZON_DAYS = 14  # par défaut: le coach règle sa limite (Coach.booking_horizon_days, 7 à 90 jours)
+
+
+def horizon_label(days: int) -> str:
+    return {7: "1 semaine", 14: "2 semaines", 21: "3 semaines", 30: "1 mois", 60: "2 mois", 90: "3 mois"}.get(days, f"{days} jours")
+
+
+def horizon(coach: Coach) -> int:
+    """Nombre de jours à l'avance où ses joueurs peuvent réserver."""
+    return coach.booking_horizon_days or HORIZON_DAYS
 MIN_NOTICE_H = 2
 # attente_joueurs: acceptée par le coach, mais la séance n'a pas encore le nombre minimum de joueurs voulu
 ACTIVE = ("en_attente", "contre_proposition", "attente_joueurs", "acceptee", "confirmee")  # contre_proposition: le coach propose un autre horaire
@@ -106,12 +115,12 @@ def _free_on_courts(db: Session, coach: Coach, now: datetime, earliest: datetime
     busy = _busy(db, coach)
     step, shortest = _grid(coach)
     length = timedelta(minutes=minutes or 60)
-    horizon = now + timedelta(days=HORIZON_DAYS + 1)
+    until = now + timedelta(days=horizon(coach) + 1)
     out = set()
     for run in courts.free_runs(db, coach.id):  # morceaux qui se suivent = une seule plage libre
         lo, hi = courts.run_span(run)
         cur = lo
-        while cur + length <= hi and cur < horizon:
+        while cur + length <= hi and cur < until:
             # n'importe quel début toutes les 30 min, tant qu'il ne laisse pas de bout de terrain inutilisable
             # (moins d'1 h) avant ou après: 8 h-12 h libre = 8 h, 9 h, 9 h 30, 10 h, 11 h pour 1 h (jamais 8 h 30)
             if cur >= earliest and _fits(cur, length, lo, hi, busy, shortest):
@@ -131,7 +140,7 @@ def edges(db: Session, coach: Coach) -> set[datetime]:
     if coach.booking_mode == "disponibilites":
         today = datetime.now(TUNIS).date()
         for w in db.scalars(select(Availability).where(Availability.coach_id == coach.id)):
-            for off in range(HORIZON_DAYS + 1):
+            for off in range(horizon(coach) + 1):
                 day = today + timedelta(days=off)
                 if day.weekday() == w.weekday:
                     out.add(datetime.combine(day, time.fromisoformat(w.start_time), TUNIS).astimezone(timezone.utc))
@@ -153,7 +162,8 @@ def is_day_off(offs: list[tuple], when: datetime) -> bool:
 def free_slots(db: Session, coach: Coach, now: datetime | None = None, minutes: int | None = None) -> list[datetime]:
     """Créneaux libres, sauf les jours d'absence du coach."""
     offs = days_off(db, coach)
-    return [s for s in _free_slots(db, coach, now, minutes) if not is_day_off(offs, s)]
+    last = (now or datetime.now(timezone.utc)).astimezone(TUNIS).date() + timedelta(days=horizon(coach))  # limite du coach
+    return [s for s in _free_slots(db, coach, now, minutes) if not is_day_off(offs, s) and s.astimezone(TUNIS).date() <= last]
 
 
 def _free_slots(db: Session, coach: Coach, now: datetime | None = None, minutes: int | None = None) -> list[datetime]:
@@ -170,7 +180,7 @@ def _free_slots(db: Session, coach: Coach, now: datetime | None = None, minutes:
     length = timedelta(minutes=minutes or 60)
     out = []
     today = now.astimezone(TUNIS).date()
-    for off in range(HORIZON_DAYS + 1):
+    for off in range(horizon(coach) + 1):
         day = today + timedelta(days=off)
         for w in (w for w in windows if w.weekday == day.weekday()):
             lo = datetime.combine(day, time.fromisoformat(w.start_time), TUNIS).astimezone(timezone.utc)
@@ -294,10 +304,12 @@ def request_new(db: Session, coach: Coach, player: Player, kind: str, start: dat
     if kind not in CAPACITY:
         raise BookingError("Type de séance invalide")
     wanted = [k for k in groups.ORDER if k in (accepted_kinds or []) or k == kind]
+    if aware(start).astimezone(TUNIS).date() > datetime.now(TUNIS).date() + timedelta(days=horizon(coach)):
+        raise BookingError(f"{coach.name} ouvre ses réservations {horizon_label(horizon(coach))} à l'avance au plus : choisissez une date plus proche.")
     feasible = [m for m in (60, 90) if minutes in (None, m) and aware(start) in free_slots(db, coach, minutes=m)]
     # sans durées précisées (anciens appels): 1 h, ou la durée imposée
     every = {(k, m) for k, m in (groups.opts_of(wanted, durations, 60) if durations is not None else groups.opts_of(wanted, None, minutes or 60))
-             if k != "individuel" or m == 60}  # seul: toujours 1 h
+             if m in coach_durations(coach, k)}  # seulement les formules et durées que ce coach propose
     # la séance retient la plus longue durée possible à ce début; les formules plus courtes cochées restent
     # possibles à l'intérieur (seul 1 h dans un terrain d'1 h 30: s'il reste seul, il joue 1 h)
     length = max((m for _, m in every if m in feasible), default=None)
@@ -305,7 +317,8 @@ def request_new(db: Session, coach: Coach, player: Player, kind: str, start: dat
     if not opts:
         if not feasible:
             raise BookingError("Ce créneau n'est plus disponible")
-        raise BookingError("Une séance seul dure toujours 1 h" if wanted == ["individuel"] else "Durée impossible pour ces formules (1 h ou 1 h 30)")
+        offered = ", ".join(f"{KIND_FR[k].lower()} {' ou '.join(_dur(m) for m in coach_durations(coach, k))}" for k in wanted if coach_durations(coach, k))
+        raise BookingError(f"{coach.name} ne propose pas ces durées" + (f" (il propose : {offered})" if offered else " pour ces formules") + ".")
     accepted = [k for k in groups.ORDER if any(o[0] == k for o in opts)]
     kind = groups.smallest(accepted)  # s'il reste seul (ou au minimum voulu), c'est cette formule qui est jouée
     if not groups.can_open(kind, start):
@@ -323,6 +336,17 @@ def request_new(db: Session, coach: Coach, player: Player, kind: str, start: dat
     _tell_coach_new(db, coach, player, b)
     db.commit()
     return b
+
+
+def _dur(m: int) -> str:
+    return "1 h 30" if m == 90 else f"{m // 60} h" if m % 60 == 0 else f"{m} min"
+
+
+def _fit_minutes(coach: Coach, kind: str, minutes: int) -> int:
+    """Durée pour une formule ajoutée en cours de route: celle de la séance si le coach la propose, sinon la plus
+    longue qu'il propose sans dépasser la séance (seul 1 h dans une séance d'1 h 30)."""
+    ds = coach_durations(coach, kind)
+    return minutes if minutes in ds or not ds else max([m for m in ds if m <= minutes] or [min(ds)])
 
 
 def same_slot(db: Session, b: Booking) -> list[Booking]:
@@ -592,13 +616,13 @@ def reconsider(db: Session, coach: Coach, b: Booking, kind: str) -> None:
         old = a.accepted_kinds, a.accepted_opts
         a.accepted_kinds = ",".join(mine)
         if a.accepted_opts:  # nouvelle formule acceptée à la durée de la séance (seul: toujours 1 h)
-            a.accepted_opts = groups.dump_opts(groups.parse_opts(a.accepted_opts) | {(kind, 60 if kind == "individuel" else s.duration_min)})
+            a.accepted_opts = groups.dump_opts(groups.parse_opts(a.accepted_opts) | {(kind, _fit_minutes(coach, kind, s.duration_min))})
         if len(s.attendances) > groups.capacity(s):
             a.accepted_kinds, a.accepted_opts = old
             raise BookingError("Cette formule n'est pas compatible avec les autres joueurs de la séance")
     b.accepted_kinds = ",".join(mine)
     if b.accepted_opts:
-        b.accepted_opts = groups.dump_opts(groups.parse_opts(b.accepted_opts) | {(kind, 60 if kind == "individuel" else (s.duration_min if s else b.duration_min))})
+        b.accepted_opts = groups.dump_opts(groups.parse_opts(b.accepted_opts) | {(kind, _fit_minutes(coach, kind, s.duration_min if s else b.duration_min))})
     if s and b.status != "en_attente":
         refresh(db, s)
     else:  # pas encore validée par le coach: formule de départ et prix mis à jour
@@ -869,6 +893,6 @@ def answer_proposal(db: Session, b: Booking, yes: bool, sms: SmsProvider | None 
     b.price_millimes, b.discount_pct, b.discount_millimes = q["price_millimes"], q["discount_pct"], q["discount_millimes"]
     opts = groups.parse_opts(b.accepted_opts)
     if opts:  # nouvelle durée: celle proposée par le coach
-        b.accepted_opts = groups.dump_opts({(k, b.duration_min) for k, _ in opts if k != "individuel" or b.duration_min == 60} or {(b.kind, b.duration_min)})
+        b.accepted_opts = groups.dump_opts({(k, b.duration_min) for k, _ in opts if b.duration_min in coach_durations(coach, k)} or {(b.kind, b.duration_min)})
     accept(db, coach, b, sms)
     notify_coach(db, coach.id, f"{p.name} accepte l'horaire proposé", f"Séance acceptée {quand(b.start, b.duration_min)} (demande initiale : {old}).")

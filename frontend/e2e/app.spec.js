@@ -241,9 +241,9 @@ test("nouveau coach: confirmé par l'administrateur, puis le guide « Bien déma
   await guide.getByRole("button", { name: /Mon profil/ }).click();
   await expect(page.locator("#profil")).toBeInViewport();
   await page.getByLabel("Présentation").fill("Coach diplômé, tous niveaux.");
-  await page.getByLabel("Prix Individuel").fill("60");
-  await page.getByLabel("Prix Individuel").fill("060"); // le 0 de départ ne reste pas collé: « 60 »
-  await expect(page.getByLabel("Prix Individuel")).toHaveValue("060");
+  await page.getByLabel("Prix Individuel 1 h", { exact: true }).fill("60");
+  await page.getByLabel("Prix Individuel 1 h", { exact: true }).fill("060"); // le 0 de départ ne reste pas collé: « 60 »
+  await expect(page.getByLabel("Prix Individuel 1 h", { exact: true })).toHaveValue("060");
   await page.getByRole("button", { name: /Enregistrer/ }).click();
   // étape terminée: message de félicitations, puis retour au guide
   const bravo = page.getByRole("dialog", { name: "Étape terminée" });
@@ -293,6 +293,7 @@ test("nouvelle séance: le prix vient des réglages, seule une promotion peut le
   const form = page.locator("form.card");
   await expect(form.getByText("Prix par joueur")).toBeVisible();
   await expect(form.locator("input[type=number][step='0.001']")).toHaveCount(0); // plus de prix libre
+  await expect(form.locator(".pricebox b")).toHaveText(/TND/); // prix chargé
   const before = await form.locator(".pricebox b").innerText();
   await form.getByLabel("Réduction (facultatif)").selectOption("10000"); // −10 TND par joueur
   await expect(form.locator(".pricebox s")).toHaveText(before.trim()); // ancien prix barré
@@ -449,7 +450,7 @@ test("planning du joueur: il ajoute un match coaché, note son résultat, et son
   await expect(page.getByRole("heading", { name: "Historique" })).toBeVisible();
 });
 
-test("réserver: seul toujours 1 h, à deux 1 h par défaut, en groupe 1 h 30 par défaut, 1 h ou les deux", async ({ page }) => {
+test("réserver: seul et à deux 1 h par défaut, en groupe 1 h 30 par défaut, 1 h ou les deux", async ({ page }) => {
   await login(page, "sami@demo.tn");
   await page.locator("nav").getByRole("button", { name: "Réserver" }).click();
   for (const k of [/À deux/, /En groupe/]) {
@@ -467,7 +468,26 @@ test("réserver: seul toujours 1 h, à deux 1 h par défaut, en groupe 1 h 30 pa
   await expect(durDuo.getByRole("button", { name: "1 h 30" })).toHaveAttribute("aria-pressed", "true");
   const solo = page.getByRole("checkbox", { name: /Seul/ });
   if ((await solo.getAttribute("aria-checked")) !== "true") await solo.click();
-  await expect(page.getByText("toujours 1 h")).toBeVisible();
+  await expect(page.getByRole("group", { name: "Durée seul" }).getByRole("button", { name: "1 h", exact: true })).toHaveAttribute("aria-pressed", "true");
+});
+
+test("réglages: durées et prix par formule (pas forcément proportionnels) et limite de réservation à l'avance", async ({ page }) => {
+  await login(page, "demo@padel.tn");
+  await page.goto("/#settings/formules");
+  const solo = page.getByRole("group", { name: "Durées Individuel" });
+  await solo.getByRole("button", { name: "1 h 30" }).click();
+  await page.getByLabel("Prix Individuel 1 h 30").fill("70");
+  await page.getByRole("group", { name: "Limite de réservation à l'avance" }).getByRole("button", { name: "1 mois" }).click();
+  await page.getByRole("button", { name: /Enregistrer/ }).last().click();
+  await expect(page.getByText("Réglages enregistrés")).toBeVisible();
+  await page.reload();
+  await expect(page.getByLabel("Prix Individuel 1 h 30")).toHaveValue("70");
+  await expect(page.getByRole("group", { name: "Limite de réservation à l'avance" }).getByRole("button", { name: "1 mois" })).toHaveAttribute("aria-pressed", "true");
+  // on remet comme avant (les autres parcours utilisent les mêmes données)
+  await page.getByRole("group", { name: "Durées Individuel" }).getByRole("button", { name: "1 h 30" }).click();
+  await page.getByRole("group", { name: "Limite de réservation à l'avance" }).getByRole("button", { name: "2 semaines" }).click();
+  await page.getByRole("button", { name: /Enregistrer/ }).last().click();
+  await expect(page.getByText("Réglages enregistrés")).toBeVisible();
 });
 
 test("séance effectuée: le coach rembourse un joueur absent (en entier), depuis le planning", async ({ page }) => {
@@ -646,7 +666,7 @@ test("seul, à deux ou en groupe: validée tout de suite, ouverte aux autres jou
   const day = new Date(Date.now() + 6 * 86400000).toLocaleDateString("fr-CA", { timeZone: "Africa/Tunis" });
   const [club] = await (await request.get("/api/clubs", { headers: coach })).json();
   expect((await request.post("/api/court-bookings/manual", { headers: coach, data: { club_id: club.id, start: `${day}T06:00:00+01:00`, duration_min: 90, court_label: "Terrain matin" } })).ok()).toBeTruthy();
-  const r = await request.post("/api/me/book", { headers: sami, data: { kind: "individuel", start: `${day}T06:00:00+01:00`, kinds: ["individuel", "duo", "groupe"], durations: { duo: [60], groupe: [90] } } });
+  const r = await request.post("/api/me/book", { headers: sami, data: { kind: "individuel", start: `${day}T06:00:00+01:00`, kinds: ["individuel", "duo", "groupe"], durations: { individuel: [60], duo: [60], groupe: [90] } } });
   expect(r.ok()).toBeTruthy();
   const b = await r.json();
   if (b.status === "en_attente") expect((await request.post(`/api/booking/requests/${b.id}/accept`, { headers: coach, data: {} })).ok()).toBeTruthy();

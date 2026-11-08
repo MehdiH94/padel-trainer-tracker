@@ -6,6 +6,7 @@ import CriteriaEditor from "./CriteriaEditor.jsx";
 import { ClockPicker, KIND, Loading, MoneyInput } from "./ui.jsx";
 
 const DAYS = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"];
+const HORIZONS = [[7, "1 semaine"], [14, "2 semaines"], [21, "3 semaines"], [30, "1 mois"], [60, "2 mois"], [90, "3 mois"]];
 const FULL_DAYS = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"];
 
 export default function Settings({ onBack, sub }) {
@@ -93,16 +94,31 @@ export default function Settings({ onBack, sub }) {
         <div className="mut small-p" style={{ marginTop: 6 }}>Pensez à enregistrer en bas de la page.</div>
       </div>
 
-      <h2 id="formules">Formules : prix par heure et par joueur</h2>
+      <h2 id="formules">Formules : durées et prix par joueur</h2>
       <div className="card">
-        <div className="mut small-p" style={{ marginBottom: 8 }}>Vos joueurs choisissent la durée en réservant : seul toujours 1 h, à deux ou en groupe 1 h ou 1 h 30 (prix × 1,5). Vos propres séances, vous les créez de la durée que vous voulez.</div>
-        {Object.entries(KIND).map(([k, v]) => (
-          <div className="formula" key={k}>
-            <span className="formula-name"><Icon name={v.icon} size={16} /> <b>{v.label}</b> <span className="mut">· {v.short}</span></span>
-            <span className="inputunit"><MoneyInput label={`Prix ${v.label}`} value={s["price_" + k]} onChange={(m) => setS({ ...s, ["price_" + k]: m })} /><em>TND / h</em></span>
-            {k !== "individuel" && s["price_" + k] > 0 && <small className="mut">1 h 30 : {tnd(Math.round(s["price_" + k] * 1.5))}</small>}
-          </div>
-        ))}
+        <div className="mut small-p" style={{ marginBottom: 8 }}>Pour chaque formule, cochez les durées que vos joueurs peuvent réserver et fixez le prix par joueur de chacune (pas forcément proportionnel : 1 h à 100 TND, 1 h 30 à 120 TND…). Une formule sans durée n'est pas proposée. Vos propres séances, vous les créez de la durée que vous voulez.</div>
+        {Object.entries(KIND).map(([k, v]) => {
+          const g = s.price_grid?.[k] ?? {};
+          const setG = (next) => setS({ ...s, price_grid: { ...s.price_grid, [k]: next } });
+          const toggle = (m) => {
+            const { [m]: had, ...rest } = g;
+            if (had !== undefined) return setG(rest);
+            const ref = Object.entries(g)[0]; // prix de départ: au prorata d'une durée déjà fixée
+            setG({ ...g, [m]: ref ? Math.round((ref[1] * +m) / +ref[0]) : 0 });
+          };
+          return (
+            <div className="formula grid" key={k}>
+              <span className="formula-name"><Icon name={v.icon} size={16} /> <b>{v.label}</b> <span className="mut">· {v.short}</span></span>
+              <span className="chips" role="group" aria-label={`Durées ${v.label}`}>
+                {["60", "90"].map((m) => <button key={m} type="button" className={"chip small" + (g[m] !== undefined ? " on" : "")} aria-pressed={g[m] !== undefined} onClick={() => toggle(m)}>{m === "60" ? "1 h" : "1 h 30"}</button>)}
+              </span>
+              {["60", "90"].filter((m) => g[m] !== undefined).map((m) => (
+                <span key={m} className="inputunit"><em>{m === "60" ? "1 h" : "1 h 30"}</em><MoneyInput label={`Prix ${v.label} ${m === "60" ? "1 h" : "1 h 30"}`} value={g[m]} onChange={(x) => setG({ ...g, [m]: x })} /><em>TND</em></span>
+              ))}
+              {!Object.keys(g).length && <small className="mut">Pas proposé aux joueurs</small>}
+            </div>
+          );
+        })}
       </div>
 
       <h2>Heures creuses</h2>
@@ -123,6 +139,12 @@ export default function Settings({ onBack, sub }) {
 
       <h2 id="reservation">Créneaux proposés aux joueurs</h2>
       <div className="card">
+        <div className="field"><span className="mut">Les joueurs réservent au plus</span>
+          <div className="chips" role="group" aria-label="Limite de réservation à l'avance">
+            {HORIZONS.map(([d, l]) => <button key={d} type="button" className={"chip small" + ((s.booking_horizon_days ?? 14) === d ? " on" : "")} aria-pressed={(s.booking_horizon_days ?? 14) === d} onClick={() => setS({ ...s, booking_horizon_days: d })}>{l}</button>)}
+          </div>
+          <small className="mut">à l'avance (jamais plus de 3 mois).</small>
+        </div>
         {[["terrains", "Seulement sur mes terrains réservés", "Les joueurs ne voient que les heures où vous avez un terrain libre (Planning › Terrains). Recommandé : tout ce qui est réservé a un terrain."],
           ["disponibilites", "Sur toutes mes disponibilités", "Les joueurs voient toutes vos plages ci-dessous ; vous réservez le terrain après leur demande."]].map(([k, l, d]) => (
           <label key={k} className="check mode">
