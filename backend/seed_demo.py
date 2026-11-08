@@ -163,8 +163,9 @@ for k, day in enumerate(days[:5]):
 # Séances ouvertes avec des places libres (pour les suggestions et les groupes automatiques)
 def open_session(day_i, hour, kind, who, price, level=""):
     start = (today + timedelta(days=day_i, hours=hour)).isoformat()
-    return c.post("/sessions", json={"start": start, "kind": kind, "club_id": clubs[0]["id"], "court_booked": True, "open": True,
-                                      "price_millimes": price, "price_mode": "par_joueur", "level": level, "player_ids": [ids[n] for n in who]}).json()[0]
+    r = c.post("/sessions", json={"start": start, "kind": kind, "club_id": clubs[0]["id"], "court_booked": True, "open": True,
+                                   "price_millimes": price, "price_mode": "par_joueur", "level": level, "player_ids": [ids[n] for n in who]}).json()
+    return r[0] if isinstance(r, list) else None  # selon l'heure, le créneau peut chevaucher un terrain déjà saisi: ignoré
 
 open_session(2, 18, "duo", ["Wassim Karray"], 40000)
 open_session(3, 19, "groupe", ["Amira Dridi", "Rania Hammami"], 30000)

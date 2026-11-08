@@ -509,6 +509,7 @@ main > .row:first-child > .row { flex-wrap: wrap; justify-content: flex-end; }
 .cal-block b { font-size: .7rem; }
 .cal-block small { font-size: .6rem; opacity: .9; }
 .cal-block.complet, .cal-dot.complet, .cal-pill.complet { background: #15803d; }
+.cal-block.completable, .cal-dot.completable, .cal-pill.completable { background: repeating-linear-gradient(135deg, #15803d 0 8px, #0f766e 8px 16px); }
 .cal-block.incomplet, .cal-dot.incomplet, .cal-pill.incomplet { background: #d97706; }
 .cal-block.demande, .cal-dot.demande, .cal-pill.demande { background: #2563eb; }
 .cal-block.libre, .cal-dot.libre, .cal-pill.libre { background: #fff; color: #475569; border: 1.5px dashed #64748b; box-shadow: none; }

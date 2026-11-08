@@ -2279,7 +2279,7 @@ def test_solo_accepted_keeps_session_open_and_plays_one_hour(client):
     mine = pc.get("/me/sessions").json()["upcoming"][0]
     assert mine["status"] == "confirmee" and mine["min_needed"] == 1
     assert pc.get("/me").json()["credits_millimes"] == 140000  # 1 h seul, pas 1 h 30
-    assert next(cb for cb in client.get("/court-bookings").json() if cb["session_id"] == s["id"])["state"] == "complet"
+    assert next(cb for cb in client.get("/court-bookings").json() if cb["session_id"] == s["id"])["state"] == "completable"  # confirmée, encore des places
 
     # à moins de 24 h et toujours seul: 1 h, la dernière demi-heure du terrain redevient libre
     soon = (datetime.now(timezone.utc) + timedelta(hours=5)).replace(minute=0, second=0, microsecond=0)
@@ -2290,3 +2290,36 @@ def test_solo_accepted_keeps_session_open_and_plays_one_hour(client):
     assert s2["duration_min"] == 60 and s2["kind"] == "individuel"
     free = [cb for cb in client.get("/court-bookings").json() if cb["free"]]
     assert any(cb["start"].startswith((soon + timedelta(hours=1)).isoformat()[:16]) and cb["duration_min"] == 30 for cb in free)
+
+
+def test_confirmed_session_still_completable_until_full(client):
+    """Séance confirmée (minimum atteint) où les joueurs acceptent d'être plus nombreux: état « completable » dans
+    le calendrier, le coach invite un joueur jusqu'au dernier moment; quand plus personne ne peut la rejoindre: « complet »."""
+    st = client.get("/booking/settings").json()
+    client.put("/booking/settings", json={**st, "auto_confirm": False, "price_individuel": 60000, "price_duo": 40000,
+                                          "price_groupe": 30000, "booking_mode": "terrains"})
+    a, pa = player_client(client, name="Ali", phone="20111111")
+    b, pb = player_client(client, name="Bea", phone="20222222")
+    c, pcl = player_client(client, name="Cyr", phone="20333333")
+    day = (datetime.now(timezone.utc) + timedelta(days=3)).date()
+    start = datetime(day.year, day.month, day.day, 9, 0, tzinfo=timezone.utc).isoformat()
+    free_court(client, start, 90)
+    state = lambda: next(cb for cb in client.get("/court-bookings").json() if cb["session_id"])
+    r = pa.post("/me/book", json={"kind": "individuel", "start": start, "kinds": ["individuel", "duo", "groupe"],
+                                  "durations": {"duo": [60, 90], "groupe": [90]}}).json()
+    client.post(f"/booking/requests/{r['id']}/accept", json={})
+    cb = state()
+    assert cb["state"] == "completable" and cb["players_count"] == 1 and cb["max_players"] == 4
+    sid = cb["session_id"]
+    s = next(x for x in client.get("/sessions").json() if x["id"] == sid)
+    assert s["max_players"] == 4 and s["min_players"] == 1
+    # le coach invite Bea, qui accepte: à deux, toujours complétable (Ali accepte le groupe)
+    assert b["id"] in {p["id"] for p in client.get(f"/sessions/{sid}/invitable").json()["players"]}
+    client.post(f"/sessions/{sid}/invite", json={"player_ids": [b["id"]]})
+    prop = next(x for x in pb.get("/me/proposals").json())
+    assert pb.post(f"/me/proposals/{prop['id']}/accept").status_code == 200
+    cb = state()
+    assert cb["players_count"] == 2 and cb["state"] == "completable"
+    # Cyr ne veut qu'un duo: impossible de le rejoindre à trois; s'il ouvrait seul un duo avec Ali, la séance serait close
+    s = next(x for x in client.get("/sessions").json() if x["id"] == sid)
+    assert s["kind"] == "duo" and s["max_players"] == 4

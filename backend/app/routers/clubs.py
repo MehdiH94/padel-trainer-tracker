@@ -122,7 +122,9 @@ def update_club(club_id: int, body: ClubIn, coach: Coach = Depends(current_coach
 
 def court_state_label(cb: CourtBooking, s: TrainingSession | None) -> str:
     """État affiché dans le calendrier des terrains (une couleur par état):
-    complet = terrain réservé et nombre minimum de joueurs atteint; incomplet = réservé mais minimum pas atteint;
+    complet = terrain réservé et séance pleine (ou plus personne ne peut la rejoindre); completable = confirmée
+    (minimum atteint) mais il reste des places: le coach peut encore la compléter jusqu'au début;
+    incomplet = réservé mais minimum pas atteint;
     libre = réservé, encore aucun joueur; demande = terrain demandé au club, pas encore confirmé; refuse / annule."""
     if cb.status in ("a_envoyer", "en_attente"):
         return "demande"
@@ -130,7 +132,10 @@ def court_state_label(cb: CourtBooking, s: TrainingSession | None) -> str:
         return "refuse" if cb.status == "refusee" else "annule"
     if not s or not s.attendances or s.status == "annulee":
         return "libre"
-    return "complet" if len(s.attendances) >= groups.min_needed(s) else "incomplet"
+    if len(s.attendances) < groups.min_needed(s):
+        return "incomplet"
+    upcoming = s.status == "prevue" and aware(s.start) > datetime.now(timezone.utc)
+    return "completable" if upcoming and groups.capacity(s) > len(s.attendances) else "complet"
 
 
 def cb_out(db: Session, cb: CourtBooking) -> dict:
@@ -145,6 +150,7 @@ def cb_out(db: Session, cb: CourtBooking) -> dict:
         "message": cb.message or (courts.render(db, coach, club, cb, s) if cb.source == "sms" else ""), "sent_at": cb.sent_at,
         "reply": cb.reply, "replied_at": cb.replied_at, "series_id": cb.series_id,
         "players_count": len(s.attendances) if s else 0, "min_needed": groups.min_needed(s) if s and s.attendances else None,
+        "max_players": groups.capacity(s) if s and s.attendances else None,
         "kind": s.kind if s else None, "state": court_state_label(cb, s),
     }
 

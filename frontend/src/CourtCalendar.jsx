@@ -21,6 +21,7 @@ const endIso = (cb) => new Date(toDate(cb.start).getTime() + cb.duration_min * 6
 // Une couleur par situation (légende sous l'en-tête): terrains et séances dans le même calendrier
 export const STATES = {
   complet: { label: "Terrain + joueurs au complet", short: "Complet" },
+  completable: { label: "Confirmée, encore des places : à compléter", short: "Confirmée · à compléter" },
   incomplet: { label: "Terrain, minimum de joueurs pas atteint", short: "Incomplet" },
   libre: { label: "Terrain réservé, encore aucun joueur", short: "Terrain libre" },
   demande: { label: "Terrain demandé au club, pas confirmé", short: "Demandé" },
@@ -49,6 +50,7 @@ function Details({ cb, session, promo, cardProps, onClose, onRemove, onStopPromo
       <b className="sheet-title" style={{ marginTop: 8 }}><span className="cap1">{dayLabel(cb.start)}</span> · {h24(cb.start)} – {h24(end)}</b>
       {cb.club_name && <div className="mut">{cb.club_name}{cb.court_label && ` · ${cb.court_label}`}{cb.series_id && <> · <Icon name="repeat" size={12} /> régulier</>}</div>}
       <p className="small-p">{st?.label}.</p>
+      {cb.state === "completable" && <p className="mut small-p">La séance a lieu quoi qu'il arrive (minimum atteint), mais les joueurs acceptent d'être plus nombreux : complétez-la jusqu'au dernier moment, ils paieront le prix du groupe.</p>}
       {cb.state === "sans_terrain" && <p className="small-p warn-txt">Pensez à réserver un terrain pour cette séance : ajoutez-le avec « + Terrain » (il sera utilisé automatiquement s'il couvre l'horaire) ou demandez-le au club.</p>}
       {cb.state === "demande" && <p className="mut small-p">{cb.sent_at ? "SMS envoyé au club, en attente de sa réponse." : "Demande prête : le SMS part 7 jours avant la séance (ou depuis Mes terrains)."}</p>}
       {/* Séance: la même carte que dans la liste du jour (joueurs, compléter, effectuée, annuler…) */}
@@ -73,7 +75,7 @@ function Details({ cb, session, promo, cardProps, onClose, onRemove, onStopPromo
             <Icon name="plus" size={18} /><span><b>Créer un entraînement précis</b><small>Vous choisissez l'heure, la formule (ex. groupe de 4), puis vous invitez vos joueurs en expliquant l'entraînement.</small></span>
           </button>
         )}
-        {!session && cb.state === "incomplet" && cb.session_id && <button onClick={() => setInviting(true)}><Icon name="users" size={15} /> Compléter la séance</button>}
+        {!session && (cb.state === "incomplet" || cb.state === "completable") && cb.session_id && <button onClick={() => setInviting(true)}><Icon name="users" size={15} /> Compléter la séance</button>}
         {cb.state === "libre" && promo && <button className="sec" onClick={() => { onStopPromo(promo); onClose(); }}>Arrêter les heures creuses {reduction(promo)}</button>}
         {cb.state === "libre" && cb.source === "manuel" && onRemove && <button className="sec danger" onClick={() => { onRemove(cb); onClose(); }}><Icon name="trash" size={15} /> Supprimer ce terrain</button>}
       </div>
@@ -196,8 +198,8 @@ export default function CourtCalendar({ list, promos = [], sessions = [], offs =
                     <b>{byId[cb.session_id]?.feedback_missing && byId[cb.session_id]?.status === "effectuee" && <i className="todo-dot mini" title="À noter" />}{short(cb.start)}–{short(endIso(cb))}{day && ` · ${STATES[cb.state].short}`}</b>
                     {day && cb.club_name && <small>{cb.club_name}{cb.court_label && ` · ${cb.court_label}`}</small>}
                     {!day && multi && cb.club_name && <small className="club-code">{codes[cb.club_name]}</small>}
-                    {day && cb.players?.length > 0 && <small>{cb.players.join(", ")}{cb.min_needed > 1 ? ` (${cb.players_count}/${cb.min_needed})` : ""}</small>}
-                    {!day && cb.players_count > 0 && <small>{cb.players_count}{cb.min_needed > 1 ? `/${cb.min_needed}` : ""} j.</small>}
+                    {day && cb.players?.length > 0 && <small>{cb.players.join(", ")}{cb.state === "completable" ? ` · encore ${cb.max_players - cb.players_count} place${cb.max_players - cb.players_count > 1 ? "s" : ""}` : cb.min_needed > 1 ? ` (${cb.players_count}/${cb.min_needed})` : ""}</small>}
+                    {!day && cb.players_count > 0 && <small>{cb.state === "completable" ? `${cb.players_count}/${cb.max_players} j. +` : `${cb.players_count}${cb.min_needed > 1 ? `/${cb.min_needed}` : ""} j.`}</small>}
                   </button>
                 ))}
               </div>

@@ -257,7 +257,15 @@ def request_join(db: Session, coach: Coach, player: Player, s: TrainingSession, 
         raise BookingError("Vous êtes déjà inscrit à cette séance")
     if spots_left(db, s) <= 0:
         raise BookingError("Cette séance est complète")
-    opts = groups.opts_of(kinds, durations, s.duration_min) if kinds else None
+    dynamic = groups.is_dynamic(s)
+    if dynamic and not kinds:
+        # invité par le coach (sans formule précisée): il accepte toutes les tailles que la séance permet encore,
+        # pour ne pas fermer une séance que les autres acceptent de compléter
+        n = len(s.attendances) + 1
+        kinds = [k for k in groups.ORDER if any(groups.kind_for_size(x) == k for x, _ in groups.allowed_pairs(s) if x >= n)] or None
+        opts = {(groups.kind_for_size(x), m) for x, m in groups.allowed_pairs(s) if x >= n} or None
+    else:
+        opts = groups.opts_of(kinds, durations, s.duration_min) if kinds else None
     target = join_target(db, s, kinds, opts=opts)
     if target is None:
         if kinds and durations is not None and join_target(db, s, kinds) is not None:
@@ -265,7 +273,6 @@ def request_join(db: Session, coach: Coach, player: Player, s: TrainingSession, 
         raise BookingError("Cette séance ne correspond pas aux formules que vous avez choisies")
     if not force_accept and not fits_session(db, player, s)[0]:
         raise BookingError("Votre classement n'est pas compatible avec les joueurs de cette séance")
-    dynamic = groups.is_dynamic(s)
     minutes = join_minutes(db, s, target, opts) if dynamic else s.duration_min
     price = price_for(coach, groups.kind_for_size(target), minutes) if dynamic else join_price(coach, s, target)
     b = Booking(coach_id=coach.id, player_id=player.id, kind=groups.kind_for_size(target) if dynamic or kinds else s.kind,

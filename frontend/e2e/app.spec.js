@@ -289,7 +289,7 @@ test("réserver: choisir une heure précise désélectionne la période (matin, 
 test("nouvelle séance: le prix vient des réglages, seule une promotion peut le baisser", async ({ page }) => {
   await login(page, "demo@padel.tn");
   await page.getByRole("navigation", { name: "Navigation principale" }).getByRole("button", { name: "Planning" }).click();
-  await page.getByRole("button", { name: "Séance" }).click();
+  await page.getByRole("button", { name: "Séance", exact: true }).click();
   const form = page.locator("form.card");
   await expect(form.getByText("Prix par joueur")).toBeVisible();
   await expect(form.locator("input[type=number][step='0.001']")).toHaveCount(0); // plus de prix libre
@@ -640,7 +640,7 @@ test("le coach propose un autre horaire: le joueur est notifié dans l'appli et 
   await p.close();
 });
 
-test("seul, à deux ou en groupe: validée tout de suite, ouverte aux autres joueurs, 1 h s'il reste seul", async ({ page, request }) => {
+test("seul, à deux ou en groupe: validée tout de suite, ouverte aux autres joueurs, 1 h s'il reste seul", async ({ page, browser, request }) => {
   const tok = async (email) => (await (await request.post("/api/auth/login", { data: { email, password: "demo1234" } })).json()).token;
   const sami = { Authorization: `Bearer ${await tok("sami@demo.tn")}` }, coach = { Authorization: `Bearer ${await tok("demo@padel.tn")}` };
   const day = new Date(Date.now() + 6 * 86400000).toLocaleDateString("fr-CA", { timeZone: "Africa/Tunis" });
@@ -658,4 +658,21 @@ test("seul, à deux ou en groupe: validée tout de suite, ouverte aux autres jou
   await expect(ticket.getByText("jusqu'à 90 min s'ils vous rejoignent")).toBeVisible();
   await expect(ticket.getByText("· 60 min")).toBeVisible();
   await expect(ticket.locator(".status-line")).toHaveText("Confirmée");
+
+  // côté coach: confirmée mais encore complétable, visible dans le calendrier et complétable en un geste
+  const c = await (await browser.newContext()).newPage();
+  await login(c, "demo@padel.tn");
+  await nav(c, "Planning").click();
+  const block = c.locator(".cal-block.completable", { hasText: "6–7h30" }).first();
+  await expect(c.locator(".cal-block").first()).toBeVisible();
+  // semaine de la séance (lundi → dimanche): 0 ou 1 semaine plus loin
+  const monday = (d) => { const x = new Date(d + "T12:00:00Z"); x.setUTCDate(x.getUTCDate() - ((x.getUTCDay() + 6) % 7)); return x.getTime(); };
+  const today = new Date().toLocaleDateString("fr-CA", { timeZone: "Africa/Tunis" });
+  for (let i = 0; i < Math.round((monday(day) - monday(today)) / (7 * 86400000)); i++) await c.getByRole("button", { name: "Semaine suivante" }).first().click();
+  await expect(c.locator(".cal-legend")).toContainText("Confirmée, encore des places : à compléter");
+  await block.click();
+  const dialog = c.getByRole("dialog");
+  await expect(dialog.getByText(/Confirmée · encore 3 places à compléter/)).toBeVisible();
+  await expect(dialog.getByRole("button", { name: /Compléter la séance · 3 places libres/ })).toBeVisible();
+  await c.close();
 });

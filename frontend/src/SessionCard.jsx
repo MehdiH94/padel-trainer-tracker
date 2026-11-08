@@ -11,11 +11,12 @@ export default function SessionCard({ s, name, byId, onStatus, onDuplicate, onPr
   const short = s.status === "prevue" && s.player_ids.length < s.min_players; // pas encore assez de joueurs
   // Séance à deux ou en groupe pas encore pleine: le coach peut la compléter en un clic (joueurs compatibles)
   const upcoming = new Date(s.start.endsWith("Z") || /[+-]\d\d:\d\d$/.test(s.start) ? s.start : s.start + "Z") > new Date();
-  const canInvite = s.status === "prevue" && upcoming && s.kind !== "individuel" && s.max_players > s.player_ids.length;
+  // aussi une séance « seul » dont le joueur accepte d'être à deux ou en groupe (max_players > 1)
+  const canInvite = s.status === "prevue" && upcoming && s.max_players > s.player_ids.length;
   const names = s.player_ids.map(name);
   const k = KIND[s.kind];
   const end = new Date(new Date(s.start.endsWith("Z") || /[+-]\d\d:\d\d$/.test(s.start) ? s.start : s.start + "Z").getTime() + s.duration_min * 60000).toISOString();
-  const free = k.cap - s.player_ids.length;
+  const free = s.max_players - s.player_ids.length;
   return (
     <div className={"card sess " + s.status} style={{ borderLeft: `5px solid ${k.color}` }}>
       <div className="row">
@@ -30,9 +31,10 @@ export default function SessionCard({ s, name, byId, onStatus, onDuplicate, onPr
       </div>
       <div className="tags">
         {s.court_status && s.status === "prevue" && <span className={"court-badge " + COURT_STATUS[s.court_status].cls}><Icon name="pin" size={12} /> {COURT_STATUS[s.court_status].label}</span>}
-        {s.open && s.status === "prevue" && free > 0 && <span className="court-badge wait"><Icon name="users" size={12} /> {free} place{free > 1 ? "s" : ""} libre{free > 1 ? "s" : ""}</span>}
+        {s.open && short && free > 0 && <span className="court-badge wait"><Icon name="users" size={12} /> {free} place{free > 1 ? "s" : ""} libre{free > 1 ? "s" : ""}</span>}
         {s.open && s.status === "prevue" && s.played_min < s.duration_min && <span className="court-badge idle"><Icon name="clock" size={12} /> {s.played_min} min s'il reste {s.player_ids.length > 1 ? "à " + s.player_ids.length : "seul"}</span>}
         {s.level && <span className="court-badge idle">Niveau {s.level}</span>}
+        {canInvite && !short && s.player_ids.length > 0 && <span className="court-badge ok"><Icon name="plus" size={12} /> Confirmée · encore {s.max_players - s.player_ids.length} place{s.max_players - s.player_ids.length > 1 ? "s" : ""} à compléter</span>}
         {short && <span className="court-badge wait"><Icon name="clock" size={12} /> En attente de joueurs {s.player_ids.length}/{s.min_players}</span>}
       </div>
       <div className="row" style={{ marginTop: 10 }}>
