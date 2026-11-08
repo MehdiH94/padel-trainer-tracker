@@ -558,6 +558,20 @@ test("réserver: une carte par coach et club, l'heure se choisit sur des pastill
   await expect(group.getByRole("button", { name: /Réserver ce créneau/ })).toBeVisible();
 });
 
+test("réserver: onglet « Réservation en groupe » visible dès le départ, le créneau mène à la page du groupe", async ({ page }) => {
+  await login(page, "sami@demo.tn");
+  await page.locator("nav").getByRole("button", { name: "Réserver" }).click();
+  await page.getByRole("tab", { name: "Réservation en groupe" }).click();
+  await expect(page.getByRole("checkbox", { name: /Seul/ })).toHaveCount(0); // jamais seul en groupe
+  await page.locator(".daypill").nth(5).click();
+  const group = page.locator(".slotgroup").first();
+  await expect(group).toBeVisible();
+  await group.locator(".chips button").first().click();
+  await group.getByRole("button", { name: /Créer le groupe et inviter/ }).click();
+  await expect(page.getByRole("heading", { name: "Entraînement en groupe" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Copier le lien" })).toBeVisible();
+});
+
 test("terrain hors des horaires de travail (mode disponibilités): avertissement et confirmation", async ({ page, request }) => {
   const { token } = await (await request.post("/api/auth/login", { data: { email: "demo@padel.tn", password: "demo1234" } })).json();
   const headers = { Authorization: `Bearer ${token}` };

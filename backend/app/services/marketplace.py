@@ -79,7 +79,8 @@ def _in_window(start: datetime, day: date, period: str | None) -> bool:
 
 
 def offers(db: Session, account: Player, day: date, kinds: list[str], coach_ids: set[int] | None = None, club: str | list[str] | None = None,
-           period: str | None = None, hour: int | None = None, durations: dict | None = None) -> dict:
+           period: str | None = None, hour: int | None = None, durations: dict | None = None,
+           group: bool = False) -> dict:
     """Groupes à rejoindre et créneaux à créer pour ce jour, chez les coachs (et au club) choisis.
     kinds: formules acceptées par le joueur (une ou plusieurs parmi individuel, duo, groupe);
     durations: durées acceptées pour chacune (seul = 1 h; à deux, en groupe: 1 h, 1 h 30 ou les deux)."""
@@ -155,8 +156,9 @@ def offers(db: Session, account: Player, day: date, kinds: list[str], coach_ids:
             opts = [(k, m) for k in kinds for m in cdur[k] if length and m <= length]
             if not opts:
                 continue
-            too_late.update(k for k, _ in opts if not grp.can_open(k, start))
-            if not grp.can_open(opts[0][0], start):  # ouvrir un duo/groupe seul: seulement à plus de 24 h
+            # réservation en groupe (group): le joueur invite lui-même ses partenaires, pas de délai de 24 h
+            too_late.update(k for k, _ in opts if not group and not grp.can_open(k, start))
+            if not group and not grp.can_open(opts[0][0], start):  # ouvrir un duo/groupe seul: seulement à plus de 24 h
                 continue
             starts[start] = [quote(db, c, k, start, m) for k, m in opts]
         for start, options in sorted(starts.items()):

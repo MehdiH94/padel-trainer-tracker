@@ -846,3 +846,4 @@ button.saved { background: var(--green); border-color: var(--green); color: #fff
 .formula.grid { display: flex; flex-wrap: wrap; gap: 8px 10px; align-items: center; }
 .formula.grid .formula-name { flex-basis: 100%; }
 .formula.grid .inputunit { max-width: 170px; }
+.book-mode { margin-bottom: 10px; }
