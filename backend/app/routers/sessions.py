@@ -134,7 +134,7 @@ def create_sessions(
     # Un coach n'a qu'un terrain à la fois: si un de ses terrains libres couvre le créneau, la séance a lieu là
     # (même si un autre club était choisi); sinon on ne demande pas un second terrain à la même heure.
     for s in created:
-        held = courts.held_covering(db, coach, s.start, s.duration_min)
+        held = courts.held_covering(db, coach, s.start, s.duration_min, merge=True)
         if held:
             cb = next((c for c in held if club and c.club_id == club.id), held[0])
             courts.take_part(db, cb, s)

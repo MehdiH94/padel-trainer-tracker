@@ -2323,3 +2323,26 @@ def test_confirmed_session_still_completable_until_full(client):
     # Cyr ne veut qu'un duo: impossible de le rejoindre à trois; s'il ouvrait seul un duo avec Ali, la séance serait close
     s = next(x for x in client.get("/sessions").json() if x["id"] == sid)
     assert s["kind"] == "duo" and s["max_players"] == 4
+
+
+def test_free_court_pieces_count_as_one_range(client):
+    """Terrain 8 h-12 h découpé par une séance ensuite annulée (8-9, 9-10, 10-12): les morceaux qui se suivent forment
+    une seule plage libre, 1 h 30 y est proposé et une séance à cheval sur deux morceaux est acceptée."""
+    st = client.get("/booking/settings").json()
+    client.put("/booking/settings", json={**st, "auto_confirm": False, "price_duo": 40000, "price_groupe": 30000, "booking_mode": "terrains"})
+    p, pc = player_client(client)
+    day = (datetime.now(timezone.utc) + timedelta(days=4)).date()
+    at = lambda h, m=0: datetime(day.year, day.month, day.day, h, m, tzinfo=timezone.utc).isoformat()  # noqa: E731
+    free_court(client, at(8), 240)
+    r = pc.post("/me/book", json={"kind": "duo", "start": at(9), "kinds": ["duo"], "durations": {"duo": [60]}}).json()
+    client.post(f"/booking/requests/{r['id']}/accept", json={})
+    sid = next(s["id"] for s in client.get("/sessions").json() if s["player_ids"] == [p["id"]])
+    assert client.patch(f"/sessions/{sid}", json={"status": "annulee"}).status_code == 200
+    assert len([cb for cb in client.get("/court-bookings").json() if cb["free"]]) == 3  # trois morceaux libres
+    off = pc.get(f"/me/offers?day={day}&kinds=duo,groupe&duo_min=90&groupe_min=90").json()
+    starts = {x["start"][11:16] for x in off["slots_with_court"]}
+    assert {"08:00", "09:00", "09:30", "10:30"} <= starts
+    r2 = pc.post("/me/book", json={"kind": "groupe", "start": at(9, 30), "kinds": ["groupe"], "durations": {"groupe": [90]}}).json()
+    assert client.post(f"/booking/requests/{r2['id']}/accept", json={}).status_code == 200
+    cb = next(x for x in client.get("/court-bookings").json() if x["session_id"] and x["session_status"] == "prevue")
+    assert cb["start"][11:16] == "09:30" and cb["duration_min"] == 90  # terrain réuni puis découpé à la bonne taille

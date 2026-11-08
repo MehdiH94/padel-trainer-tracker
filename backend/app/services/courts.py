@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from ..models import Booking, Club, Coach, CourtBooking, Player, TrainingSession
+from ..models import Booking, Club, Coach, CourtBooking, Player, Promotion, TrainingSession
 from ..sms.base import SmsProvider
 from .common import TUNIS, aware, quand
 
@@ -118,14 +118,51 @@ def busy_message(db: Session, cb: CourtBooking) -> str:
             "Un coach n'a qu'un terrain à la fois : choisissez une autre heure.")
 
 
-def held_covering(db: Session, coach: Coach, start: datetime, duration_min: int) -> list[CourtBooking]:
-    """Terrains confirmés et libres qui couvrent entièrement [start, start+durée]."""
+def free_runs(db: Session, coach_id: int) -> list[list[CourtBooking]]:
+    """Terrains libres regroupés en plages continues: des morceaux qui se suivent au même club et sur le même terrain
+    (terrain saisi en plusieurs fois, ou découpé par une séance ensuite annulée) forment une seule plage libre."""
+    blocks = sorted((cb for cb in db.scalars(select(CourtBooking).where(
+        CourtBooking.coach_id == coach_id, CourtBooking.session_id.is_(None), CourtBooking.status == "confirmee",
+        CourtBooking.start.is_not(None)))), key=lambda c: aware(c.start))
+    runs: list[list[CourtBooking]] = []
+    for cb in blocks:
+        last = runs[-1][-1] if runs else None
+        if last and last.club_id == cb.club_id and (last.court_label or "") == (cb.court_label or "") \
+                and aware(last.start) + timedelta(minutes=last.duration_min) == aware(cb.start):
+            runs[-1].append(cb)
+        else:
+            runs.append([cb])
+    return runs
+
+
+def run_span(run: list[CourtBooking]) -> tuple[datetime, datetime]:
+    return aware(run[0].start), aware(run[-1].start) + timedelta(minutes=run[-1].duration_min)
+
+
+def _merge(db: Session, run: list[CourtBooking]) -> CourtBooking:
+    """Réunit les morceaux d'une plage libre en un seul terrain (les promotions suivent)."""
+    first = run[0]
+    for cb in run[1:]:
+        for p in db.scalars(select(Promotion).where(Promotion.court_booking_id == cb.id)):
+            p.court_booking_id = first.id
+        first.duration_min += cb.duration_min
+        db.delete(cb)
+    db.flush()
+    return first
+
+
+def held_covering(db: Session, coach: Coach, start: datetime, duration_min: int, merge: bool = False) -> list[CourtBooking]:
+    """Terrains confirmés et libres qui couvrent entièrement [start, start+durée], plages continues comprises.
+    merge=True (au moment d'y placer une séance): les morceaux de la plage sont réunis en un seul terrain."""
     start, end = aware(start), aware(start) + timedelta(minutes=duration_min)
     out = []
-    for cb in db.scalars(select(CourtBooking).where(CourtBooking.coach_id == coach.id, CourtBooking.session_id.is_(None), CourtBooking.status == "confirmee")):
-        if cb.start and aware(cb.start) <= start and aware(cb.start) + timedelta(minutes=cb.duration_min) >= end:
-            out.append(cb)
-    return sorted(out, key=lambda c: aware(c.start))
+    for run in free_runs(db, coach.id):
+        lo, hi = run_span(run)
+        if lo <= start and hi >= end:
+            # morceaux utiles seulement (ceux que la séance touche)
+            used = [cb for cb in run if aware(cb.start) < end and start < aware(cb.start) + timedelta(minutes=cb.duration_min)]
+            out.append(_merge(db, used) if merge and len(used) > 1 else used[0])
+    return out
 
 
 def send(db: Session, coach: Coach, cb: CourtBooking, sms: SmsProvider) -> None:

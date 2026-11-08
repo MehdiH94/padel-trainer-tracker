@@ -108,9 +108,8 @@ def _free_on_courts(db: Session, coach: Coach, now: datetime, earliest: datetime
     length = timedelta(minutes=minutes or 60)
     horizon = now + timedelta(days=HORIZON_DAYS + 1)
     out = set()
-    for cb in db.scalars(select(CourtBooking).where(CourtBooking.coach_id == coach.id, CourtBooking.session_id.is_(None),
-                                                   CourtBooking.status == "confirmee", CourtBooking.start.is_not(None))):
-        lo, hi = aware(cb.start), aware(cb.start) + timedelta(minutes=cb.duration_min)
+    for run in courts.free_runs(db, coach.id):  # morceaux qui se suivent = une seule plage libre
+        lo, hi = courts.run_span(run)
         cur = lo
         while cur + length <= hi and cur < horizon:
             # n'importe quel début toutes les 30 min, tant qu'il ne laisse pas de bout de terrain inutilisable
@@ -127,9 +126,8 @@ def edges(db: Session, coach: Coach) -> set[datetime]:
     out = set()
     for s, e in _busy(db, coach):
         out.update((s, e))
-    for cb in db.scalars(select(CourtBooking).where(CourtBooking.coach_id == coach.id, CourtBooking.session_id.is_(None),
-                                                   CourtBooking.status == "confirmee", CourtBooking.start.is_not(None))):
-        out.update((aware(cb.start), aware(cb.start) + timedelta(minutes=cb.duration_min)))
+    for run in courts.free_runs(db, coach.id):
+        out.update(courts.run_span(run))
     if coach.booking_mode == "disponibilites":
         today = datetime.now(TUNIS).date()
         for w in db.scalars(select(Availability).where(Availability.coach_id == coach.id)):
@@ -319,8 +317,8 @@ def request_new(db: Session, coach: Coach, player: Player, kind: str, start: dat
                 discount_pct=q["discount_pct"], discount_millimes=q["discount_millimes"])
     db.add(b)
     db.flush()
-    held = courts.held_covering(db, coach, b.start, b.duration_min)
-    if coach.auto_confirm and held and not same_slot(db, b):
+    held = courts.held_covering(db, coach, b.start, b.duration_min, merge=True) if coach.auto_confirm and not same_slot(db, b) else []
+    if held:
         accept(db, coach, b, sms, court=held[0])  # terrain disponible: validation automatique
     _tell_coach_new(db, coach, player, b)
     db.commit()
@@ -374,8 +372,11 @@ def accept(db: Session, coach: Coach, b: Booking, sms: SmsProvider | None = None
         refresh(db, s)
         _announce_accepted(db, coach, b, s)
         return
+    if court and not (aware(court.start) <= aware(b.start) and aware(court.start) + timedelta(minutes=court.duration_min)
+                      >= aware(b.start) + timedelta(minutes=b.duration_min)):
+        court = None  # morceau d'une plage libre plus grande: on prend la plage entière ci-dessous
     if not court:  # un coach n'a qu'un terrain à la fois: son terrain libre à cette heure est forcément celui de la séance
-        held = courts.held_covering(db, coach, b.start, b.duration_min)
+        held = courts.held_covering(db, coach, b.start, b.duration_min, merge=True)
         if held:
             court, club = held[0], None
         elif club and courts.overlapping(db, coach, b.start, b.duration_min):
