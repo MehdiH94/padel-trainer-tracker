@@ -17,7 +17,7 @@ Application de gestion pour un coach de padel indépendant (Tunisie) + espace jo
 # Backend (depuis backend/)
 python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
-python -m pytest -q                                  # 143 tests, doivent rester verts
+python -m pytest -q                                  # 144 tests, doivent rester verts
 uvicorn app.main:app --port 8000
 python seed_demo.py                                  # données de démo (base vide): coach demo@padel.tn / demo1234, joueur sami@demo.tn / demo1234
 python seed_more_coaches.py                          # + 2 coachs fictifs (coach.youssef@demo.tn, coach.meriem@demo.tn / demo1234), sans effet s'ils existent

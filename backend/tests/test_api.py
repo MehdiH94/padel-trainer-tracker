@@ -2412,3 +2412,29 @@ def test_player_group_booking_invites_then_reaches_coach(client):
     assert pd.post(f"/me/groups/{tok}/join").status_code == 200
     s = next(x for x in client.get("/sessions").json() if x["id"] == s["id"])
     assert len(s["player_ids"]) == 4
+
+
+def test_pending_requests_never_block_only_accepted_ones(client):
+    """Terrain 8 h-12 h. Une demande pas encore acceptée ne bloque jamais le créneau: d'autres joueurs le voient et font
+    leur demande (le coach les voit en conflit et choisit). Une fois une demande acceptée (même incomplète), le créneau
+    est pris: plus proposé, plus de nouvelle demande dessus."""
+    st = client.get("/booking/settings").json()
+    client.put("/booking/settings", json={**st, "auto_confirm": False, "price_individuel": 60000, "price_groupe": 30000, "booking_mode": "terrains"})
+    x, px = player_client(client, name="Xavier", phone="20111111")
+    y, py = player_client(client, name="Yasmine", phone="20222222")
+    z, pz = player_client(client, name="Zied", phone="20333333")
+    day = (datetime.now(timezone.utc) + timedelta(days=3)).date()
+    at = lambda h, m=0: datetime(day.year, day.month, day.day, h, m, tzinfo=timezone.utc).isoformat()  # noqa: E731
+    free_court(client, at(8), 240)
+    starts = lambda pc, q: {s["start"][11:16] for s in (lambda o: o["slots_with_court"] + o["slots_other"])(pc.get(f"/me/offers?day={day}&{q}").json())}  # noqa: E731
+    # exemple 1: X demande seul 9 h-10 h, pas encore accepté: Y voit toujours 9 h et demande un groupe 9 h-10 h 30
+    rx = px.post("/me/book", json={"kind": "individuel", "start": at(9), "kinds": ["individuel"], "durations": {"individuel": [60]}}).json()
+    assert "09:00" in starts(py, "kinds=groupe&groupe_min=90")
+    ry = py.post("/me/book", json={"kind": "groupe", "start": at(9), "kinds": ["groupe"], "durations": {"groupe": [90]}})
+    assert ry.status_code == 201
+    reqs = {q["id"]: q for q in client.get("/booking/requests").json()}
+    assert reqs[rx["id"]]["same_slot"] == [ry.json()["id"]]  # le coach les voit en conflit
+    # exemple 2: le coach accepte le groupe de Y (encore seule): 9 h-10 h 30 est pris
+    assert client.post(f"/booking/requests/{ry.json()['id']}/accept", json={}).status_code == 200
+    assert not {"09:00", "09:30", "10:00"} & starts(pz, "kinds=individuel,groupe&groupe_min=90")
+    assert pz.post("/me/book", json={"kind": "individuel", "start": at(9), "kinds": ["individuel"]}).status_code == 409
