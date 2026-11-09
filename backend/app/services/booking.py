@@ -297,7 +297,7 @@ def request_join(db: Session, coach: Coach, player: Player, s: TrainingSession, 
 
 def request_new(db: Session, coach: Coach, player: Player, kind: str, start: datetime, sms: SmsProvider | None = None,
                 accepted_kinds: list[str] | None = None, minutes: int | None = None, durations: dict | None = None,
-                forming: bool = False) -> Booking:
+                forming: bool = False, partner: Booking | None = None) -> Booking:
     """Le joueur demande un nouveau créneau (séance ouverte aux autres joueurs si duo/groupe).
     accepted_kinds: formules qu'il accepte (seul, duo, groupe); durations: durées acceptées pour chacune (seul = 1 h).
     Il ne choisit pas la durée: la séance retient la plus longue possible à ce début, et raccourcit si un joueur qui
@@ -322,13 +322,16 @@ def request_new(db: Session, coach: Coach, player: Player, kind: str, start: dat
         raise BookingError(f"{coach.name} ne propose pas ces durées" + (f" (il propose : {offered})" if offered else " pour ces formules") + ".")
     accepted = [k for k in groups.ORDER if any(o[0] == k for o in opts)]
     kind = groups.smallest(accepted)  # s'il reste seul (ou au minimum voulu), c'est cette formule qui est jouée
-    if not forming and not groups.can_open(kind, start):  # groupe monté par un joueur: il invite lui-même ses partenaires
+    if not forming and not partner and not groups.can_open(kind, start):  # partner: il rejoint la demande d'un autre joueur  # groupe monté par un joueur: il invite lui-même ses partenaires
         raise BookingError("Pour ouvrir une séance à deux ou en groupe, elle doit avoir lieu dans plus de 24 h (le temps de compléter le groupe)")
     length = max(m for k, m in opts if k == kind)  # durée jouée s'il reste à la taille minimale voulue
     q = quote(db, coach, kind, start, length)  # prix de l'heure au prorata, heures creuses / promotion
     b = Booking(coach_id=coach.id, player_id=player.id, kind=kind, start=aware(start), duration_min=max(m for _, m in opts), charged_millimes=0,
                 accepted_kinds=",".join(accepted), accepted_opts=groups.dump_opts(opts), price_millimes=q["price_millimes"],
                 discount_pct=q["discount_pct"], discount_millimes=q["discount_millimes"])
+    if partner:  # demande groupée: le coach la voit avec celle de l'autre joueur (même créneau) et les accepte ensemble
+        partner.group_id = partner.group_id or partner.id
+        b.group_id = partner.group_id
     if forming:  # réservation en groupe: le coach ne la voit qu'une fois le minimum de joueurs réuni (services/group_booking)
         b.status = "en_formation"
         db.add(b)
@@ -750,7 +753,7 @@ def cancel_booking(db: Session, coach: Coach, b: Booking) -> bool:
         h = int(CANCEL_BEFORE.get(b.kind, timedelta(hours=48)).total_seconds() // 3600)
         raise BookingError(f"Trop tard pour annuler (au plus tard {h} h avant). Envoyez le lien de la séance à un joueur qui peut vous remplacer.")
     was_pending = b.status == "en_attente"
-    b.status = "annulee"
+    b.status, b.cancelled_at = "annulee", datetime.now(timezone.utc)
     if not was_pending:
         _release(db, b)
     _refund(db, b)

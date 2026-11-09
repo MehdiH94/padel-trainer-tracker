@@ -2457,3 +2457,49 @@ def test_free_courts_entered_separately_with_other_names_form_one_range(client):
     client.post("/court-bookings/manual", json={"club_id": club["id"], "start": at(other, 18), "duration_min": 120})
     off = pc.get(f"/me/offers?day={other}&kinds=groupe&groupe_min=90").json()
     assert off["slots_with_court"] == [] and "trop courts pour 1 h 30" in off["hints"][0]
+
+
+def test_player_joins_another_players_pending_request(client):
+    """Sami (P250-) a demandé un entraînement à deux ou en groupe, pas encore traité: Mehdi (P250-) le voit dans ses
+    offres et s'y joint; le coach reçoit une demande groupée (même créneau) et les accepte ensemble. Une réservation en
+    groupe privée (invitations) n'est jamais proposée aux autres; un niveau incompatible ne voit pas la demande."""
+    st = client.get("/booking/settings").json()
+    client.put("/booking/settings", json={**st, "auto_confirm": False, "price_duo": 40000, "price_groupe": 30000, "booking_mode": "terrains"})
+    s, ps = player_client(client, name="Sami", phone="20111111", category="P250-")
+    m, pm = player_client(client, name="Mehdi", phone="20222222", category="P250-")
+    w, pw = player_client(client, name="Wassim", phone="20333333", category="P1000+")
+    day = (datetime.now(timezone.utc) + timedelta(days=3)).date()
+    start = datetime(day.year, day.month, day.day, 9, 0, tzinfo=timezone.utc).isoformat()
+    free_court(client, start, 240)
+    both = {"kinds": ["duo", "groupe"], "durations": {"duo": [60, 90], "groupe": [90]}}
+    rs = ps.post("/me/book", json={"kind": "duo", "start": start, **both}).json()
+    q = f"/me/offers?day={day}&kinds=duo,groupe&duo_min=60,90&groupe_min=90"
+    req = next(x for x in pm.get(q).json()["requests"])
+    assert req["booking_id"] == rs["id"] and req["players"][0]["name"] == "Sami"
+    assert pw.get(q).json()["requests"] == []  # niveau incompatible
+    assert pm.post(f"/me/requests/{rs['id']}/join", json=both).status_code == 201
+    assert any("Mehdi rejoint" in n["title"] for n in ps.get("/me/notifications").json()["items"])
+    reqs = client.get("/booking/requests").json()
+    assert {r["name"] for r in reqs} == {"Sami", "Mehdi"} and all(r["group"] for r in reqs)
+    for r in sorted(reqs, key=lambda r: r["id"]):
+        assert client.post(f"/booking/requests/{r['id']}/accept", json={}).status_code == 200
+    sess = next(x for x in client.get("/sessions").json() if len(x["player_ids"]) == 2)
+    assert sess["kind"] == "duo"
+    # réservation en groupe privée: jamais proposée aux autres joueurs
+    later = (datetime.fromisoformat(start) + timedelta(days=1)).isoformat()
+    free_court(client, later, 240)
+    coach_id = ps.get("/me/coaches").json()[0]["id"]
+    ps.post("/me/group-bookings", json={"coach_id": coach_id, "start": later, "kinds": ["duo"], "durations": {"duo": [60]}})
+    day2 = (day + timedelta(days=1)).isoformat()
+    assert pm.get(f"/me/offers?day={day2}&kinds=duo,groupe&duo_min=60,90&groupe_min=90").json()["requests"] == []
+
+
+def test_coach_sees_player_cancellations(client):
+    """Un joueur annule (dans les délais): le coach est prévenu par e-mail et le voit dans Demandes (7 jours)."""
+    open_week(client, auto_confirm=True)
+    p, pc = player_client(client)
+    start = _future_slot(pc, 60)
+    r = pc.post("/me/book", json={"kind": "individuel", "start": start, "kinds": ["individuel"]}).json()
+    assert pc.post(f"/me/bookings/{r['id']}/cancel").status_code == 200
+    c = client.get("/booking/cancellations").json()
+    assert len(c) == 1 and c[0]["name"] == p["name"]

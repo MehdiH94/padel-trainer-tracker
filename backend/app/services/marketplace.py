@@ -8,7 +8,7 @@ from datetime import date, datetime, timedelta, timezone
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from ..constants import CAPACITY
+from ..constants import CAPACITY, compatible
 from ..models import Attendance, Availability, Booking, Club, Coach, CourtBooking, HappyHour, Player, TrainingSession
 from . import courts
 from .accounts import linked
@@ -78,6 +78,51 @@ def _in_window(start: datetime, day: date, period: str | None) -> bool:
     return True
 
 
+def request_root(db: Session, b: Booking) -> Booking:
+    """Première demande d'un groupe de demandes (les joueurs qui ont rejoint pointent vers elle par group_id)."""
+    return db.get(Booking, b.group_id) if b.group_id and db.get(Booking, b.group_id) else b
+
+
+def join_opts(db: Session, coach: Coach, root: Booking, kinds: list[str], durations: dict) -> set:
+    """Formules et durées communes au joueur et à tous ceux de la demande (à deux / en groupe seulement)."""
+    members = [x for x in db.scalars(select(Booking).where(Booking.group_id == root.id, Booking.status == "en_attente"))] or [root]
+    mine = {(k, m) for k in kinds if k != "individuel" for m in durations.get(k, []) if m in coach_durations(coach, k)}
+    for x in [root, *members]:
+        mine &= grp.parse_opts(x.accepted_opts)
+    return mine
+
+
+def open_requests(db: Session, c: Coach, account: Player, my_ids: set, day: date, period: str | None, kinds: list[str],
+                  durations: dict, who: dict) -> list[dict]:
+    """Demandes en attente du coach que ce joueur peut rejoindre (même jour, niveau compatible, formules communes)."""
+    me = account
+    out, seen = [], set()
+    for b in db.scalars(select(Booking).where(Booking.coach_id == c.id, Booking.status == "en_attente", Booking.session_id.is_(None))):
+        root = request_root(db, b)
+        if root.id in seen or root.group_token or not _in_window(root.start, day, period) or aware(root.start) <= datetime.now(timezone.utc):
+            continue
+        seen.add(root.id)
+        members = [x for x in db.scalars(select(Booking).where(Booking.status == "en_attente", Booking.session_id.is_(None),
+                                                               (Booking.id == root.id) | (Booking.group_id == root.id)))]
+        if any(x.player_id in my_ids for x in members) or len(members) >= 4:
+            continue
+        players = [db.get(Player, x.player_id) for x in members]
+        if not all(compatible(me.category, me.gender, p.category, p.gender) for p in players):
+            continue
+        opts = join_opts(db, c, root, kinds, durations)
+        if not opts:
+            continue
+        size = len(members) + 1
+        fit = sorted((o for o in opts if size in grp.SIZES[o[0]]), key=lambda o: -o[1]) or sorted(opts, key=lambda o: -o[1])
+        k, m = fit[0]
+        q = quote(db, c, k, root.start, m)
+        out.append({"type": "request", "booking_id": root.id, "coach": who, "start": root.start, "duration_min": m, "kind": k,
+                    "kinds": sorted({x for x, _ in opts}, key=grp.ORDER.index), "price_millimes": q["price_millimes"],
+                    "players": [{"name": p.name, "category": p.category} for p in players], "club": "",
+                    "reduction_millimes": q["reduction_millimes"]})
+    return out
+
+
 def offers(db: Session, account: Player, day: date, kinds: list[str], coach_ids: set[int] | None = None, club: str | list[str] | None = None,
            period: str | None = None, hour: int | None = None, durations: dict | None = None,
            group: bool = False) -> dict:
@@ -93,6 +138,7 @@ def offers(db: Session, account: Player, day: date, kinds: list[str], coach_ids:
     now = datetime.now(timezone.utc)
     groups, with_court, other = [], [], []
     other_kinds: dict[str, int] = {}  # séances ouvertes ce jour-là d'une formule que le joueur n'a pas choisie
+    requests: list[dict] = []  # demandes d'autres joueurs à rejoindre
     hints: list[str] = []  # pourquoi rien n'est proposé chez un coach (durée pas proposée, terrains trop courts)
     too_late: set[str] = set()  # formules qu'on ne peut plus ouvrir seul ce jour-là (moins de 24 h)
     for c in filter(None, coaches):
@@ -136,6 +182,11 @@ def offers(db: Session, account: Player, day: date, kinds: list[str], coach_ids:
                 "count": taken, "missing": max(0, target - taken - 1),  # joueurs qu'il manquera encore après lui
                 "other_duration": other_duration, "_gap": gap + (10 if other_duration else 0),
             })
+        # 1 bis. Demandes d'autres joueurs pas encore traitées par le coach, à deux ou en groupe, de niveau compatible:
+        #    le joueur peut s'y joindre (le coach recevra une demande groupée). Jamais les réservations en groupe
+        #    privées (montées par un joueur qui invite lui-même ses partenaires).
+        if not group:
+            requests += open_requests(db, c, account, my_ids, day, period, kinds, durations, who)
         # 2. Nouveaux créneaux: pour chaque durée acceptée (1 h, 1 h 30), les débuts possibles et le prix de chaque
         #    formule à cette durée. Le joueur ne choisit pas: la séance garde la plus longue possible et le prix suit
         #    la formule et la durée réellement jouées (un joueur qui n'accepte que 1 h la raccourcit)
@@ -197,6 +248,7 @@ def offers(db: Session, account: Player, day: date, kinds: list[str], coach_ids:
     with_court.sort(key=lambda x: (-x["reduction_millimes"], closeness(x)))  # les réductions d'abord
     other.sort(key=closeness)
     return {"groups": groups[:10], "slots_with_court": with_court[:80], "slots_other": other[:120], "other_kinds": other_kinds, "hints": hints,
+            "requests": sorted(requests, key=closeness)[:10],
             "too_late": [k for k in CAPACITY if k in too_late]}
 
 

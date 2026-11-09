@@ -603,3 +603,50 @@ def group_cancel(token: str, player: Player = Depends(current_player), db: Sessi
     except svc.BookingError as e:
         raise HTTPException(409, str(e))
     return {"ok": True}
+
+
+# --- Rejoindre la demande d'un autre joueur (pas encore traitée par le coach) --------------------------------------
+
+class JoinRequestIn(BaseModel):
+    kinds: list[str]
+    durations: dict[str, list[int]] | None = None
+
+
+@router.post("/requests/{booking_id}/join", status_code=201)
+def join_request(booking_id: int, body: JoinRequestIn, player: Player = Depends(current_player), db: Session = Depends(get_db)):
+    """Le joueur se joint à la demande d'un autre (même créneau, formules communes): le coach reçoit une demande
+    groupée et les accepte ensemble. L'autre joueur est prévenu (il ne peut pas refuser)."""
+    from ..constants import compatible
+    from ..notify import letter
+    from ..services.common import quand
+    from ..services.pricing import player_durations
+    _require_verified(player)
+    b = db.get(Booking, booking_id)
+    root = marketplace.request_root(db, b) if b else None
+    if not root or root.status != "en_attente" or root.session_id or root.group_token:
+        raise HTTPException(409, "Cette demande n'est plus ouverte : le coach l'a déjà traitée.")
+    coach = db.get(Coach, root.coach_id)
+    if not isolation.same_world(db, coach, player):
+        raise HTTPException(404, "Demande introuvable")
+    others = [db.get(Player, x.player_id) for x in db.scalars(select(Booking).where(
+        Booking.status == "en_attente", (Booking.id == root.id) | (Booking.group_id == root.id)))]
+    if any(o.id in {p.id for p in linked(db, player)} for o in others):
+        raise HTTPException(409, "Vous faites déjà partie de cette demande.")
+    if not all(compatible(player.category, player.gender, o.category, o.gender) for o in others):
+        raise HTTPException(409, "Votre classement n'est pas compatible avec les joueurs de cette demande.")
+    opts = marketplace.join_opts(db, coach, root, body.kinds, player_durations(body.durations))
+    if not opts:
+        raise HTTPException(409, "Aucune formule ni durée en commun avec cette demande.")
+    kinds = [k for k in groups.ORDER if any(o[0] == k for o in opts)]
+    durations = {k: sorted({m for kk, m in opts if kk == k}) for k in kinds}
+    row = row_for_coach(db, player, coach)
+    try:
+        nb = svc.request_new(db, coach, row, kinds[0], root.start, accepted_kinds=kinds, durations=durations, partner=root)
+    except svc.BookingError as e:
+        raise HTTPException(409, str(e))
+    svc.notify(db, others, f"{player.name} rejoint votre demande", lambda o: letter(
+        o.name, f"{player.name} ({player.category}) rejoint votre demande d'entraînement {quand(root.start, root.duration_min)} chez {coach.name}.",
+        "Le coach recevra vos demandes ensemble."), "message", booking_id=root.id)
+    db.commit()
+    return {"id": nb.id, "status": nb.status, "start": nb.start, "price_millimes": nb.price_millimes, "charged_millimes": nb.charged_millimes,
+            "coach_name": coach.name}

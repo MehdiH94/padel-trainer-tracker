@@ -777,3 +777,34 @@ test("agenda du joueur: case vide puis « Entraînement » ouvre Réserver au bo
   await expect(page.getByLabel("Heure idéale (facultatif)")).toHaveValue("10");
   await expect(page.locator(".daypill.on")).toHaveCount(1);
 });
+
+test("rejoindre la demande d'un autre joueur de son niveau, pas encore traitée par le coach", async ({ page, request }) => {
+  const tok = async (email) => (await (await request.post("/api/auth/login", { data: { email, password: "demo1234" } })).json()).token;
+  const sami = { Authorization: `Bearer ${await tok("sami@demo.tn")}` };
+  const day = new Date(Date.now() + 9 * 86400000).toLocaleDateString("fr-CA", { timeZone: "Africa/Tunis" });
+  const q = `day=${day}&kinds=duo,groupe&duo_min=60,90&groupe_min=90`;
+  const coach = { Authorization: `Bearer ${await tok("demo@padel.tn")}` };
+  const [club] = await (await request.get("/api/clubs", { headers: coach })).json();
+  await request.post("/api/court-bookings/manual", { headers: coach, data: { club_id: club.id, start: `${day}T06:00:00+01:00`, duration_min: 180, court_label: "Terrain 1" } });
+  const off = await (await request.get(`/api/me/offers?${q}`, { headers: sami })).json();
+  const slot = [...off.slots_with_court, ...off.slots_other].find((x) => x.coach.name === "Coach Démo");
+  expect((await request.post("/api/me/book", { headers: sami, data: { kind: "duo", start: slot.start, coach_id: slot.coach.id, kinds: ["duo", "groupe"], durations: { duo: [60, 90], groupe: [90] } } })).ok()).toBeTruthy();
+  let email = null;
+  for (const e of ["mehdi@demo.tn", "karim@demo.tn", "lina@demo.tn", "wassim@demo.tn"]) {
+    const t = await tok(e).catch(() => null);
+    if (!t) continue;
+    const r = await (await request.get(`/api/me/offers?${q}`, { headers: { Authorization: `Bearer ${t}` } })).json();
+    if ((r.requests ?? []).some((x) => x.players.some((p) => /Sami/.test(p.name)))) { email = e; break; }
+  }
+  expect(email).not.toBeNull();
+  await login(page, email);
+  await page.locator("nav").getByRole("button", { name: "Réserver" }).click();
+  for (const k of [/À deux/, /En groupe/]) {
+    const c = page.getByRole("checkbox", { name: k });
+    if ((await c.getAttribute("aria-checked")) !== "true") await c.click();
+  }
+  await page.locator(".daypill").nth(9).click();
+  await expect(page.getByRole("heading", { name: /Des joueurs de votre niveau veulent jouer/ })).toBeVisible();
+  await page.getByRole("button", { name: /Rejoindre la demande de Sami/ }).first().click();
+  await expect(page.getByRole("heading", { name: "Demande envoyée" })).toBeVisible();
+});

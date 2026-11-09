@@ -93,7 +93,7 @@ function Pending({ r, clubs, reload }) {
   return (
     <div className="card req" data-id={r.id}>
       <Head r={r} />
-      {r.group && <div className="mut small-p"><Icon name="users" size={13} /> Réservation en groupe organisée par {r.group.host}</div>}
+      {r.group && <div className="mut small-p"><Icon name="users" size={13} /> {r.group.private ? `Réservation en groupe organisée par ${r.group.host}` : `Demande groupée avec ${r.group.host}`}</div>}
       {r.join ? (
         <div className={"banner " + (r.court_state === "confirmee" || r.court_state === null ? "ok" : "warn")}>
           <Icon name={r.court_state === "confirmee" || r.court_state === null ? "checkCircle" : "clock"} size={18} />
@@ -208,7 +208,7 @@ function SlotConflict({ list, clubs, reload }) {
         <b className="cap1">{dayLabel(start)} · {hm(start, Math.round((end - toDate(start).getTime()) / 60000))}</b>
         <span className="conflict-tag">{list.length} demandes · même créneau</span>
       </div>
-      {list.some((r) => r.group) && <div className="banner ok"><Icon name="users" size={18} /><span><b>Réservation en groupe</b> organisée par {list.find((r) => r.group).group.host} : ces joueurs veulent s'entraîner ensemble.</span></div>}
+      {list.some((r) => r.group) && <div className="banner ok"><Icon name="users" size={18} /><span>{list.find((r) => r.group).group.private ? <><b>Réservation en groupe</b> organisée par {list.find((r) => r.group).group.host}</> : <><b>Demande groupée</b> : des joueurs ont rejoint la demande de {list.find((r) => r.group).group.host}</>} : ils veulent s'entraîner ensemble.</span></div>}
       <div className="mut small-p">{options.length > 1 ? "Elles ne sont pas toutes compatibles : choisissez qui joue." : "Elles sont compatibles : ces joueurs peuvent jouer ensemble."}</div>
       {options.map((team, i) => {
         const others = list.filter((r) => !team.includes(r));
@@ -338,7 +338,8 @@ export default function Requests({ go, refreshSummary }) {
   const [items, setItems] = useState(() => peek("/booking/requests") ?? null);
   const [clubs, setClubs] = useState([]);
   const [sub, setSub] = useState("requests");
-  const load = () => { api("/booking/requests").then(setItems); api("/clubs").then(setClubs); refreshSummary?.(); };
+  const [cancels, setCancels] = useState(() => peek("/booking/cancellations") ?? []); // annulations des joueurs (7 jours)
+  const load = () => { api("/booking/requests").then(setItems); api("/booking/cancellations").then(setCancels).catch(() => {}); api("/clubs").then(setClubs); refreshSummary?.(); };
   useEffect(() => { load(); }, []);
   useLive(load);
   if (!items) return <><h1>Demandes</h1><Loading rows={3} /></>;
@@ -362,6 +363,14 @@ export default function Requests({ go, refreshSummary }) {
 
       {sub === "groups" ? <Groups reload={load} /> : (
         <>
+          {cancels.length > 0 && <h2 className="red-h"><span className="dot" /> Annulations des joueurs ({cancels.length})</h2>}
+          {cancels.map((c) => (
+            <div className="card req cancel-row" key={c.id}>
+              <div className="row"><b>{c.name}</b><span className="court-badge wait"><Icon name="x" size={12} /> {c.was_request ? "Demande annulée" : "A annulé"}</span></div>
+              <div className="small-p cap1">{dayLabel(c.start)} · {hm(c.start, c.duration_min)}</div>
+              <div className="mut small-p">Annulé le {dayLabel(c.cancelled_at)} à {hhmm(c.cancelled_at)}</div>
+            </div>
+          ))}
           {items.length === 0 && <div className="card empty"><Icon name="checkCircle" size={34} /><b>Tout est à jour</b><div className="mut">Aucune demande en attente.</div></div>}
           {pending.length > 0 && <h2 className="red-h"><span className="dot" /> À traiter ({pending.length})</h2>}
           {slots(pending).map((list) => list.length > 1

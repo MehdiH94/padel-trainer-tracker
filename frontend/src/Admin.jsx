@@ -256,6 +256,8 @@ function AdminPlayers({ coaches }) {
             initial={{ name: p.name, phone: p.phone, email: p.email ?? "", gender: p.gender, category: p.category, dominant_hand: p.dominant_hand ?? "droitier", side: p.side ?? "drive", goals: p.goals ?? "", notes: p.notes ?? "", password: "" }}
             fields={[["name", "Nom"], ["phone", "Téléphone", "tel"], ["email", p.has_account ? "E-mail de connexion" : "E-mail", "email"],
               ["gender", "Genre", null, [["M", "Homme"], ["F", "Dame"]]], ["category", "Niveau", null, CATEGORIES.map((c) => [c, catOption(c)])],
+              ["dominant_hand", "Main forte", null, [["droitier", "Droitier"], ["gaucher", "Gaucher"]]],
+              ["side", "Côté de jeu", null, [["drive", "Drive"], ["revers", "Revers"], ["deux", "Les deux"]]], ["goals", "Objectif"],
               ["password", p.has_account ? "Nouveau mot de passe (vide = inchangé)" : "Mot de passe (crée son compte avec l'e-mail)", "password"]]} />
         )}
         </div>

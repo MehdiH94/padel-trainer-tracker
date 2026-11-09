@@ -135,6 +135,32 @@ function Offer({ o, me, kinds, durs, asGroup, onBooked, openCoach, startOpen }) 
   );
 }
 
+// Demande d'un autre joueur pas encore traitée par le coach (même niveau, formules communes): s'y joindre
+function RequestOffer({ o, me, kinds, durs, onBooked }) {
+  const [busy, setBusy] = useState(false);
+  const host = o.players[0].name.split(" ")[0];
+  const join = () => {
+    setBusy(true);
+    api(`/me/requests/${o.booking_id}/join`, { method: "POST", body: { kinds, durations: durs } })
+      .then((r) => onBooked({ ...r, start: o.start })).catch((x) => { toastError(x); setBusy(false); });
+  };
+  return (
+    <div className="card offer open">
+      <div className="offer-head" style={{ cursor: "default" }}>
+        <span className="offer-time"><b>{hhmm(o.start)}</b><small>{dur(o.duration_min)}</small></span>
+        <span className="offer-main">
+          <span className="offer-coach">{o.coach.name}</span>
+          <small>{o.kinds.map((k) => HOW[k].toLowerCase()).join(" ou ")} · demande pas encore validée par le coach</small>
+        </span>
+        <span className="offer-price"><b>{tnd(o.price_millimes)}</b></span>
+      </div>
+      <div className="partners">{o.players.map((p) => <span key={p.name} className="partner"><Avatar name={p.name} size={22} /> {p.name.split(" ")[0]} <CategoryBadge category={p.category} /></span>)}</div>
+      <div className="mut small-p"><Icon name="users" size={13} /> {host} veut aussi s'entraîner à ce moment-là : joignez-vous à sa demande, le coach recevra vos demandes ensemble.</div>
+      <button style={{ width: "100%", marginTop: 8 }} disabled={busy || !me.can_book} onClick={join}><Icon name="users" size={16} /> {busy ? "Envoi…" : `Rejoindre la demande de ${host}`}</button>
+    </div>
+  );
+}
+
 // Coachs et clubs favoris: choisis d'office à chaque réservation
 function Favorites({ fav, coaches, clubs, onClose, onSaved }) {
   const [ids, setIds] = useState(fav.coach_ids);
@@ -360,6 +386,12 @@ export function Book({ me, reload, go, coachParam }) {
       )}
       {offers && offers.too_late.length > 0 && (
         <div className="mut small-p late-hint"><Icon name="clock" size={14} /> À moins de 24 h, on ne peut plus ouvrir seul une séance {offers.too_late.map((k) => HOW[k].toLowerCase()).join(" ou ")} (pas le temps de la compléter) : rejoignez une séance existante, ou choisissez un autre jour.</div>
+      )}
+      {offers && !solo && !asGroup && (offers.requests ?? []).length > 0 && (
+        <>
+          <h2 className="accent-h"><Icon name="users" size={16} /> Des joueurs de votre niveau veulent jouer</h2>
+          {offers.requests.map((o) => <RequestOffer key={o.booking_id} o={o} me={me} kinds={shownKinds} durs={durs} onBooked={booked} />)}
+        </>
       )}
       {offers && !solo && !asGroup && (
         <>

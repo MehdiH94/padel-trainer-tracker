@@ -159,7 +159,7 @@ def booking_out(db: Session, coach: Coach, b: Booking) -> dict:
         "kind": b.kind, "start": b.start, "duration_min": b.duration_min, "status": b.status,
         "proposed_start": b.proposed_start, "proposed_minutes": b.proposed_minutes, "charged_millimes": b.charged_millimes,
         # réservation en groupe montée par un joueur: organisateur et nombre de joueurs du groupe
-        "group": {"host": db.get(Player, db.get(Booking, b.group_id).player_id).name,
+        "group": {"host": db.get(Player, db.get(Booking, b.group_id).player_id).name, "private": bool(db.get(Booking, b.group_id).group_token),
                   "size": db.scalar(select(func.count(Booking.id)).where(Booking.group_id == b.group_id, Booking.status.in_(svc.ACTIVE)))}
                  if b.group_id and db.get(Booking, b.group_id) else None,
         "session_id": b.session_id, "join": s is not None and b.status == "en_attente", "notified_at": b.notified_at,
@@ -224,6 +224,17 @@ def list_requests(coach: Coach = Depends(current_coach), db: Session = Depends(g
         if b.status in ("en_attente", "contre_proposition", "attente_joueurs", "acceptee") or (b.status == "confirmee" and b.notified_at is None and aware(b.start) >= now):
             items.append(booking_out(db, coach, b))
     return items
+
+
+@router.get("/booking/cancellations")
+def cancellations(coach: Coach = Depends(current_coach), db: Session = Depends(get_db)):
+    """Annulations faites par les joueurs ces 7 derniers jours (séances encore à venir): le coach les voit dans Demandes."""
+    from datetime import timedelta
+    now = datetime.now(timezone.utc)
+    rows = db.scalars(select(Booking).where(Booking.coach_id == coach.id, Booking.status == "annulee", Booking.cancelled_at.is_not(None),
+                                            Booking.cancelled_at >= now - timedelta(days=7)).order_by(Booking.cancelled_at.desc()))
+    return [{"id": b.id, "name": db.get(Player, b.player_id).name, "start": b.start, "duration_min": b.duration_min, "kind": b.kind,
+             "cancelled_at": b.cancelled_at, "was_request": b.session_id is None} for b in rows if aware(b.start) >= now]
 
 
 @router.get("/booking/summary")

@@ -243,6 +243,7 @@ class Booking(Base):
     # Réservation en groupe montée par un joueur: group_id = réservation de l'organisateur (la sienne comprise),
     # group_token = lien d'invitation (sur celle de l'organisateur); statuts en_formation / invitation avant le coach
     group_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    cancelled_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)  # annulée par le joueur (montré au coach)
     group_token: Mapped[str | None] = mapped_column(String(24), nullable=True, unique=True)
     replace_token: Mapped[str | None] = mapped_column(String(40), nullable=True, unique=True)  # lien « remplacez-moi » (après le délai d'annulation)  # remise obtenue à la réservation (happy hour / promotion)
     session_id: Mapped[int | None] = mapped_column(ForeignKey("sessions.id"), nullable=True)
