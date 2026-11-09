@@ -43,7 +43,7 @@ function CourtTag({ court }) {
 }
 
 // Une proposition (groupe à rejoindre ou créneau à créer), avec confirmation sur place
-function Offer({ o, me, kinds, durs, asGroup, onBooked, openCoach, startOpen }) {
+function Offer({ o, me, kinds, durs, onBooked, openCoach, startOpen }) {
   const [open, setOpen] = useState(!!startOpen);
   const [busy, setBusy] = useState(false);
   const [grouping, setGrouping] = useState(false); // réservation en groupe: choix de la formule puis invitations
@@ -67,13 +67,6 @@ function Offer({ o, me, kinds, durs, asGroup, onBooked, openCoach, startOpen }) 
       toastError(x);
       setBusy(false);
     }
-  };
-  // réservation en groupe: le groupe est créé, puis la page du groupe s'ouvre pour inviter
-  const createGroup = () => {
-    setBusy(true);
-    api("/me/group-bookings", { method: "POST", body: { coach_id: o.coach.id, start: o.start, kinds, durations: { duo: durs.duo, groupe: durs.groupe } } })
-      .then((g) => { location.hash = "/groupe/" + g.token; })
-      .catch((x) => { toastError(x); setBusy(false); });
   };
   return (
     <div className={"card offer" + (open ? " open" : "")}>
@@ -108,8 +101,7 @@ function Offer({ o, me, kinds, durs, asGroup, onBooked, openCoach, startOpen }) 
           )}
           {o.requested > 0 && <div className="mut small-p"><Icon name="users" size={13} /> {o.requested === 1 ? "Un autre joueur a déjà demandé" : `${o.requested} autres joueurs ont déjà demandé`} ce créneau : le coach choisira.</div>}
           <div className="mut small-p"><Icon name="wallet" size={13} /> {payment(me, o.coach.id, (start ?? o).price_millimes)}</div>
-          {asGroup && o.type === "slot" && <div className="mut small-p"><Icon name="users" size={13} /> Après la création, vous invitez vos partenaires ; la demande part au coach dès que vous êtes {kinds.includes("duo") ? "2" : "3"}.</div>}
-          {!asGroup && o.type === "slot" && pick !== "individuel" && (
+          {o.type === "slot" && pick !== "individuel" && (
             <div className="mut small-p"><Icon name="users" size={13} /> Vous serez le premier : la séance sera confirmée dès que {pick === "duo" ? "1 autre joueur" : "2 autres joueurs"} vous aur{pick === "duo" ? "a" : "ont"} rejoint (les places sont proposées aux joueurs de votre niveau). Sinon, 6 h avant, vous pourrez accepter une autre formule ou annuler (remboursé).</div>
           )}
           {o.type === "group" && o.missing > 0 && (
@@ -119,13 +111,11 @@ function Offer({ o, me, kinds, durs, asGroup, onBooked, openCoach, startOpen }) 
           {o.type === "slot" && kinds.length > 1 && <div className="mut small-p"><Icon name="check" size={13} /> Le coach verra les formules que vous acceptez : {kinds.map((k) => HOW[k].toLowerCase()).join(", ")}.</div>}
           <div className="actions">
             <button className="sec" onClick={() => openCoach(o.coach.id)}>Voir le coach</button>
-            {asGroup && o.type === "slot"
-              ? <button disabled={busy || !me.can_book} onClick={createGroup}><Icon name="users" size={16} /> {busy ? "Création…" : "Créer le groupe et inviter"}</button>
-              : <button disabled={busy || !me.can_book} title={me.can_book ? undefined : "Vérifiez d'abord votre adresse e-mail"} onClick={book}>{busy ? "Réservation…" : o.type === "group" ? "Rejoindre ce groupe" : "Réserver ce créneau"}</button>}
+            <button disabled={busy || !me.can_book} title={me.can_book ? undefined : "Vérifiez d'abord votre adresse e-mail"} onClick={book}>{busy ? "Réservation…" : o.type === "group" ? "Rejoindre ce groupe" : "Réserver ce créneau"}</button>
           </div>
-          {o.type === "slot" && !asGroup && (
-            <button className="sec choice" style={{ width: "100%", marginTop: 8 }} disabled={!me.can_book} onClick={() => setGrouping(true)}>
-              <Icon name="users" size={18} /><span><b>Réserver en groupe</b><small>Vous invitez vos partenaires (liste ou lien) ; la demande part au coach dès que vous êtes assez nombreux.</small></span>
+          {o.type === "slot" && (
+            <button className="group-cta" disabled={!me.can_book} onClick={() => setGrouping(true)}>
+              <Icon name="users" size={20} /><span><b>Ou réserver en groupe avec mes amis</b><small>Vous les invitez (liste ou lien WhatsApp) ; une seule demande groupée part au coach dès que vous êtes assez nombreux.</small></span><Icon name="chevR" size={16} />
             </button>
           )}
           {grouping && <GroupStart o={o} durs={durs} onClose={() => setGrouping(false)} />}
@@ -183,7 +173,7 @@ function Favorites({ fav, coaches, clubs, onClose, onSaved }) {
 
 // Créneaux libres d'un même coach au même club ce jour-là: une seule carte, l'heure se choisit sur des pastilles
 // (toutes les 30 min). « Idéal » = collé au bord de la plage libre: ne coupe pas le terrain en deux.
-function SlotGroup({ items, me, kinds, durs, asGroup, onBooked, openCoach }) {
+function SlotGroup({ items, me, kinds, durs, onBooked, openCoach }) {
   const [pick, setPick] = useState(null);
   const first = items[0];
   const cheapest = Math.min(...items.flatMap((o) => (o.options ?? []).map((x) => x.price_millimes)));
@@ -207,7 +197,7 @@ function SlotGroup({ items, me, kinds, durs, asGroup, onBooked, openCoach }) {
           </button>
         ))}
       </div>
-      {chosen && <Offer key={chosen.start} o={chosen} me={me} kinds={kinds} durs={durs} asGroup={asGroup} onBooked={onBooked} openCoach={openCoach} startOpen />}
+      {chosen && <Offer key={chosen.start} o={chosen} me={me} kinds={kinds} durs={durs} onBooked={onBooked} openCoach={openCoach} startOpen />}
     </div>
   );
 }
@@ -235,22 +225,19 @@ export function Book({ me, reload, go, coachParam }) {
   const [durs, setDurs] = useState({ individuel: [60], duo: [60], groupe: [90], ...k0.durs });
   const toggleDur = (k, m) => setDurs({ ...durs, [k]: durs[k].includes(m) ? (durs[k].length > 1 ? durs[k].filter((x) => x !== m) : durs[k]) : [...durs[k], m].sort() });
   const toggleKind = (k) => setKinds(kinds.includes(k) ? (kinds.length > 1 ? kinds.filter((x) => x !== k) : kinds) : ["individuel", "duo", "groupe"].filter((x) => x === k || kinds.includes(x)));
-  const [asGroup, setAsGroup] = useState(!!k0.asGroup); // réservation en groupe: j'invite mes partenaires
-  const groupKinds = kinds.filter((k) => k !== "individuel").length ? kinds.filter((k) => k !== "individuel") : ["groupe"];
-  const shownKinds = asGroup ? groupKinds : kinds; // en groupe: jamais seul
-  const solo = !asGroup && kinds.length === 1 && kinds[0] === "individuel";
+  const solo = kinds.length === 1 && kinds[0] === "individuel";
   useEffect(() => {
-    try { sessionStorage.setItem(KEEP, JSON.stringify({ coachIds, places, day, period, hour, kinds, durs, asGroup })); } catch { /* stockage indisponible */ }
-  }, [coachIds.join(","), places.join("|"), day, period, hour, kinds.join(","), JSON.stringify(durs), asGroup]);
+    try { sessionStorage.setItem(KEEP, JSON.stringify({ coachIds, places, day, period, hour, kinds, durs })); } catch { /* stockage indisponible */ }
+  }, [coachIds.join(","), places.join("|"), day, period, hour, kinds.join(","), JSON.stringify(durs)]);
   const [offers, setOffers] = useState(null);
   const [done, setDone] = useState(null);
   useEffect(() => { api("/me/coaches").then(setCoaches); api("/me/clubs").then(setClubs); }, []);
   useEffect(() => {
     if (!day) return;
-    const q = new URLSearchParams({ day, kinds: shownKinds.join(","), ...(asGroup && { group: "true" }), individuel_min: durs.individuel.join(","), duo_min: durs.duo.join(","), groupe_min: durs.groupe.join(","), ...(coachIds.length && { coach_ids: coachIds.join(",") }), ...(places.length && { clubs: places.join("|") }), ...(period && { period }), ...(hour !== "" && { hour }) });
+    const q = new URLSearchParams({ day, kinds: kinds.join(","), individuel_min: durs.individuel.join(","), duo_min: durs.duo.join(","), groupe_min: durs.groupe.join(","), ...(coachIds.length && { coach_ids: coachIds.join(",") }), ...(places.length && { clubs: places.join("|") }), ...(period && { period }), ...(hour !== "" && { hour }) });
     setOffers(peek("/me/offers?" + q) ?? null); // même recherche déjà faite: affichée tout de suite, puis mise à jour
     api("/me/offers?" + q).then(setOffers).catch(toastError);
-  }, [day, shownKinds.join(","), JSON.stringify(durs), coachIds.join(","), places.join("|"), period, hour, asGroup]);
+  }, [day, kinds.join(","), JSON.stringify(durs), coachIds.join(","), places.join("|"), period, hour]);
 
   // jours proposés: jusqu'à la limite de réservation des coachs choisis (1 semaine à 3 mois, 2 semaines par défaut)
   const horizon = Math.max(7, ...coaches.filter((c) => !coachIds.length || coachIds.includes(c.id)).map((c) => c.horizon_days ?? 14));
@@ -276,13 +263,13 @@ export function Book({ me, reload, go, coachParam }) {
   }
 
   const nothing = offers && !offers.groups.length && !offers.slots_with_court.length && !offers.slots_other.length;
-  const list = (items) => items.map((o) => <Offer key={(o.session_id ?? "") + o.coach.id + o.start} o={o} me={me} kinds={shownKinds} durs={durs} asGroup={asGroup} onBooked={booked} openCoach={openCoach} />);
+  const list = (items) => items.map((o) => <Offer key={(o.session_id ?? "") + o.coach.id + o.start} o={o} me={me} kinds={kinds} durs={durs} onBooked={booked} openCoach={openCoach} />);
   // créneaux libres regroupés par coach et club (une carte, les heures en pastilles), dans l'ordre de la meilleure heure
   const grouped = (items) => {
     const g = new Map();
     items.forEach((o) => { const k = `${o.coach.id}|${o.club}|${o.court}`; g.set(k, [...(g.get(k) ?? []), o]); });
     return [...g.values()].map((xs) => (
-      <SlotGroup key={xs[0].coach.id + xs[0].club + xs[0].court} items={[...xs].sort((a, b) => (a.start < b.start ? -1 : 1))} me={me} kinds={shownKinds} durs={durs} asGroup={asGroup} onBooked={booked} openCoach={openCoach} />
+      <SlotGroup key={xs[0].coach.id + xs[0].club + xs[0].court} items={[...xs].sort((a, b) => (a.start < b.start ? -1 : 1))} me={me} kinds={kinds} durs={durs} onBooked={booked} openCoach={openCoach} />
     ));
   };
   return (
@@ -338,25 +325,19 @@ export function Book({ me, reload, go, coachParam }) {
       </div>
 
       <h2 className="step"><span>3</span> Comment voulez-vous jouer ?</h2>
-      <div className="seg book-mode" role="tablist" aria-label="Type de réservation">
-        <button role="tab" aria-selected={!asGroup} className={!asGroup ? "on" : ""} onClick={() => setAsGroup(false)}><Icon name="user" size={15} /> Je réserve ma place</button>
-        <button role="tab" aria-selected={asGroup} className={asGroup ? "on" : ""} onClick={() => setAsGroup(true)}><Icon name="users" size={15} /> Réservation en groupe</button>
-      </div>
-      {asGroup && <div className="multi-hint"><Icon name="users" size={16} /> <span><b>Vous choisissez le créneau et invitez vos partenaires</b> (liste des joueurs du coach ou lien à partager). La demande part au coach dès que vous êtes assez nombreux : 2 à deux, 3 en groupe.</span></div>}
-      {!asGroup && <div className="multi-hint"><Icon name="checkCircle" size={16} /> <span><b>Cochez une ou plusieurs options.</b> Plus vous en cochez, plus vous aurez de propositions.</span></div>}
+      <div className="multi-hint"><Icon name="checkCircle" size={16} /> <span><b>Cochez une ou plusieurs options.</b> Plus vous en cochez, plus vous aurez de propositions.</span></div>
       <div className="kindcards" role="group" aria-label="Formules acceptées (plusieurs choix possibles)">
-        {Object.entries(KIND).filter(([k]) => !asGroup || k !== "individuel").map(([k, v]) => (
-          <button key={k} className={"kindcard" + (shownKinds.includes(k) ? " on" : "")} role="checkbox" aria-checked={shownKinds.includes(k)} style={{ "--c": v.color }}
-            onClick={() => (asGroup ? setKinds(shownKinds.includes(k) ? (shownKinds.length > 1 ? shownKinds.filter((x) => x !== k) : shownKinds) : ["duo", "groupe"].filter((x) => x === k || shownKinds.includes(x))) : toggleKind(k))}>
+        {Object.entries(KIND).map(([k, v]) => (
+          <button key={k} className={"kindcard" + (kinds.includes(k) ? " on" : "")} role="checkbox" aria-checked={kinds.includes(k)} style={{ "--c": v.color }} onClick={() => toggleKind(k)}>
             <span className="ki"><Icon name={v.icon} size={22} /></span>
             <b>{HOW[k]}</b>
             <small>{v.short}</small>
-            <span className={"tick" + (shownKinds.includes(k) ? "" : " off")}>{shownKinds.includes(k) && <Icon name="check" size={12} strokeWidth={3} />}</span>
+            <span className={"tick" + (kinds.includes(k) ? "" : " off")}>{kinds.includes(k) && <Icon name="check" size={12} strokeWidth={3} />}</span>
           </button>
         ))}
       </div>
       <div className="dur-choice" aria-label="Durée de l'entraînement">
-        {["individuel", "duo", "groupe"].filter((k) => shownKinds.includes(k)).map((k) => (
+        {["individuel", "duo", "groupe"].filter((k) => kinds.includes(k)).map((k) => (
           <div key={k} className="dur-row" role="group" aria-label={`Durée ${HOW[k].toLowerCase()}`}>
             <span>{HOW[k]}</span>
             <span className="chips">{[60, 90].map((m) => <button key={m} type="button" className={"chip small" + (durs[k].includes(m) ? " on" : "")} aria-pressed={durs[k].includes(m)} onClick={() => toggleDur(k, m)}>{dur(m)}</button>)}</span>
@@ -364,13 +345,13 @@ export function Book({ me, reload, go, coachParam }) {
         ))}
       </div>
       <div className="accept-summary">
-        {asGroup ? "Votre groupe : " : "Vous acceptez : "}<b>{shownKinds.map((k) => HOW[k].toLowerCase()).join(" ou ")}</b>
-        {!asGroup && kinds.length < 3 && <span className="mut"> · pas {["individuel", "duo", "groupe"].filter((k) => !kinds.includes(k)).map((k) => HOW[k].toLowerCase()).join(" ni ")}</span>}
+        Vous acceptez : <b>{kinds.map((k) => HOW[k].toLowerCase()).join(" ou ")}</b>
+        {kinds.length < 3 && <span className="mut"> · pas {["individuel", "duo", "groupe"].filter((k) => !kinds.includes(k)).map((k) => HOW[k].toLowerCase()).join(" ni ")}</span>}
       </div>
 
       {!day && <div className="card empty"><Icon name="calendar" size={26} /><b>Choisissez un jour</b><div>L'heure est facultative : on vous montre tout ce qui est possible ce jour-là.</div></div>}
       {day && offers === null && <Loading rows={2} />}
-      {offers && !asGroup && Object.keys(offers.other_kinds ?? {}).length > 0 && (
+      {offers && Object.keys(offers.other_kinds ?? {}).length > 0 && (
         <div className="card reconsider" role="note">
           <Icon name="users" size={20} />
           <div style={{ flex: 1 }}>
@@ -387,13 +368,13 @@ export function Book({ me, reload, go, coachParam }) {
       {offers && offers.too_late.length > 0 && (
         <div className="mut small-p late-hint"><Icon name="clock" size={14} /> À moins de 24 h, on ne peut plus ouvrir seul une séance {offers.too_late.map((k) => HOW[k].toLowerCase()).join(" ou ")} (pas le temps de la compléter) : rejoignez une séance existante, ou choisissez un autre jour.</div>
       )}
-      {offers && !solo && !asGroup && (offers.requests ?? []).length > 0 && (
+      {offers && !solo && (offers.requests ?? []).length > 0 && (
         <>
           <h2 className="accent-h"><Icon name="users" size={16} /> Des joueurs de votre niveau veulent jouer</h2>
-          {offers.requests.map((o) => <RequestOffer key={o.booking_id} o={o} me={me} kinds={shownKinds} durs={durs} onBooked={booked} />)}
+          {offers.requests.map((o) => <RequestOffer key={o.booking_id} o={o} me={me} kinds={kinds} durs={durs} onBooked={booked} />)}
         </>
       )}
-      {offers && !solo && !asGroup && (
+      {offers && !solo && (
         <>
           <h2 className="accent-h"><Icon name="users" size={16} /> Rejoindre une séance</h2>
           {offers.groups.length ? list(offers.groups) : <div className="card mut">Aucune séance de votre niveau à rejoindre ce jour-là.</div>}

@@ -848,3 +848,7 @@ button.saved { background: var(--green); border-color: var(--green); color: #fff
 .formula.grid .inputunit { max-width: 170px; }
 .book-mode { margin-bottom: 10px; }
 .cal-col.addable { cursor: cell; }
+/* Réserver en groupe: proposé en bas de chaque créneau */
+.group-cta { width: 100%; margin-top: 10px; display: flex; align-items: center; gap: 10px; text-align: left; background: var(--brand-xl); color: var(--txt); border: 1.5px dashed var(--brand); border-radius: 14px; padding: 12px; }
+.group-cta span { flex: 1; display: flex; flex-direction: column; gap: 2px; }
+.group-cta small { color: var(--mut); font-weight: 400; }

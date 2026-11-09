@@ -19,7 +19,7 @@ export function GroupStart({ o, durs, onClose }) {
   const flip = (k) => setKinds(kinds.includes(k) ? (kinds.length > 1 ? kinds.filter((x) => x !== k) : kinds) : KINDS.map(([x]) => x).filter((x) => x === k || kinds.includes(x)));
   const create = () => {
     setBusy(true);
-    api("/me/group-bookings", { method: "POST", body: { coach_id: o.coach.id, start: o.start, kinds, durations: { duo: durs.duo, groupe: durs.groupe } } })
+    api("/me/group-bookings", { method: "POST", body: { coach_id: o.coach.id, start: o.start, kinds, durations: { duo: [...new Set([...durs.duo, 60, 90])], groupe: [...new Set([...durs.groupe, 60, 90])] } } }) // la plus longue durée possible sur ce créneau
       .then((g) => { onClose(); location.hash = "/groupe/" + g.token; })
       .catch((x) => { toastError(x); setBusy(false); });
   };
