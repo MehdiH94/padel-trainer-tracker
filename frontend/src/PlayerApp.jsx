@@ -128,7 +128,7 @@ function Home({ me, sessions, progress, proposals, promos, events, go, reload })
     <>
       <div className="hero home-hero">
         <div className="hero-top">{me.coach_name ? `Votre coach · ${me.coach_name}` : "Bienvenue sur Padel Coach"}</div>
-        <div className="row"><h1>Salut {me.name.split(" ")[0]}</h1><CategoryBadge category={me.category} gender={me.gender} /></div>
+        <div className="row"><h1>Salut {me.name.split(" ")[0]}</h1><CategoryBadge category={me.category} /></div>
         <NextSession s={sessions.upcoming[0]} go={go} />
       </div>
 
@@ -195,7 +195,6 @@ function Home({ me, sessions, progress, proposals, promos, events, go, reload })
         </div>
       )}
       {/* Version bêta: rappels et confirmations uniquement par e-mail */}
-      <div className="mut small-p" style={{ marginTop: 16, textAlign: "center" }}><Icon name="bell" size={13} /> Rappels et confirmations par e-mail{me.email ? ` (${me.email})` : ""}</div>
     </>
   );
 }

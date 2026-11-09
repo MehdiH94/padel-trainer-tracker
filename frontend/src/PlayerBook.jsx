@@ -18,7 +18,7 @@ const dur = (m) => (m % 60 ? `${Math.floor(m / 60) ? Math.floor(m / 60) + " h " 
 const payment = (me, coachId, price) => {
   const bal = me.wallets.find((x) => x.coach_id === coachId)?.credits_millimes ?? 0;
   const after = bal - price;
-  return `Débité de vos crédits quand le coach valide : solde ${tnd(bal)} → ${tnd(after)}` + (after < 0 ? " (à régler au coach)" : "");
+  return `Débité à la validation · solde ${tnd(bal)} → ${tnd(after)}`;
 };
 
 // Prix affiché: la formule choisie une fois la carte ouverte, sinon la moins chère (« dès »)
@@ -43,7 +43,7 @@ function CourtTag({ court }) {
 }
 
 // Une proposition (groupe à rejoindre ou créneau à créer), avec confirmation sur place
-function Offer({ o, me, kinds, durs, onBooked, openCoach, startOpen }) {
+function Offer({ o, me, kinds, durs, onBooked, openCoach, startOpen, compact }) {
   const [open, setOpen] = useState(!!startOpen);
   const [busy, setBusy] = useState(false);
   const [grouping, setGrouping] = useState(false); // réservation en groupe: choix de la formule puis invitations
@@ -69,8 +69,9 @@ function Offer({ o, me, kinds, durs, onBooked, openCoach, startOpen }) {
     }
   };
   return (
-    <div className={"card offer" + (open ? " open" : "")}>
-      <button className="offer-head" aria-expanded={open} onClick={() => setOpen(!open)}>
+    <div className={"card offer" + (open ? " open" : "") + (compact ? " compact" : "")}>
+      {/* dans la carte du coach (compact): coach et club déjà affichés au-dessus */}
+      {!compact && <button className="offer-head" aria-expanded={open} onClick={() => setOpen(!open)}>
         <span className="offer-time"><b>{hhmm(o.start)}</b><small>{o.type === "slot" ? lengths.map(dur).join(" / ") : dur(o.duration_min)}</small></span>
         <span className="offer-main">
           <span className="offer-coach">{o.coach.name}</span>
@@ -78,7 +79,8 @@ function Offer({ o, me, kinds, durs, onBooked, openCoach, startOpen }) {
           <span><CourtTag court={o.court} />{o.other_duration && <span className="court-badge wait"><Icon name="clock" size={12} /> Autre durée</span>}{o.type === "group" && <span className="court-badge idle"><Icon name="users" size={12} /> {o.count} inscrit{o.count > 1 ? "s" : ""} · {o.spots_left} place{o.spots_left > 1 ? "s" : ""}</span>}</span>
         </span>
         <Price o={shown} open={open} />
-      </button>
+      </button>}
+      {compact && <div className="row" style={{ marginBottom: 6 }}><b>{hhmm(o.start)} <span className="mut">· {lengths.map(dur).join(" / ")}</span></b><b>{tnd((start ?? o).price_millimes)}</b></div>}
       {o.type === "group" && (
         <div className="partners">
           {o.players.map((p) => <span key={p.name} className="partner"><Avatar name={p.name} size={22} /> {p.name.split(" ")[0]} <CategoryBadge category={p.category} /></span>)}
@@ -102,20 +104,19 @@ function Offer({ o, me, kinds, durs, onBooked, openCoach, startOpen }) {
           {o.requested > 0 && <div className="mut small-p"><Icon name="users" size={13} /> {o.requested === 1 ? "Un autre joueur a déjà demandé" : `${o.requested} autres joueurs ont déjà demandé`} ce créneau : le coach choisira.</div>}
           <div className="mut small-p"><Icon name="wallet" size={13} /> {payment(me, o.coach.id, (start ?? o).price_millimes)}</div>
           {o.type === "slot" && pick !== "individuel" && (
-            <div className="mut small-p"><Icon name="users" size={13} /> Vous serez le premier : la séance sera confirmée dès que {pick === "duo" ? "1 autre joueur" : "2 autres joueurs"} vous aur{pick === "duo" ? "a" : "ont"} rejoint (les places sont proposées aux joueurs de votre niveau). Sinon, 6 h avant, vous pourrez accepter une autre formule ou annuler (remboursé).</div>
+            <div className="mut small-p"><Icon name="users" size={13} /> Confirmée dès que {pick === "duo" ? "1 joueur vous rejoint" : "2 joueurs vous rejoignent"}.</div>
           )}
           {o.type === "group" && o.missing > 0 && (
             <div className="mut small-p"><Icon name="users" size={13} /> Après vous, il manquera encore {o.missing} joueur{o.missing > 1 ? "s" : ""} : la séance sera confirmée quand le groupe sera complet.</div>
           )}
           {o.type === "group" && o.missing === 0 && <div className="mut small-p"><Icon name="check" size={13} /> Avec vous, la séance a assez de joueurs.</div>}
-          {o.type === "slot" && kinds.length > 1 && <div className="mut small-p"><Icon name="check" size={13} /> Le coach verra les formules que vous acceptez : {kinds.map((k) => HOW[k].toLowerCase()).join(", ")}.</div>}
           <div className="actions">
-            <button className="sec" onClick={() => openCoach(o.coach.id)}>Voir le coach</button>
+            {!compact && <button className="sec" onClick={() => openCoach(o.coach.id)}>Voir le coach</button>}
             <button disabled={busy || !me.can_book} title={me.can_book ? undefined : "Vérifiez d'abord votre adresse e-mail"} onClick={book}>{busy ? "Réservation…" : o.type === "group" ? "Rejoindre ce groupe" : "Réserver ce créneau"}</button>
           </div>
           {o.type === "slot" && (
             <button className="group-cta" disabled={!me.can_book} onClick={() => setGrouping(true)}>
-              <Icon name="users" size={20} /><span><b>Ou réserver en groupe avec mes amis</b><small>Vous les invitez (liste ou lien WhatsApp) ; une seule demande groupée part au coach dès que vous êtes assez nombreux.</small></span><Icon name="chevR" size={16} />
+              <Icon name="users" size={20} /><span><b>Ou réserver en groupe avec mes amis</b><small>Invitez-les, une seule demande part au coach.</small></span><Icon name="chevR" size={16} />
             </button>
           )}
           {grouping && <GroupStart o={o} durs={durs} onClose={() => setGrouping(false)} />}
@@ -183,13 +184,13 @@ function SlotGroup({ items, me, kinds, durs, onBooked, openCoach }) {
     <div className="card slotgroup">
       <div className="row" style={{ alignItems: "flex-start" }}>
         <span className="offer-main">
-          <span className="offer-coach">{first.coach.name}</span>
+          <button className="offer-coach link-plain" onClick={() => openCoach(first.coach.id)}>{first.coach.name} <Icon name="chevR" size={13} /></button>
           <small>{first.club || "Club à confirmer"}</small>
           <span><CourtTag court={first.court} />{promo && <span className="promo-tag">Réductions</span>}</span>
         </span>
         <span className="offer-price"><span><small className="mut">dès </small>{tnd(cheapest)}</span></span>
       </div>
-      <div className="mut small-p" style={{ margin: "8px 0 4px" }}>Choisissez l'heure{items.some((o) => o.ideal) && items.some((o) => !o.ideal) ? " (★ idéal : ne coupe pas le créneau libre en deux)" : ""}</div>
+      <div className="mut small-p" style={{ margin: "8px 0 4px" }}>Choisissez l'heure{items.some((o) => o.ideal) && items.some((o) => !o.ideal) ? " · ★ idéal" : ""}</div>
       <div className="chips" role="group" aria-label={`Heures avec ${first.coach.name}`}>
         {items.map((o) => (
           <button key={o.start} className={"chip small" + (pick === o.start ? " on" : "")} aria-pressed={pick === o.start} onClick={() => setPick(pick === o.start ? null : o.start)}>
@@ -197,7 +198,7 @@ function SlotGroup({ items, me, kinds, durs, onBooked, openCoach }) {
           </button>
         ))}
       </div>
-      {chosen && <Offer key={chosen.start} o={chosen} me={me} kinds={kinds} durs={durs} onBooked={onBooked} openCoach={openCoach} startOpen />}
+      {chosen && <Offer key={chosen.start} o={chosen} me={me} kinds={kinds} durs={durs} onBooked={onBooked} openCoach={openCoach} startOpen compact />}
     </div>
   );
 }
@@ -216,6 +217,7 @@ export function Book({ me, reload, go, coachParam }) {
   const [editFav, setEditFav] = useState(false);
   const toggleCoach = (id) => setCoachIds(coachIds.includes(id) ? coachIds.filter((x) => x !== id) : [...coachIds, id]);
   const [places, setPlaces] = useState(k0.places ?? (k0.club ? [k0.club] : fav.clubs)); // clubs choisis (vide = tous), favoris d'office
+  const [showClubs, setShowClubs] = useState(false); // clubs repliés: « Tous les clubs ▾ »
   const togglePlace = (c) => setPlaces(places.includes(c) ? places.filter((x) => x !== c) : [...places, c]);
   const [day, setDay] = useState(k0.day && k0.day >= ymd(new Date()) ? k0.day : null);
   const [period, setPeriod] = useState(k0.hour ? "" : k0.period ?? ""); // heure précise choisie: pas de période en plus
@@ -278,7 +280,6 @@ export function Book({ me, reload, go, coachParam }) {
       <VerifyBanner me={me} />
 
       <h2 className="step"><span>1</span> Avec qui, où ?</h2>
-      <div className="mut small-p">Coachs (un ou plusieurs)</div>
       <div className="coach-chips" role="group" aria-label="Coachs">
         <button className={"chip small" + (coachIds.length === 0 ? " on" : "")} aria-pressed={coachIds.length === 0} onClick={() => setCoachIds([])}>Tous</button>
         {coaches.map((c) => (
@@ -287,19 +288,18 @@ export function Book({ me, reload, go, coachParam }) {
           </button>
         ))}
       </div>
-      <div className="mut small-p">Clubs (un ou plusieurs)</div>
-      <div className="coach-chips" role="group" aria-label="Clubs">
+      {!showClubs && <button className="link" onClick={() => setShowClubs(true)}><Icon name="pin" size={14} /> {places.length ? places.join(", ") : "Tous les clubs"} <Icon name="chevD" size={14} /></button>}
+      {showClubs && <div className="coach-chips" role="group" aria-label="Clubs">
         <button className={"chip small" + (places.length === 0 ? " on" : "")} aria-pressed={places.length === 0} onClick={() => setPlaces([])}>Tous</button>
         {clubs.map((c) => (
           <button key={c} className={"chip small" + (places.includes(c) ? " on" : "")} aria-pressed={places.includes(c)} onClick={() => togglePlace(c)}>
             {places.includes(c) && <Icon name="check" size={13} />} {c}{fav.clubs.includes(c) ? " ★" : ""}
           </button>
         ))}
-      </div>
+      </div>}
       <button className="link" onClick={() => setEditFav(true)}><Icon name="star" size={14} /> {fav.coach_ids.length || fav.clubs.length ? "Modifier mes favoris" : "Choisir mes coachs et clubs favoris"}</button>
       {editFav && <Favorites fav={fav} coaches={coaches} clubs={clubs} onClose={() => setEditFav(false)}
         onSaved={(f) => { setEditFav(false); setCoachIds(f.coach_ids); setPlaces(f.clubs); reload(); }} />}
-      {coach && <button className="link" onClick={() => openCoach(coach.id)}><Icon name="user" size={14} /> Découvrir {coach.name}</button>}
 
       <h2 className="step"><span>2</span> Quel jour ?</h2>
       <div className="daystrip">
@@ -324,8 +324,7 @@ export function Book({ me, reload, go, coachParam }) {
         </select>
       </div>
 
-      <h2 className="step"><span>3</span> Comment voulez-vous jouer ?</h2>
-      <div className="multi-hint"><Icon name="checkCircle" size={16} /> <span><b>Cochez une ou plusieurs options.</b> Plus vous en cochez, plus vous aurez de propositions.</span></div>
+      <h2 className="step"><span>3</span> Comment voulez-vous jouer ? <small className="mut">plusieurs choix possibles</small></h2>
       <div className="kindcards" role="group" aria-label="Formules acceptées (plusieurs choix possibles)">
         {Object.entries(KIND).map(([k, v]) => (
           <button key={k} className={"kindcard" + (kinds.includes(k) ? " on" : "")} role="checkbox" aria-checked={kinds.includes(k)} style={{ "--c": v.color }} onClick={() => toggleKind(k)}>
@@ -344,20 +343,15 @@ export function Book({ me, reload, go, coachParam }) {
           </div>
         ))}
       </div>
-      <div className="accept-summary">
-        Vous acceptez : <b>{kinds.map((k) => HOW[k].toLowerCase()).join(" ou ")}</b>
-        {kinds.length < 3 && <span className="mut"> · pas {["individuel", "duo", "groupe"].filter((k) => !kinds.includes(k)).map((k) => HOW[k].toLowerCase()).join(" ni ")}</span>}
-      </div>
 
-      {!day && <div className="card empty"><Icon name="calendar" size={26} /><b>Choisissez un jour</b><div>L'heure est facultative : on vous montre tout ce qui est possible ce jour-là.</div></div>}
+      {!day && <div className="card empty"><Icon name="calendar" size={26} /><b>Choisissez un jour</b></div>}
       {day && offers === null && <Loading rows={2} />}
       {offers && Object.keys(offers.other_kinds ?? {}).length > 0 && (
         <div className="card reconsider" role="note">
           <Icon name="users" size={20} />
           <div style={{ flex: 1 }}>
-            <b>Ces séances ne correspondent pas à vos critères…</b>
             <div className="small-p">
-              Ce jour-là, il existe aussi {Object.entries(offers.other_kinds).map(([k, n]) => `${n} séance${n > 1 ? "s" : ""} ${k === "duo" ? "à deux" : "en groupe"}`).join(" et ")} de votre niveau. Si vous reconsidérez votre choix :
+              Aussi ce jour-là : {Object.entries(offers.other_kinds).map(([k, n]) => `${n} séance${n > 1 ? "s" : ""} ${k === "duo" ? "à deux" : "en groupe"}`).join(" et ")} de votre niveau.
             </div>
             <div className="actions" style={{ marginTop: 8 }}>
               {Object.keys(offers.other_kinds).map((k) => <button key={k} className="small sec" onClick={() => toggleKind(k)}><Icon name="plus" size={14} /> Accepter aussi {HOW[k].toLowerCase()}</button>)}
@@ -366,7 +360,7 @@ export function Book({ me, reload, go, coachParam }) {
         </div>
       )}
       {offers && offers.too_late.length > 0 && (
-        <div className="mut small-p late-hint"><Icon name="clock" size={14} /> À moins de 24 h, on ne peut plus ouvrir seul une séance {offers.too_late.map((k) => HOW[k].toLowerCase()).join(" ou ")} (pas le temps de la compléter) : rejoignez une séance existante, ou choisissez un autre jour.</div>
+        <div className="mut small-p late-hint"><Icon name="clock" size={14} /> À moins de 24 h : seulement rejoindre une séance {offers.too_late.map((k) => HOW[k].toLowerCase()).join(" ou ")} existante.</div>
       )}
       {offers && !solo && (offers.requests ?? []).length > 0 && (
         <>
@@ -374,21 +368,19 @@ export function Book({ me, reload, go, coachParam }) {
           {offers.requests.map((o) => <RequestOffer key={o.booking_id} o={o} me={me} kinds={kinds} durs={durs} onBooked={booked} />)}
         </>
       )}
-      {offers && !solo && (
+      {offers && !solo && offers.groups.length > 0 && (
         <>
           <h2 className="accent-h"><Icon name="users" size={16} /> Rejoindre une séance</h2>
-          {offers.groups.length ? list(offers.groups) : <div className="card mut">Aucune séance de votre niveau à rejoindre ce jour-là.</div>}
+          {list(offers.groups)}
         </>
       )}
       {offers && (
         <>
-          <h2 className="accent-h"><Icon name="pin" size={16} /> Créneaux avec un terrain déjà réservé</h2>
-          {!solo && offers.slots_with_court.length > 0 && <div className="mut small-p" style={{ marginTop: -4, marginBottom: 8 }}>Vous pouvez être le premier : la séance sera confirmée quand assez de joueurs vous auront rejoint.</div>}
-          {offers.slots_with_court.length ? grouped(offers.slots_with_court) : <div className="card mut">Aucun terrain déjà réservé ce jour-là.</div>}
+          {offers.slots_with_court.length > 0 && <h2 className="accent-h"><Icon name="pin" size={16} /> Créneaux libres</h2>}
+          {grouped(offers.slots_with_court)}
           {offers.slots_other.length > 0 && (
             <>
-              <h2>Autres créneaux</h2>
-              <div className="mut small-p" style={{ marginTop: -4, marginBottom: 8 }}>Le coach réservera le terrain et confirmera.</div>
+              <h2>Autres créneaux <small className="mut">terrain à confirmer</small></h2>
               {grouped(offers.slots_other)}
             </>
           )}
@@ -397,7 +389,7 @@ export function Book({ me, reload, go, coachParam }) {
       {offers && (offers.hints ?? []).length > 0 && !offers.slots_with_court.length && !offers.slots_other.length && (
         <div className="card note warn" role="note">{offers.hints.map((h) => <div key={h} className="small-p"><Icon name="clock" size={13} /> {h}</div>)}</div>
       )}
-      {nothing && <div className="mut center small-p" style={{ marginTop: 8 }}>Essayez un autre jour, un autre moment ou tous les coachs.</div>}
+      {nothing && !(offers.hints ?? []).length && <div className="card empty"><Icon name="calendar" size={26} /><b>Rien ce jour-là</b><div className="mut">Essayez un autre jour ou tous les coachs.</div></div>}
     </>
   );
 }

@@ -75,7 +75,6 @@ export function CancelBox({ s, reload }) {
     return (
       <div className="cancel-row">
         <button className="small sec" onClick={async () => { try { cancelBooking({ ...s, booking_id: await bookingId() }, reload); } catch (x) { toastError(x); } }}>Annuler</button>
-        {s.cancel_until && <small className="mut">Annulable jusqu'au {when(s.cancel_until)}</small>}
       </div>
     );
   }

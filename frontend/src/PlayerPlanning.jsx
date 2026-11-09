@@ -257,7 +257,6 @@ function Week({ items, onOpen, onAdd }) {
           ))}
         </div>
       </div>
-      <p className="mut small-p center">Touchez un jour pour l'afficher en grand, une case vide pour y ajouter quelque chose.</p>
     </>
   );
 }
@@ -308,7 +307,6 @@ export function Planning({ me, sessions, events, progress, reload, go }) {
   return (
     <>
       <h1>Planning</h1>
-      <PlayTime play={progress?.play} compact={mode === "semaine"} />
       <button className="cta" style={{ marginTop: 12 }} onClick={() => setAdding({})}><Icon name="plus" size={20} /> Ajouter à mon planning <Icon name="chevR" size={18} /></button>
       <div className="seg mini" role="tablist" aria-label="Affichage" style={{ margin: "10px 0" }}>
         <button role="tab" aria-selected={mode === "semaine"} className={mode === "semaine" ? "on" : ""} onClick={() => setMode("semaine")}><Icon name="calendar" size={14} /> Semaine</button>
