@@ -136,18 +136,16 @@ function RequestOffer({ o, me, kinds, durs, onBooked }) {
       .then((r) => onBooked({ ...r, start: o.start })).catch((x) => { toastError(x); setBusy(false); });
   };
   return (
-    <div className="card offer open">
-      <div className="offer-head" style={{ cursor: "default" }}>
-        <span className="offer-time"><b>{hhmm(o.start)}</b><small>{dur(o.duration_min)}</small></span>
-        <span className="offer-main">
-          <span className="offer-coach">{o.coach.name}</span>
-          <small>{o.kinds.map((k) => HOW[k].toLowerCase()).join(" ou ")} · demande pas encore validée par le coach</small>
-        </span>
-        <span className="offer-price"><b>{tnd(o.price_millimes)}</b></span>
+    <div className="card join-req">
+      <div className="row">
+        <b className="join-time">{hhmm(o.start)} <span className="mut">· {dur(o.duration_min)} · {o.kinds.map((k) => HOW[k].toLowerCase()).join(" ou ")}</span></b>
+        <b>{tnd(o.price_millimes)}</b>
       </div>
-      <div className="partners">{o.players.map((p) => <span key={p.name} className="partner"><Avatar name={p.name} size={22} /> {p.name.split(" ")[0]} <CategoryBadge category={p.category} /></span>)}</div>
-      <div className="mut small-p"><Icon name="users" size={13} /> {host} veut aussi s'entraîner à ce moment-là : joignez-vous à sa demande, le coach recevra vos demandes ensemble.</div>
-      <button style={{ width: "100%", marginTop: 8 }} disabled={busy || !me.can_book} onClick={join}><Icon name="users" size={16} /> {busy ? "Envoi…" : `Rejoindre la demande de ${host}`}</button>
+      <div className="row" style={{ marginTop: 6 }}>
+        <span className="partners" style={{ margin: 0 }}>{o.players.map((p) => <span key={p.name} className="partner"><Avatar name={p.name} size={22} /> {p.name.split(" ")[0]} <CategoryBadge category={p.category} /></span>)}</span>
+        <small className="mut" style={{ textAlign: "right" }}>{o.coach.name}<br /><span className="court-badge wait">En attente du coach</span></small>
+      </div>
+      <button style={{ width: "100%", marginTop: 10 }} disabled={busy || !me.can_book} onClick={join}>{busy ? "Envoi…" : `Rejoindre ${host}`}</button>
     </div>
   );
 }
@@ -364,7 +362,7 @@ export function Book({ me, reload, go, coachParam }) {
       )}
       {offers && !solo && (offers.requests ?? []).length > 0 && (
         <>
-          <h2 className="accent-h"><Icon name="users" size={16} /> Des joueurs de votre niveau veulent jouer</h2>
+          <h2 className="accent-h"><Icon name="users" size={16} /> Jouer avec un joueur de votre niveau</h2>
           {offers.requests.map((o) => <RequestOffer key={o.booking_id} o={o} me={me} kinds={kinds} durs={durs} onBooked={booked} />)}
         </>
       )}

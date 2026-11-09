@@ -804,8 +804,8 @@ test("rejoindre la demande d'un autre joueur de son niveau, pas encore traitée 
     if ((await c.getAttribute("aria-checked")) !== "true") await c.click();
   }
   await page.locator(".daypill").nth(9).click();
-  await expect(page.getByRole("heading", { name: /Des joueurs de votre niveau veulent jouer/ })).toBeVisible();
-  await page.getByRole("button", { name: /Rejoindre la demande de Sami/ }).first().click();
+  await expect(page.getByRole("heading", { name: /Jouer avec un joueur de votre niveau/ })).toBeVisible();
+  await page.getByRole("button", { name: /Rejoindre Sami/ }).first().click();
   await expect(page.getByRole("heading", { name: "Demande envoyée" })).toBeVisible();
 });
 
