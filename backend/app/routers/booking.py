@@ -56,6 +56,7 @@ class Settings(BaseModel):
     bio: str | None = None  # page publique du coach (None = inchangé)
     specialties: list[str] | None = None
     price_grid: dict[str, dict[str, int]] | None = None  # {"duo": {"60": 40000, "90": 55000}}: durées proposées et prix (None = inchangé)
+    avoid_gaps: bool | None = None  # éviter les trous de moins d'1 h (None = inchangé)
     booking_horizon_days: int | None = None  # réservation au plus N jours à l'avance (7 à 90; None = inchangé)
 
 
@@ -67,7 +68,7 @@ def settings_out(db: Session, coach: Coach) -> dict:
         "availability": [{"weekday": r.weekday, "start_time": r.start_time, "end_time": r.end_time} for r in rows],
         "bio": coach.bio, "specialties": [x for x in coach.specialties.split(",") if x], "name": coach.name,
         "price_grid": {k: {str(m): v for m, v in g.items()} for k, g in pricing.grid(coach).items()},
-        "booking_horizon_days": coach.booking_horizon_days or 14,
+        "booking_horizon_days": coach.booking_horizon_days or 14, "avoid_gaps": coach.avoid_gaps is not False,
         "duration_duo": duration_for(coach, "duo"), "duration_groupe": duration_for(coach, "groupe"), "booking_mode": coach.booking_mode,
         "happy_hours": [{"weekday": h.weekday, "start_time": h.start_time, "end_time": h.end_time, "discount_pct": h.discount_pct, "discount_millimes": h.discount_millimes}
                         for h in db.scalars(select(HappyHour).where(HappyHour.coach_id == coach.id).order_by(HappyHour.weekday, HappyHour.start_time))],
@@ -123,6 +124,8 @@ def put_settings(body: Settings, coach: Coach = Depends(current_coach), db: Sess
         for k, x in g.items():  # prix de l'heure gardé à jour (ancien réglage, séances d'une autre durée)
             if x:
                 setattr(coach, "price_" + k, x[60] if 60 in x else round(x[min(x)] * 60 / min(x)))
+    if body.avoid_gaps is not None:
+        coach.avoid_gaps = body.avoid_gaps
     if body.booking_horizon_days is not None:
         if body.booking_horizon_days not in pricing.HORIZONS:
             raise HTTPException(422, "Limite de réservation : de 1 semaine à 3 mois.")
@@ -203,7 +206,10 @@ def slot_conflicts(db: Session, coach: Coach, b: Booking) -> dict:
         theirs = grp.pairs_of(grp.parse_opts(x.accepted_opts)) or grp.pairs_of({(k, x.duration_min) for k in grp.split(x.accepted_kinds) or [x.kind]})
         if aware(x.start) == aware(b.start) and any(n >= 2 for n, _ in mine & theirs) and compatible(me.category, me.gender, p.category, p.gender):
             fits.append(x.id)
-    out = {"wish": wish(b), "same_slot": [x.id for x in others], "fits_with": fits, "session_here": None}
+    out = {"wish": wish(b), "same_slot": [x.id for x in others], "fits_with": fits, "session_here": None,
+           # durées que le coach peut choisir (tous les joueurs les acceptent), et temps de terrain perdu s'il accepte
+           "durations": sorted({m for _, m in grp.parse_opts(b.accepted_opts)} & {60, 90}) if not b.session_id else [],
+           "gap_min": svc.gap_left(db, coach, b.start, b.duration_min) if not b.session_id else 0}
     try:
         s = svc.same_time_session(db, coach, b)
         if s:  # une séance acceptée au même début lui convient: accepter = il la rejoint
@@ -258,6 +264,7 @@ def _owned(db: Session, coach: Coach, booking_id: int) -> Booking:
 class AcceptIn(BaseModel):
     court_booking_id: int | None = None  # terrain déjà réservé à utiliser
     club_id: int | None = None  # sinon: demander un terrain à ce club par SMS
+    minutes: int | None = None  # durée choisie par le coach quand les joueurs acceptent 1 h et 1 h 30
 
 
 @router.post("/booking/requests/{booking_id}/accept")
@@ -273,7 +280,7 @@ def accept(booking_id: int, body: AcceptIn, coach: Coach = Depends(current_coach
         if not club or club.coach_id != coach.id:
             raise HTTPException(404, "Club introuvable")
     try:
-        svc.accept(db, coach, b, sms, court=court, club=club)
+        svc.accept(db, coach, b, sms, court=court, club=club, minutes=body.minutes)
     except svc.BookingError as e:
         raise HTTPException(409, str(e))
     db.commit()

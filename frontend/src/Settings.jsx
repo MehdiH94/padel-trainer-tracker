@@ -145,6 +145,14 @@ export default function Settings({ onBack, sub }) {
           </div>
           <small className="mut">à l'avance (jamais plus de 3 mois).</small>
         </div>
+        <label className="check mode">
+          <input type="checkbox" checked={s.avoid_gaps !== false} onChange={(e) => setS({ ...s, avoid_gaps: e.target.checked })} aria-label="Éviter les trous de moins d'1 h" />
+          <span><b>Éviter les trous de moins d'1 h</b><span className="mut small-p" style={{ display: "block" }}>
+            {s.avoid_gaps !== false
+              ? "Les joueurs ne voient que les horaires qui ne laissent pas de bout de terrain inutilisable (terrain 10 h-12 h : 1 h à 10 h ou 11 h, pas d'1 h 30)."
+              : "Tous les horaires sont proposés (terrain 10 h-12 h : 1 h 30 à 10 h possible). Chaque demande qui laisse un bout de terrain trop court vous l'indique (« 30 min de terrain resteront inutilisables »)."}
+          </span></span>
+        </label>
         {[["terrains", "Seulement sur mes terrains réservés", "Les joueurs ne voient que les heures où vous avez un terrain libre (Planning › Terrains). Recommandé : tout ce qui est réservé a un terrain."],
           ["disponibilites", "Sur toutes mes disponibilités", "Les joueurs voient toutes vos plages ci-dessous ; vous réservez le terrain après leur demande."]].map(([k, l, d]) => (
           <label key={k} className="check mode">

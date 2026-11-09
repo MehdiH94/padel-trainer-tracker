@@ -83,6 +83,16 @@ function ProposeTime({ r, onDone, onCancel }) {
   );
 }
 
+// Les joueurs acceptent 1 h et 1 h 30: le coach choisit (1 h 30 par défaut)
+function Durations({ list, value, onChange }) {
+  return (
+    <div className="row g10 small-p" role="group" aria-label="Durée de la séance" style={{ justifyContent: "flex-start", margin: "6px 0" }}>
+      <span className="mut">Durée (les joueurs acceptent les deux) :</span>
+      {[...list].sort((a, b) => b - a).map((m) => <button key={m} type="button" className={"chip small" + (value === m ? " on" : "")} aria-pressed={value === m} onClick={() => onChange(m)}>{m === 90 ? "1 h 30" : `${m / 60} h`}</button>)}
+    </div>
+  );
+}
+
 function Pending({ r, clubs, reload }) {
   const [proposing, setProposing] = useState(false);
   const [clubId, setClubId] = useState(clubs.find((c) => c.phone)?.id ?? "");
@@ -90,6 +100,8 @@ function Pending({ r, clubs, reload }) {
   const [err, setErr] = useState("");
   const act = (path, body) => api(`/booking/requests/${r.id}/${path}`, { method: "POST", body }).then(reload).catch((x) => setErr(x.message));
   const hasCourt = (r.courts_available ?? []).length > 0;
+  const [mins, setMins] = useState(Math.max(...(r.durations?.length ? r.durations : [r.duration_min]))); // 1 h 30 par défaut
+  const accept = (body) => act("accept", { ...body, ...(r.durations?.length > 1 && { minutes: mins }) });
   return (
     <div className="card req" data-id={r.id}>
       <Head r={r} />
@@ -123,14 +135,16 @@ function Pending({ r, clubs, reload }) {
           </div>
         </div>
       )}
+      {r.durations?.length > 1 && !r.join && <Durations list={r.durations} value={mins} onChange={setMins} />}
+      {r.gap_min > 0 && <div className="banner warn"><Icon name="alert" size={18} /><span>À cet horaire, <b>{r.gap_min} min de terrain</b> resteront inutilisables (trop court pour une autre séance).</span></div>}
       {r.session_here && (r.session_here.join
         ? <div className="banner ok"><Icon name="users" size={18} /><span>Une séance est déjà acceptée à cette heure avec {r.session_here.players.join(", ")} : accepter = il la rejoint.</span></div>
         : <div className="banner bad"><Icon name="alert" size={18} /><span>{r.session_here.why}</span></div>)}
       {err && <div className="err">{err}</div>}
       <div className="actions">
         {r.session_here && !r.session_here.join ? null : r.join ? <button onClick={() => act("accept", {})}><Icon name="check" size={16} /> Accepter</button>
-          : hasCourt ? <button onClick={() => act("accept", { court_booking_id: +courtId })}><Icon name="check" size={16} /> Accepter avec ce terrain</button>
-          : <button className="amber" onClick={() => act("accept", { club_id: clubId ? +clubId : null })}><Icon name="clock" size={16} /> Accepter · terrain à confirmer</button>}
+          : hasCourt ? <button onClick={() => accept({ court_booking_id: +courtId })}><Icon name="check" size={16} /> Accepter avec ce terrain</button>
+          : <button className="amber" onClick={() => accept({ club_id: clubId ? +clubId : null })}><Icon name="clock" size={16} /> Accepter · terrain à confirmer</button>}
         {!r.join && <button className="sec" onClick={() => setProposing(!proposing)}><Icon name="clock" size={16} /> Autre horaire</button>}
         <button className="sec danger" onClick={async () => (await confirmDialog({ title: `Refuser la demande de ${r.name} ?`, message: r.charged_millimes ? `${tnd(r.charged_millimes)} de crédits lui seront rendus.` : "Rien n'a été débité de ses crédits.", confirm: "Refuser", cancel: "Retour", danger: true })) && act("refuse")}><Icon name="x" size={16} /> Refuser</button>
       </div>
@@ -176,6 +190,8 @@ function SlotConflict({ list, clubs, reload }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const options = teams(list);
+  const common = (team) => team.reduce((acc, r) => acc.filter((m) => (r.durations ?? []).includes(m)), [60, 90]);
+  const [mins, setMins] = useState(90);
   const start = list.reduce((a, r) => (r.start < a ? r.start : a), list[0].start);
   const end = list.reduce((a, r) => Math.max(a, toDate(r.start).getTime() + r.duration_min * 60000), 0);
   const choose = async (team) => {
@@ -192,7 +208,8 @@ function SlotConflict({ list, clubs, reload }) {
       const court = first.courts_available?.[0];
       const club = clubs.find((c) => c.phone);
       // le premier ouvre la séance (avec le terrain libre s'il y en a un), les autres la rejoignent
-      await api(`/booking/requests/${first.id}/accept`, { method: "POST", body: court ? { court_booking_id: court.id } : { club_id: club ? club.id : null } });
+      const both = common(team).length > 1; // tous acceptent 1 h et 1 h 30: durée choisie par le coach
+      await api(`/booking/requests/${first.id}/accept`, { method: "POST", body: { ...(court ? { court_booking_id: court.id } : { club_id: club ? club.id : null }), ...(both && { minutes: mins }) } });
       for (const r of team.slice(1)) await api(`/booking/requests/${r.id}/accept`, { method: "POST", body: {} });
       for (const r of others) await api(`/booking/requests/${r.id}/refuse`, { method: "POST" });
       reload();
@@ -209,6 +226,8 @@ function SlotConflict({ list, clubs, reload }) {
         <span className="conflict-tag">{list.length} demandes · même créneau</span>
       </div>
       {list.some((r) => r.group) && <div className="banner ok"><Icon name="users" size={18} /><span>{list.find((r) => r.group).group.private ? <><b>Réservation en groupe</b> organisée par {list.find((r) => r.group).group.host}</> : <><b>Demande groupée</b> : des joueurs ont rejoint la demande de {list.find((r) => r.group).group.host}</>} : ils veulent s'entraîner ensemble.</span></div>}
+      {options.some((t) => common(t).length > 1) && <Durations list={[60, 90]} value={mins} onChange={setMins} />}
+      {list.some((r) => r.gap_min > 0) && <div className="banner warn"><Icon name="alert" size={18} /><span>À cet horaire, <b>{Math.max(...list.map((r) => r.gap_min))} min de terrain</b> resteront inutilisables.</span></div>}
       <div className="mut small-p">{options.length > 1 ? "Elles ne sont pas toutes compatibles : choisissez qui joue." : "Elles sont compatibles : ces joueurs peuvent jouer ensemble."}</div>
       {options.map((team, i) => {
         const others = list.filter((r) => !team.includes(r));

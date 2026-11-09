@@ -808,3 +808,26 @@ test("rejoindre la demande d'un autre joueur de son niveau, pas encore traitée 
   await page.getByRole("button", { name: /Rejoindre la demande de Sami/ }).first().click();
   await expect(page.getByRole("heading", { name: "Demande envoyée" })).toBeVisible();
 });
+
+test("réglage « éviter les trous » et durée choisie par le coach quand le joueur accepte 1 h et 1 h 30", async ({ page, request }) => {
+  const tok = async (email) => (await (await request.post("/api/auth/login", { data: { email, password: "demo1234" } })).json()).token;
+  const sami = { Authorization: `Bearer ${await tok("sami@demo.tn")}` }, coach = { Authorization: `Bearer ${await tok("demo@padel.tn")}` };
+  const day = new Date(Date.now() + 11 * 86400000).toLocaleDateString("fr-CA", { timeZone: "Africa/Tunis" });
+  const [club] = await (await request.get("/api/clubs", { headers: coach })).json();
+  await request.post("/api/court-bookings/manual", { headers: coach, data: { club_id: club.id, start: `${day}T06:00:00+01:00`, duration_min: 180, court_label: "Terrain 1" } });
+  const r = await request.post("/api/me/book", { headers: sami, data: { kind: "duo", start: `${day}T06:00:00+01:00`, kinds: ["duo"], durations: { duo: [60, 90] } } });
+  expect(r.ok()).toBeTruthy();
+  const b = await r.json();
+
+  await login(page, "demo@padel.tn");
+  await page.goto("/#settings/reservation");
+  await expect(page.getByLabel("Éviter les trous de moins d'1 h")).toBeChecked();
+  await nav(page, "Demandes").click();
+  await expect(page.locator(".card.req").first()).toBeVisible();
+  let card = page.locator(`.card.req[data-id="${b.id}"]`);
+  if (!(await card.count())) { await page.getByRole("button", { name: /une par une/ }).first().click(); card = page.locator(`.card.req[data-id="${b.id}"]`); }
+  const durations = card.getByRole("group", { name: "Durée de la séance" });
+  await expect(durations.getByRole("button", { name: "1 h 30" })).toHaveAttribute("aria-pressed", "true"); // 1 h 30 par défaut
+  await durations.getByRole("button", { name: "1 h", exact: true }).click();
+  await expect(durations.getByRole("button", { name: "1 h", exact: true })).toHaveAttribute("aria-pressed", "true");
+});

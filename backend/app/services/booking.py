@@ -106,8 +106,29 @@ def _fits(cur: datetime, length: timedelta, lo: datetime, hi: datetime, busy, sh
 
 
 def _grid(coach: Coach) -> tuple[timedelta, timedelta]:
-    """Débuts toutes les 30 min (séances d'1 h ou d'1 h 30); pas de trou de moins d'1 h entre deux séances."""
-    return timedelta(minutes=30), timedelta(minutes=60)
+    """Débuts toutes les 30 min (séances d'1 h ou d'1 h 30); pas de trou de moins d'1 h entre deux séances, sauf si le
+    coach a choisi de ne pas éviter les trous (Réglages: tout début possible, il est prévenu du temps perdu)."""
+    return timedelta(minutes=30), timedelta(minutes=60 if coach.avoid_gaps is not False else 0)
+
+
+def gap_left(db: Session, coach: Coach, start: datetime, minutes: int) -> int:
+    """Minutes de terrain (ou de disponibilité) inutilisables qu'une séance à cet horaire laisserait juste avant ou
+    juste après elle (un bout de moins d'1 h, ni collé à une séance ni au bord). 0 = aucun trou."""
+    start, end = aware(start), aware(start) + timedelta(minutes=minutes)
+    busy = _busy(db, coach)
+    if coach.booking_mode == "disponibilites":
+        local = start.astimezone(TUNIS)
+        spans = [(datetime.combine(local.date(), time.fromisoformat(w.start_time), TUNIS).astimezone(timezone.utc),
+                  datetime.combine(local.date(), time.fromisoformat(w.end_time), TUNIS).astimezone(timezone.utc))
+                 for w in db.scalars(select(Availability).where(Availability.coach_id == coach.id, Availability.weekday == local.weekday()))]
+    else:
+        spans = [courts.run_span(r) for r in courts.free_runs(db, coach.id)]
+    for lo, hi in spans:
+        if lo <= start and end <= hi:
+            before = start - max([lo] + [e for _, e in busy if lo <= e <= start])
+            after = min([hi] + [s for s, _ in busy if end <= s <= hi]) - end
+            return int(sum(g.total_seconds() // 60 for g in (before, after) if timedelta(0) < g < timedelta(minutes=60)))
+    return 0
 
 
 def _free_on_courts(db: Session, coach: Coach, now: datetime, earliest: datetime, minutes: int | None) -> list[datetime]:
@@ -369,19 +390,29 @@ def same_slot(db: Session, b: Booking) -> list[Booking]:
 def _tell_coach_new(db: Session, coach: Coach, player: Player, b: Booking) -> None:
     details = [("Quand", quand(b.start, b.duration_min)), ("Formule", KIND_FR.get(b.kind, "")),
                ("Formules acceptées", ", ".join(KIND_FR[k].lower() for k in groups.split(b.accepted_kinds)))]
+    gap = gap_left(db, coach, b.start, b.duration_min) if not b.session_id else 0
+    warn = [f"Attention : à cet horaire, {gap} min de terrain resteront inutilisables (trop court pour une autre séance)."] if gap else []
     if b.status == "en_attente":
         notify_coach(db, coach.id, f"Nouvelle demande de {player.name}", f"{player.name} ({player.category}) demande une séance :", details,
-                     "Acceptez-la ou refusez-la dans l'onglet Demandes de l'application.")
+                     *warn, "Acceptez-la ou refusez-la dans l'onglet Demandes de l'application.")
     else:
         notify_coach(db, coach.id, f"Nouvelle réservation de {player.name}", f"{player.name} ({player.category}) a réservé une séance, validée automatiquement :", details)
 
 
-def accept(db: Session, coach: Coach, b: Booking, sms: SmsProvider | None = None, *, court: CourtBooking | None = None, club: Club | None = None) -> None:
+def accept(db: Session, coach: Coach, b: Booking, sms: SmsProvider | None = None, *, court: CourtBooking | None = None, club: Club | None = None,
+           minutes: int | None = None) -> None:
     """Le coach accepte. Avec un terrain libre (court): confirmée. Avec un club: demande de terrain envoyée, en attente.
     Sans rien: acceptée, terrain à confirmer à la main."""
     if b.status != "en_attente":
         raise BookingError("Demande déjà traitée")
     player = db.get(Player, b.player_id)
+    if minutes and not b.session_id and minutes != b.duration_min:
+        # le coach choisit la durée parmi celles que le joueur accepte (1 h 30 par défaut, ou 1 h)
+        opts = groups.parse_opts(b.accepted_opts)
+        if not any(m == minutes for _, m in opts):
+            raise BookingError("Le joueur n'a pas accepté cette durée.")
+        b.duration_min = minutes
+        b.accepted_opts = groups.dump_opts({o for o in opts if o[1] <= minutes})
     if not b.session_id:
         # même créneau qu'une séance déjà acceptée (plusieurs joueurs ont demandé le même): compatible = il la rejoint
         other = same_time_session(db, coach, b)

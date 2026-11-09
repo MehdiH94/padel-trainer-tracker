@@ -2503,3 +2503,27 @@ def test_coach_sees_player_cancellations(client):
     assert pc.post(f"/me/bookings/{r['id']}/cancel").status_code == 200
     c = client.get("/booking/cancellations").json()
     assert len(c) == 1 and c[0]["name"] == p["name"]
+
+
+def test_coach_can_allow_gaps_and_choose_duration(client):
+    """Réglage « éviter les trous »: activé (par défaut), un terrain de 2 h ne propose pas 1 h 30; désactivé, il le
+    propose et la demande indique le temps de terrain perdu. Quand le joueur accepte 1 h et 1 h 30, le coach choisit."""
+    st = client.get("/booking/settings").json()
+    assert st["avoid_gaps"] is True
+    client.put("/booking/settings", json={**st, "auto_confirm": False, "price_groupe": 30000, "price_duo": 40000, "booking_mode": "terrains"})
+    p, pc = player_client(client)
+    day = (datetime.now(timezone.utc) + timedelta(days=4)).date()
+    start = datetime(day.year, day.month, day.day, 10, 0, tzinfo=timezone.utc).isoformat()
+    free_court(client, start, 120)
+    q = f"/me/offers?day={day}&kinds=groupe&groupe_min=90"
+    assert pc.get(q).json()["slots_with_court"] == []
+    st = client.get("/booking/settings").json()
+    client.put("/booking/settings", json={**st, "avoid_gaps": False})
+    assert client.get("/booking/settings").json()["avoid_gaps"] is False
+    assert any(x["start"][11:16] == "10:00" for x in pc.get(q).json()["slots_with_court"])
+    r = pc.post("/me/book", json={"kind": "duo", "start": start, "kinds": ["duo", "groupe"], "durations": {"duo": [60, 90], "groupe": [60, 90]}}).json()
+    req = next(x for x in client.get("/booking/requests").json() if x["id"] == r["id"])
+    assert req["durations"] == [60, 90] and req["duration_min"] == 90 and req["gap_min"] == 30
+    assert client.post(f"/booking/requests/{r['id']}/accept", json={"minutes": 60}).status_code == 200  # le coach choisit 1 h
+    s = next(x for x in client.get("/sessions").json() if x["player_ids"] == [p["id"]])
+    assert s["duration_min"] == 60

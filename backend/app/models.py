@@ -31,6 +31,9 @@ class Coach(Base):
     price_grid: Mapped[str | None] = mapped_column(Text, nullable=True)
     # Les joueurs réservent au plus ce nombre de jours à l'avance (une semaine à 3 mois)
     booking_horizon_days: Mapped[int] = mapped_column(Integer, default=14)
+    # Éviter les trous: aucun début proposé aux joueurs qui laisserait un bout de terrain (ou de disponibilité) de moins
+    # d'1 h; sinon tout début possible, le coach est prévenu du temps perdu dans la demande
+    avoid_gaps: Mapped[bool] = mapped_column(default=True)
     cancel_hours: Mapped[int] = mapped_column(Integer, default=24)  # remboursement si annulation >= N heures avant
     # Créneaux proposés aux joueurs: « terrains » = seulement sur ses terrains réservés libres (par défaut),
     # « disponibilites » = toutes ses plages de disponibilité (il réserve le terrain après coup)
