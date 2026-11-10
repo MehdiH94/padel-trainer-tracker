@@ -73,9 +73,9 @@ def confirmed(email: str | None, name: str, what: str, base: str = "") -> None:
     (la même que celle des joueurs), sinon APP_URL."""
     link = (base or os.getenv("APP_URL", "")).rstrip("/")
     if email:
-        send_email(email, "Votre compte Padel Coach est confirmé", letter(
+        send_email(email, "Votre compte Padel Boost est confirmé", letter(
             name, f"Bonne nouvelle : un administrateur a confirmé votre compte {what}.",
-            "Vous pouvez maintenant utiliser l'application :", [("Lien", link or "l'application Padel Coach")],
+            "Vous pouvez maintenant utiliser l'application :", [("Lien", link or "l'application Padel Boost")],
             "Un guide « Bien démarrer » vous montre les premières étapes." if what == "coach" else ""))
 
 

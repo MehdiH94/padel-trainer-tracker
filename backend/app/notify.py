@@ -33,7 +33,7 @@ def channel_for(player: Player, email: str | None) -> str:
 APP_URL = os.getenv("APP_URL", "http://localhost:5173").rstrip("/")
 
 
-def letter(name: str | None, *blocks, closing: str = "À bientôt,", sign: str = "Padel Coach") -> str:
+def letter(name: str | None, *blocks, closing: str = "À bientôt,", sign: str = "Padel Boost") -> str:
     """Mise en page commune des messages (e-mail, SMS, WhatsApp):
 
         Bonjour Sami,
@@ -79,9 +79,9 @@ def _html(subject: str, body: str) -> str:
         f"<title>{html.escape(subject)}</title></head>"
         '<body style="margin:0;background:#f3f4f6;font-family:Arial,Helvetica,sans-serif;color:#111827">'
         '<div style="max-width:560px;margin:0 auto;padding:24px 16px">'
-        '<div style="font-weight:bold;font-size:18px;color:#c2410c;margin-bottom:12px">Padel Coach</div>'
+        '<div style="font-weight:bold;font-size:18px;color:#c2410c;margin-bottom:12px">Padel Boost</div>'
         f'<div style="background:#ffffff;border-radius:12px;padding:24px;font-size:16px;line-height:1.55">{"".join(paras)}</div>'
-        f'<div style="font-size:12px;color:#6b7280;margin-top:12px">Message envoyé par <a href="{APP_URL}" style="color:#6b7280">Padel Coach</a>. '
+        f'<div style="font-size:12px;color:#6b7280;margin-top:12px">Message envoyé par <a href="{APP_URL}" style="color:#6b7280">Padel Boost</a>. '
         "Vos séances, rappels et crédits sont dans l'application.</div>"
         "</div></body></html>"
     )

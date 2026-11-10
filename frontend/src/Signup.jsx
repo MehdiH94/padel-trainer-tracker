@@ -30,7 +30,7 @@ export default function Signup({ coachToken }) {
   return (
     <div className="login-wrap">
       <form className="login card" onSubmit={submit}>
-        <div className="logo"><Icon name="ball" size={30} strokeWidth={1.8} /></div>
+        <img className="logo" src="/logo.svg" alt="" width="54" height="54" />
         <h1>Créer mon compte</h1>
         <p className="mut">{coach ? `${coach.coach_name} vous invite à créer votre compte : réservez vos séances avec lui et suivez votre progression.` : "Réservez vos séances de padel avec le coach de votre choix et suivez votre progression."}</p>
         <label className="field"><span className="mut">Nom complet</span><input autoComplete="name" value={f.name} onChange={set("name")} required /></label>

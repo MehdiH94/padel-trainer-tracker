@@ -127,7 +127,7 @@ function Home({ me, sessions, progress, proposals, promos, events, go, reload })
   return (
     <>
       <div className="hero home-hero">
-        <div className="hero-top">{me.coach_name ? `Votre coach · ${me.coach_name}` : "Bienvenue sur Padel Coach"}</div>
+        <div className="hero-top">{me.coach_name ? `Votre coach · ${me.coach_name}` : "Bienvenue sur Padel Boost"}</div>
         <div className="row"><h1>Salut {me.name.split(" ")[0]}</h1><CategoryBadge category={me.category} /></div>
         <NextSession s={sessions.upcoming[0]} go={go} />
       </div>

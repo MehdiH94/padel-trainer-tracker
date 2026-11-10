@@ -8,7 +8,7 @@ import { ContactLinks } from "./ui.jsx";
 export default function InviteLink({ player, path, onCopied }) {
   const [copied, setCopied] = useState(false);
   const url = location.origin + path;
-  const msg = `Bonjour ${player.name.split(" ")[0]}, voici votre lien pour créer votre compte Padel Coach (fiche déjà pré-remplie, il suffit de la compléter) : ${url}`;
+  const msg = `Bonjour ${player.name.split(" ")[0]}, voici votre lien pour créer votre compte Padel Boost (fiche déjà pré-remplie, il suffit de la compléter) : ${url}`;
   const copy = async () => {
     try {
       await navigator.clipboard.writeText(url);
@@ -26,7 +26,7 @@ export default function InviteLink({ player, path, onCopied }) {
         <input id={`link-${player.id}`} readOnly value={url} aria-label="Lien d'inscription" onFocus={(e) => e.target.select()} />
         <button type="button" className="small" onClick={copy}><Icon name={copied ? "check" : "copy"} size={15} /> {copied ? "Copié" : "Copier"}</button>
       </div>
-      <ContactLinks phone={player.phone} email={player.email} message={msg} subject="Votre compte Padel Coach"
+      <ContactLinks phone={player.phone} email={player.email} message={msg} subject="Votre compte Padel Boost"
         onSent={(ch) => { api("/reminders/log", { method: "POST", body: { player_id: player.id, kind: "invitation", channel: ch } }); onCopied?.(); }} />
     </>
   );

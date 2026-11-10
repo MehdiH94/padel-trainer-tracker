@@ -27,7 +27,7 @@ export default function Invite({ token }) {
   return (
     <div className="login-wrap">
       <form className="login card" onSubmit={submit}>
-        <div className="logo"><Icon name="ball" size={30} strokeWidth={1.8} /></div>
+        <img className="logo" src="/logo.svg" alt="" width="54" height="54" />
         <h1>Bienvenue {info.player_name.split(" ")[0]} !</h1>
         <p className="mut">{info.coach_name} vous invite à créer votre compte pour réserver vos séances et suivre votre progression. Vérifiez et complétez votre fiche :</p>
         <label className="field"><span className="mut">Nom complet</span><input autoComplete="name" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} required /></label>

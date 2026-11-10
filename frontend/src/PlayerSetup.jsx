@@ -34,7 +34,7 @@ export function ProfileQuestions({ f, setF }) {
   const pick = (k, v) => setF((x) => ({ ...x, [k]: v }));
   return (
     <>
-      <div className="field"><span className="mut">Vous jouez…</span>
+      <div className="field"><span className="mut">Vous êtes…</span>
         <div className="seg-choice" role="group" aria-label="Main forte">
           {[["droitier", "Droitier"], ["gaucher", "Gaucher"]].map(([k, l]) => <button key={k} type="button" className={f.dominant_hand === k ? "on" : ""} aria-pressed={f.dominant_hand === k} onClick={() => pick("dominant_hand", k)}>{l}</button>)}
         </div>

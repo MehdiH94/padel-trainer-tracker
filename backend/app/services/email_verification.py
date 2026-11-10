@@ -47,14 +47,14 @@ def send_link(db: Session, p: Player | Coach, base: str = "") -> None:
     p.email_token_sent_at = datetime.now(timezone.utc)
     link = f"{(base or APP_URL).rstrip('/')}/verify/{p.email_token}"
     if isinstance(p, Coach):
-        intro = ("Bienvenue sur Padel Coach !",
+        intro = ("Bienvenue sur Padel Boost !",
                  "Pour activer votre espace coach, confirmez votre adresse e-mail en ouvrant ce lien :", link,
                  "Ensuite, un administrateur confirmera votre compte et vous pourrez commencer.")
     else:
         coach = db.get(Coach, p.coach_id) if p.coach_id else None  # inscription publique: pas encore de coach
-        intro = (f"Bienvenue sur Padel Coach{f' avec {coach.name}' if coach else ''} !",
+        intro = (f"Bienvenue sur Padel Boost{f' avec {coach.name}' if coach else ''} !",
                  "Pour recevoir les rappels de vos séances et pouvoir réserver, confirmez votre adresse e-mail en ouvrant ce lien :", link)
-    send_email(p.email, "Vérifiez votre adresse e-mail — Padel Coach", letter(p.name, *intro, "Si vous n'avez pas créé de compte, ignorez ce message."))
+    send_email(p.email, "Vérifiez votre adresse e-mail — Padel Boost", letter(p.name, *intro, "Si vous n'avez pas créé de compte, ignorez ce message."))
 
 
 def can_resend(p: Player | Coach) -> bool:
