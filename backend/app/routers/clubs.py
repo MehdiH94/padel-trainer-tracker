@@ -20,6 +20,8 @@ from ..sms.base import SmsProvider
 
 router = APIRouter(tags=["terrains"])
 WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "dev-webhook-secret")
+if os.getenv("COOKIE_SECURE") == "1" and WEBHOOK_SECRET == "dev-webhook-secret":
+    raise RuntimeError("WEBHOOK_SECRET must be set in production")
 
 
 class ClubIn(BaseModel):

@@ -11,6 +11,8 @@ from .db import get_db
 from .models import Coach, Player
 
 SECRET = os.getenv("SECRET_KEY", "dev-secret-change-me-in-production-0123456789")
+if os.getenv("COOKIE_SECURE") == "1" and SECRET.startswith("dev-secret"):
+    raise RuntimeError("SECRET_KEY must be set in production")
 bearer = HTTPBearer(auto_error=False)
 
 
