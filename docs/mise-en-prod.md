@@ -1,7 +1,7 @@
-## Mise en prod du 2026-11-10 : Padel Trainer Tracker (première mise en prod)
-Ce qui change pour les utilisateurs : l'application devient accessible sur https://padel-boost.net, avec de vrais comptes (coachs et joueurs), sans données de démo. L'ancienne adresse sandbox reste séparée.
-Tickets inclus : aucun (première mise en ligne de la version de la sandbox)
-Migrations de données : aucune (base PostgreSQL neuve en prod)
-Risques et retour arrière : base vide au départ ; sauvegarde et retour à la version précédente gérés par le déployeur. La clé secrète et le secret du webhook SMS sont désormais obligatoires en prod (plus de valeur par défaut dans le code). ADMIN_EMAILS doit être rempli par Mehdi dans /etc/usine-prod/padel-trainer-tracker.reglages ; les e-mails (SMTP) sont facultatifs et peuvent rester vides.
-Vérifications : usine tester OK. Cinquième demande : la précédente attendait ADMIN_EMAILS (rempli depuis), rien n'a changé en prod.
-Domaine : padel-boost.net (enregistrement A vers 141.95.86.176, vérifié)
+## Mise en prod du 2026-11-10 : Padel Boost (nouveau nom, 45a3802)
+Ce qui change pour les utilisateurs : l'application s'appelle désormais « Padel Boost » partout (écrans, connexion et inscription, appli installée sur le téléphone), avec un nouveau logo et de nouvelles icônes ; à l'inscription du joueur, le libellé devient « Vous êtes droitier ou gaucher » ; les e-mails (vérification d'adresse, compte confirmé, invitation) et le message d'invitation du coach disent « Padel Boost ». L'appli déjà ouverte se recharge seule et reprend le nouveau nom.
+Tickets inclus : aucun (changements de la session de dev : 9d13e4a nom et logo, b8d599f réglages de prod ; tests e2e indépendants de la date)
+Migrations de données : aucune (aucun modèle modifié, pas d'alembic : schéma par create_all, inchangé)
+Risques et retour arrière : risque faible, textes et images seulement ; sauvegarde de la base et retour à 0cd22fc gérés par le déployeur. Réglages : le déployeur ajoute seul NOTIFY_EMAIL_ONLY=1, TEST_ACCOUNT_EMAILS vide et SMTP_PORT=587 (s'il était vide) dans /etc/usine-prod/padel-trainer-tracker.reglages, sans écraser une valeur déjà remplie ; ce sont les valeurs par défaut du code, donc rien ne change en prod et Mehdi n'a rien à remplir. Une icône déjà installée sur un téléphone peut garder l'ancien logo jusqu'à sa réinstallation.
+Vérifications : usine tester OK sur 45a3802 ; sandbox relancée, /api/health ok, manifeste « Padel Boost ».
+Domaine : padel-boost.net (enregistrement A vers 141.95.86.176, revérifié)
