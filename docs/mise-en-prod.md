@@ -3,5 +3,5 @@ Ce qui change pour les utilisateurs : l'application devient accessible sur https
 Tickets inclus : aucun (première mise en ligne de la version de la sandbox)
 Migrations de données : aucune (base PostgreSQL neuve en prod)
 Risques et retour arrière : base vide au départ ; sauvegarde et retour à la version précédente gérés par le déployeur. La clé secrète et le secret du webhook SMS sont désormais obligatoires en prod (plus de valeur par défaut dans le code). ADMIN_EMAILS doit être rempli par Mehdi dans /etc/usine-prod/padel-trainer-tracker.reglages ; les e-mails (SMTP) sont facultatifs et peuvent rester vides.
-Vérifications : usine tester OK. Quatrième demande : les précédentes n'ont pas démarré (fichier des réglages absent du dépôt, corrigé), rien n'a changé en prod.
+Vérifications : usine tester OK. Cinquième demande : la précédente attendait ADMIN_EMAILS (rempli depuis), rien n'a changé en prod.
 Domaine : padel-boost.net (enregistrement A vers 141.95.86.176, vérifié)
