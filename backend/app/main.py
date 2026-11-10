@@ -50,16 +50,23 @@ NEW_COLUMNS = [
     ("attendances", "accepted_opts", "VARCHAR(120) DEFAULT ''"), ("coaches", "join_token", "VARCHAR(32)"), ("players", "open_signup", "BOOLEAN DEFAULT 0"),
     ("bookings", "proposed_start", "TIMESTAMP"), ("bookings", "proposed_minutes", "INTEGER"),
 ]
+def _ddl(ddl: str) -> str:
+    """Types écrits pour SQLite, traduits pour PostgreSQL (sandbox et prod de l'usine)."""
+    if engine.dialect.name != "postgresql":
+        return ddl
+    return ddl.replace("DATETIME", "TIMESTAMP").replace("BOOLEAN DEFAULT 1", "BOOLEAN DEFAULT TRUE").replace("BOOLEAN DEFAULT 0", "BOOLEAN DEFAULT FALSE")
+
+
 with engine.begin() as conn:
     for table, column, ddl in NEW_COLUMNS:
         if column not in {c["name"] for c in inspect(engine).get_columns(table)}:
-            conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}"))
+            conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {column} {_ddl(ddl)}"))
             if column == "hourly_prices":  # prix par séance de la durée de la formule -> prix par heure (une seule fois)
                 conn.execute(text("UPDATE coaches SET price_individuel = ROUND(price_individuel * 60.0 / slot_minutes) WHERE slot_minutes > 0 AND slot_minutes != 60"))
                 for k in ("duo", "groupe"):
                     conn.execute(text(f"UPDATE coaches SET price_{k} = ROUND(price_{k} * 60.0 / COALESCE(duration_{k}, slot_minutes)) "
                                       f"WHERE COALESCE(duration_{k}, slot_minutes) > 0 AND COALESCE(duration_{k}, slot_minutes) != 60"))
-                conn.execute(text("UPDATE coaches SET hourly_prices = 1"))
+                conn.execute(text("UPDATE coaches SET hourly_prices = :oui"), {"oui": True})
             if column == "email_verified_at":  # comptes créés avant la vérification (DP-002): considérés comme vérifiés
                 conn.execute(text("UPDATE players SET email_verified_at = CURRENT_TIMESTAMP WHERE password_hash IS NOT NULL"))
     # Notes de 1 à 5 (avant) -> 0 à 100 (note sur 10 au dixième)

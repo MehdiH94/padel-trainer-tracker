@@ -1,25 +1,43 @@
-# Sandbox de l'usine à SaaS : Docker de l'utilisateur claude sur le VPS, réseau « sandbox ».
-# Lancé par « usine relancer padel-trainer-tracker » (variables : .env.sandbox, jamais commité).
+# Sandbox de l'usine à SaaS : Docker de l'utilisateur claude sur le VPS, réseau « sandbox »,
+# PostgreSQL 16 comme en prod, sur un réseau privé au projet.
+# NOM, PORT, DB_PASSWORD et les réglages de l'appli viennent de .env.sandbox (jamais commité).
+#   usine relancer padel-trainer-tracker
 services:
   app:
     build: .
+    image: ${NOM}:sandbox
     env_file: .env.sandbox
+    environment:
+      DATABASE_URL: postgresql+psycopg://app:${DB_PASSWORD}@db:5432/app
     ports:
       - "127.0.0.1:${PORT}:8000"   # Caddy (sur la machine) se place devant
+    networks: [sandbox, interne]
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: app
     volumes:
-      - data:/data                 # base SQLite (padel.db)
-    networks: [sandbox]
+      - pgdata:/var/lib/postgresql/data
+    networks: [interne]
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=3)"]
-      interval: 15s
-      timeout: 5s
-      start_period: 20s
-      retries: 3
+      test: ["CMD-SHELL", "pg_isready -U app -d app"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
     restart: unless-stopped
 
 volumes:
-  data:
+  pgdata:
 
 networks:
   sandbox:
     external: true
+  # Seule l'appli de ce projet joint sa base.
+  interne:

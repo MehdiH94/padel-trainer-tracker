@@ -11,7 +11,14 @@ from app.main import app
 from app.services.courts import parse_reply
 from app.sms.fake import FakeSmsProvider
 
-engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+import os
+
+# Base des tests: SQLite en mémoire par défaut; TEST_DATABASE_URL=postgresql+psycopg://… pour PostgreSQL (comme la sandbox et la prod)
+TEST_DATABASE_URL = os.getenv("TEST_DATABASE_URL", "")
+if TEST_DATABASE_URL:
+    engine = create_engine(TEST_DATABASE_URL)
+else:
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
 TestSession = sessionmaker(bind=engine, autoflush=False)
 
 

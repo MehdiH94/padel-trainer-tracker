@@ -12,7 +12,7 @@ Application de gestion pour un coach de padel indépendant (Tunisie) + espace jo
 ## Git et déploiement
 - L'application tourne dans la **sandbox de l'usine à SaaS** (projet `padel-trainer-tracker`, Docker de l'utilisateur `claude` sur le VPS, `https://padel-trainer-tracker-sandbox.mehdi-saas.duckdns.org`). Le dépôt de travail est `~/projets/padel-trainer-tracker` sur le VPS.
 - Toujours valider sur `main` (sans demander, sans demande de fusion), puis `usine relancer padel-trainer-tracker` (reconstruit et vérifie la santé). Pousser aussi sur GitHub quand la clé le permet: le push lance seulement les tests (job `tests` et `e2e`), plus de déploiement par SSH.
-- Logs: `usine logs padel-trainer-tracker`. Base: volume `padel-trainer-tracker-sandbox_data` (`/data/padel.db`).
+- Logs: `usine logs padel-trainer-tracker`. Base: **PostgreSQL 16**, comme en prod (service `db`, volume `padel-trainer-tracker-sandbox_pgdata`); SQLite reste pour le développement et les tests rapides. Les tests passent sur les deux (`TEST_DATABASE_URL=postgresql+psycopg://… python -m pytest -q`, job `tests-postgres`): attention aux longueurs de `String(n)`, que SQLite ignore et que PostgreSQL applique. Nouvelle colonne: l'ajouter aussi à `NEW_COLUMNS` de `main.py` (types SQLite traduits par `_ddl`). `migrate_to_postgres.py` a recopié l'ancienne base SQLite (une fois).
 
 ## Commandes
 ```bash

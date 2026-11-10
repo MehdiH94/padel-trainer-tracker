@@ -14,4 +14,4 @@ Déploie l'application dans la sandbox de l'usine. Se lance sur le VPS, dans `~/
 Règles de sécurité :
 - Jamais de `docker compose down -v`, de `seed_demo.py` ni de suppression de la base sans demande explicite de l'utilisateur.
 - Si un changement de modèle de données (nouvelle colonne, table modifiée) est inclus, le signaler AVANT de relancer : il n'y a pas de migration automatique, la base existante n'est pas modifiée par `create_all`.
-- Sauvegarde avant un changement risqué : `docker compose -p padel-trainer-tracker-sandbox -f docker-compose.sandbox.yml --env-file .env.sandbox cp app:/data/padel.db ~/sauvegardes/padel-$(date +%F-%H%M).db`.
+- Sauvegarde avant un changement risqué : `docker compose -p padel-trainer-tracker-sandbox -f docker-compose.sandbox.yml --env-file .env.sandbox exec -T db pg_dump -U app app | gzip > ~/sauvegardes/padel-$(date +%F-%H%M).sql.gz`.
