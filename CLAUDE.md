@@ -9,8 +9,10 @@ Application de gestion pour un coach de padel indépendant (Tunisie) + espace jo
 ## Design
 - Skill `ui-ux-pro-max` dans `.claude/skills/` (à utiliser pour tout travail d'interface). Système de design: `design-system/padel-coach/MASTER.md` (lire l'encadré « Adaptation retenue » en tête). Couleurs uniquement via les jetons CSS de `frontend/src/style.css` (mode clair + sombre), pas de couleur en dur dans les composants.
 
-## Git
-- Toujours pousser directement sur `main` (sans demander, sans demande de fusion): chaque push sur `main` lance les tests puis le déploiement sur le VPS.
+## Git et déploiement
+- L'application tourne dans la **sandbox de l'usine à SaaS** (projet `padel-trainer-tracker`, Docker de l'utilisateur `claude` sur le VPS, `https://padel-trainer-tracker-sandbox.mehdi-saas.duckdns.org`). Le dépôt de travail est `~/projets/padel-trainer-tracker` sur le VPS.
+- Toujours valider sur `main` (sans demander, sans demande de fusion), puis `usine relancer padel-trainer-tracker` (reconstruit et vérifie la santé). Pousser aussi sur GitHub quand la clé le permet: le push lance seulement les tests (job `tests` et `e2e`), plus de déploiement par SSH.
+- Logs: `usine logs padel-trainer-tracker`. Base: volume `padel-trainer-tracker-sandbox_data` (`/data/padel.db`).
 
 ## Commandes
 ```bash

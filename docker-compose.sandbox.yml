@@ -1,0 +1,25 @@
+# Sandbox de l'usine à SaaS : Docker de l'utilisateur claude sur le VPS, réseau « sandbox ».
+# Lancé par « usine relancer padel-trainer-tracker » (variables : .env.sandbox, jamais commité).
+services:
+  app:
+    build: .
+    env_file: .env.sandbox
+    ports:
+      - "127.0.0.1:${PORT}:8000"   # Caddy (sur la machine) se place devant
+    volumes:
+      - data:/data                 # base SQLite (padel.db)
+    networks: [sandbox]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+    restart: unless-stopped
+
+volumes:
+  data:
+
+networks:
+  sandbox:
+    external: true

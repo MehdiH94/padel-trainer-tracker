@@ -1,17 +1,17 @@
 ---
-description: Valide, pousse sur GitHub puis déploie sur le VPS (tests d'abord)
+description: Valide, teste puis relance l'application dans la sandbox de l'usine (VPS)
 ---
 
-Déploie l'application. Le code passe TOUJOURS par Git avant le serveur: ne jamais modifier de fichiers directement sur le VPS.
+Déploie l'application dans la sandbox de l'usine. Se lance sur le VPS, dans `~/projets/padel-trainer-tracker` (session Remote Control, `whoami` = `claude`).
 
-1. `git status` : s'il y a des changements non validés, les résumer, puis les valider avec un message clair (en français).
-2. Lancer les tests (`python -m pytest -q` dans `backend/`). S'ils échouent, s'arrêter et expliquer, ne pas déployer.
-3. Si on est sur une branche autre que `main` : ouvrir une pull request vers `main` et la fusionner (`gh pr merge --squash`) si `gh` est disponible. Sinon, donner le lien de la PR et demander à l'utilisateur de la fusionner. Ne jamais forcer (`--force`).
-4. Pousser sur `main` (`git push origin main`). Cela déclenche le workflow GitHub « Tests et déploiement » : il relance les tests puis met à jour le VPS via SSH (`deploy/update.sh` : sauvegarde de la base, `git pull`, `docker compose up -d --build`, vérification de santé).
-5. Suivre le résultat : `gh run watch` si disponible, sinon indiquer à l'utilisateur de regarder l'onglet Actions. Puis vérifier `curl -fsS http://141.95.86.176:8090/api/health`.
-6. Résumer en quelques lignes : ce qui a été déployé, résultat des tests, état de l'application.
+1. `git status` : s'il y a des changements non validés, les résumer, puis les valider sur `main` avec un message clair (en français).
+2. Tests : `usine tester padel-trainer-tracker` (pytest et build du front, dans des conteneurs). S'ils échouent, s'arrêter et expliquer, ne pas relancer.
+3. `usine relancer padel-trainer-tracker` : reconstruit l'image, redémarre le conteneur et attend qu'il soit en bonne santé (journaux affichés sinon).
+4. Pousser sur GitHub (`git push origin main`) si la clé du VPS le permet : le push lance seulement les tests GitHub (y compris Playwright).
+5. Vérifier `curl -fsS https://padel-trainer-tracker-sandbox.mehdi-saas.duckdns.org/api/health`.
+6. Résumer en quelques lignes : ce qui a été relancé, résultat des tests, état de l'application.
 
 Règles de sécurité :
-- Jamais de `docker compose down -v`, de `seed_demo.py` ni de suppression de la base sur le VPS sans demande explicite de l'utilisateur.
-- Si un changement de modèle de données (nouvelle colonne, table modifiée) est inclus, le signaler AVANT de déployer : il n'y a pas de migration automatique, la base existante n'est pas modifiée par `create_all`.
-- Si le workflow GitHub est indisponible et que l'utilisateur est sur son PC, le déploiement manuel est `ssh ubuntu@141.95.86.176 "bash ~/padel/deploy/update.sh"`. Demander confirmation avant de le lancer.
+- Jamais de `docker compose down -v`, de `seed_demo.py` ni de suppression de la base sans demande explicite de l'utilisateur.
+- Si un changement de modèle de données (nouvelle colonne, table modifiée) est inclus, le signaler AVANT de relancer : il n'y a pas de migration automatique, la base existante n'est pas modifiée par `create_all`.
+- Sauvegarde avant un changement risqué : `docker compose -p padel-trainer-tracker-sandbox -f docker-compose.sandbox.yml --env-file .env.sandbox cp app:/data/padel.db ~/sauvegardes/padel-$(date +%F-%H%M).db`.

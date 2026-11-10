@@ -1,11 +1,12 @@
-name: Tests et déploiement
+# Tests à chaque push. Le déploiement ne passe plus par ici : l'application
+# tourne dans la sandbox de l'usine (VPS), relancée par « usine relancer padel-trainer-tracker ».
+name: Tests
 
 on:
   push:
     branches: [main]
   workflow_dispatch:        # lancement manuel depuis l'onglet Actions
 
-concurrency: deploy         # un seul déploiement à la fois
 
 jobs:
   tests:
@@ -50,18 +51,3 @@ jobs:
             frontend/playwright-report
             frontend/test-results
           retention-days: 7
-
-  deploy:
-    needs: [tests, e2e]     # pas de déploiement si un test échoue
-    runs-on: ubuntu-latest
-    steps:
-      - name: Déployer sur le VPS
-        env:
-          HOST: ${{ secrets.VPS_HOST }}
-          SSH_USER: ${{ secrets.VPS_USER }}
-          SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
-        run: |
-          install -m 700 -d ~/.ssh
-          printf '%s\n' "$SSH_KEY" > ~/.ssh/deploy_key && chmod 600 ~/.ssh/deploy_key
-          ssh-keyscan -H "$HOST" >> ~/.ssh/known_hosts
-          ssh -i ~/.ssh/deploy_key "$SSH_USER@$HOST" "bash ~/padel/deploy/update.sh"
