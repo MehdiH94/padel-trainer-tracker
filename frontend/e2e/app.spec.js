@@ -396,6 +396,7 @@ test("terrain libre: prévenir ses joueurs en heures creuses (−20 TND); absenc
 
 test("installation sur l'écran d'accueil: manifeste avec icônes 192 et 512 (dont maskable) et icône iPhone", async ({ page, request }) => {
   const m = await (await request.get("/manifest.webmanifest")).json();
+  expect(m.name).toBe("Padel Boost"); // nouveau nom de l'application
   const sizes = m.icons.map((i) => i.sizes);
   expect(sizes).toContain("192x192");
   expect(sizes).toContain("512x512");
@@ -562,8 +563,11 @@ test("réserver: un seul parcours, « Ou réserver en groupe avec mes amis » en
   await login(page, "sami@demo.tn");
   await page.locator("nav").getByRole("button", { name: "Réserver" }).click();
   await expect(page.getByRole("tab", { name: "Réservation en groupe" })).toHaveCount(0); // plus d'onglets en haut
-  await page.locator(".daypill").nth(5).click();
   const group = page.locator(".slotgroup").first();
+  for (let i = 2; i < 12 && !(await group.isVisible()); i++) { // premier jour avec des créneaux libres (selon la date du jour)
+    await page.locator(".daypill").nth(i).click();
+    await page.waitForTimeout(700);
+  }
   await expect(group).toBeVisible();
   await group.locator(".chips button").first().click();
   await group.getByRole("button", { name: /Ou réserver en groupe avec mes amis/ }).click();
@@ -750,7 +754,7 @@ test("réservation en groupe: le joueur invite un partenaire, qui accepte depuis
 test("calendrier du coach: toucher une case vide propose séance ou terrain à ce jour et cette heure (terrain 1 à 6)", async ({ page }) => {
   await login(page, "demo@padel.tn");
   await nav(page, "Planning").click();
-  await page.getByRole("button", { name: "Semaine suivante" }).first().click();
+  for (let i = 0; i < 11; i++) await page.getByRole("button", { name: "Semaine suivante" }).first().click(); // semaine sans données de démo
   const first = parseInt(await page.locator(".cal-times span").first().innerText(), 10); // première heure affichée
   await page.locator(".cal-col.addable").nth(2).click({ position: { x: 4, y: 46 * (14 - first) + 10 } }); // vers 14 h
   const dialog = page.getByRole("dialog");

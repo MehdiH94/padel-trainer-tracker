@@ -75,7 +75,7 @@ def reminders(base: str = "", coach: Coach = Depends(current_coach), db: Session
             continue
         if not p.invite_token:
             p.invite_token = secrets.token_urlsafe(16)
-        add(p, "invitation", "Votre compte Padel Coach", f"Bonjour {p.name.split()[0]}, créez votre compte pour réserver vos séances en ligne : {base}/invite/{p.invite_token} — {coach.name}")
+        add(p, "invitation", "Votre compte Padel Boost", f"Bonjour {p.name.split()[0]}, créez votre compte pour réserver vos séances en ligne : {base}/invite/{p.invite_token} — {coach.name}")
 
     # 4. Crédits bas (joueurs avec compte dont le solde ne couvre plus une séance)
     cheapest = min((x for x in (coach.price_individuel, coach.price_duo, coach.price_groupe) if x), default=0)

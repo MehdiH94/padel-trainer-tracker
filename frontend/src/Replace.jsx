@@ -38,7 +38,7 @@ export default function Replace({ token }) {
   return (
     <div className="login-wrap">
       <form className="login card" onSubmit={take}>
-        <div className="logo"><Icon name="ball" size={30} strokeWidth={1.8} /></div>
+        <img className="logo" src="/logo.svg" alt="" width="54" height="54" />
         {done ? (
           <>
             <h1>C'est à vous !</h1>

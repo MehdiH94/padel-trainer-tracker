@@ -1,8 +1,8 @@
-// Mode hors-ligne de Padel Coach.
+// Mode hors-ligne de Padel Boost.
 // - Pages et API (/api, lecture seule): réseau d'abord, sinon la dernière version enregistrée.
 // - Fichiers de /assets (nom unique à chaque version): cache d'abord.
 // Les modifications (POST, PUT…) ne passent jamais par le cache.
-const SHELL = "shell-v1", ASSETS = "assets-v1", API = "api";
+const SHELL = "shell-v2", ASSETS = "assets-v1", API = "api";
 
 self.addEventListener("install", (e) => {
   e.waitUntil(caches.open(SHELL).then((c) => c.add("/")).catch(() => {}));

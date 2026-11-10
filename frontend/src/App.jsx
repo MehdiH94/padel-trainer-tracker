@@ -42,8 +42,8 @@ function Login() {
   return (
     <div className="login-wrap">
       <form className="login card" onSubmit={submit}>
-        <div className="logo"><Icon name="ball" size={30} strokeWidth={1.8} /></div>
-        <h1>Padel Coach</h1>
+        <img className="logo" src="/logo.svg" alt="" width="54" height="54" />
+        <h1>Padel Boost</h1>
         <p className="mut">{mode === "login" ? "Connectez-vous à votre espace" : "Créez votre espace coach"}</p>
         {mode === "register" && <label className="field"><span className="mut">Votre nom de coach</span><input value={f.name} onChange={set("name")} autoComplete="name" required /></label>}
         {mode === "register" && <label className="field"><span className="mut">Téléphone</span><input type="tel" value={f.phone} onChange={set("phone")} autoComplete="tel" placeholder="ex. 22 123 456" required /></label>}
@@ -146,7 +146,7 @@ function CoachApp() {
       <OfflineBar />
       <main id="main"><Page key={tab + (sub ?? "")} sub={sub} go={go} openPlayer={openPlayer} playerId={playerId} closePlayer={() => go("players")} onBack={() => (history.length > 1 ? history.back() : go("home"))} summary={summary} refreshSummary={refresh} /></main>
       <nav aria-label="Navigation principale">
-        <span className="brandmark"><Icon name="ball" size={20} /> Padel Coach</span>
+        <span className="brandmark"><img src="/logo.svg" alt="" width="26" height="26" /> Padel Boost</span>
         {TABS.map(([k, icon, label]) => (
           <button key={k} className={(navOn === k ? "on" : "") + (k === "players" && needPlayer && navOn !== "players" ? " hint-pulse" : "")} aria-current={navOn === k ? "page" : undefined} onClick={() => go(k)}>
             <span className="navico">
@@ -229,7 +229,7 @@ function Waiting({ acc, reload }) {
   return (
     <div className="login-wrap">
       <div className="login card">
-        <div className="logo"><Icon name="ball" size={30} strokeWidth={1.8} /></div>
+        <img className="logo" src="/logo.svg" alt="" width="54" height="54" />
         <h1>Bienvenue {acc.name.split(" ")[0]} !</h1>
         <p className="mut">Votre compte {acc.role === "coach" ? "coach " : ""}est créé. Encore {emailOk ? "une étape" : "deux étapes"} avant de pouvoir l'utiliser :</p>
         <ol className="wait-steps">

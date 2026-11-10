@@ -14,7 +14,7 @@ function CoachLink() {
   const [path, setPath] = useState(() => peek("/auth/coach-link")?.path ?? null);
   useEffect(() => { if (open && !path) api("/auth/coach-link").then((r) => setPath(r.path)).catch(() => {}); }, [open]);
   const url = path && location.origin + path;
-  const msg = url && `Bonjour ! Créez votre compte Padel Coach avec ce lien pour réserver vos séances avec moi et suivre votre progression : ${url}`;
+  const msg = url && `Bonjour ! Créez votre compte Padel Boost avec ce lien pour réserver vos séances avec moi et suivre votre progression : ${url}`;
   const copy = async () => { try { await navigator.clipboard.writeText(url); toast("Lien copié"); } catch { /* sans presse-papiers: le lien reste affiché */ } };
   return (
     <div className="card coach-link">
