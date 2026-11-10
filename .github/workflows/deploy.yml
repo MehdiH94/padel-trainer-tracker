@@ -20,6 +20,30 @@ jobs:
       - run: python -m pytest -q
         working-directory: backend
 
+  tests-postgres:           # mêmes tests sur PostgreSQL 16, la base de la sandbox et de la prod
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: app
+          POSTGRES_PASSWORD: app
+          POSTGRES_DB: app_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U app -d app_test" --health-interval 5s --health-timeout 3s --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r backend/requirements.txt
+      - run: python -m pytest -q
+        working-directory: backend
+        env:
+          TEST_DATABASE_URL: postgresql+psycopg://app:app@127.0.0.1:5432/app_test
+          DATABASE_URL: postgresql+psycopg://app:app@127.0.0.1:5432/app_test
+
   e2e:                      # parcours réels dans un navigateur (Playwright), sur l'application construite
     runs-on: ubuntu-latest
     steps:

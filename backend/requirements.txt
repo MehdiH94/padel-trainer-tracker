@@ -7,3 +7,4 @@ bcrypt
 pytest
 httpx
 tzdata
+psycopg[binary]

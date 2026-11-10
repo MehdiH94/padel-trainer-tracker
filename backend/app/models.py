@@ -235,7 +235,7 @@ class Booking(Base):
     start: Mapped[datetime] = mapped_column(UTCDateTime)
     duration_min: Mapped[int] = mapped_column(Integer, default=60)
     # en_attente (à traiter) / acceptee (terrain à confirmer) / confirmee / refusee / annulee
-    status: Mapped[str] = mapped_column(String(12), default="en_attente")
+    status: Mapped[str] = mapped_column(String(24), default="en_attente")
     notified_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)  # joueur prévenu de la confirmation
     charged_millimes: Mapped[int] = mapped_column(Integer, default=0)  # débité des crédits (0 = à régler sur place)
     price_millimes: Mapped[int] = mapped_column(Integer, default=0)  # prix actuel (formule réellement jouée, remise comprise)

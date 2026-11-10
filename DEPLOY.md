@@ -1,6 +1,6 @@
 # Déploiement sur le VPS OVH (Docker)
 
-> **Aujourd'hui** : l'application tourne dans la sandbox de l'usine à SaaS (`docker-compose.sandbox.yml`, Docker de l'utilisateur `claude`, `https://padel-trainer-tracker-sandbox.mehdi-saas.duckdns.org`), relancée par `usine relancer padel-trainer-tracker` (voir `.claude/commands/deploy.md`). La suite de ce document décrit l'ancienne installation autonome (`deploy/`), gardée pour mémoire ; la mise en prod passera par `usine prod`.
+> **Aujourd'hui** : l'application tourne dans la sandbox de l'usine à SaaS (`docker-compose.sandbox.yml`, PostgreSQL 16 comme en prod, Docker de l'utilisateur `claude`, `https://padel-trainer-tracker-sandbox.mehdi-saas.duckdns.org`), relancée par `usine relancer padel-trainer-tracker` (voir `.claude/commands/deploy.md`). La suite de ce document décrit l'ancienne installation autonome (`deploy/`), gardée pour mémoire ; la mise en prod passera par `usine prod`.
 
 Prérequis: Docker + Docker Compose sur le VPS, un nom de domaine qui pointe vers l'IP du VPS (nécessaire pour le HTTPS, donc pour installer l'app sur l'écran d'accueil du téléphone).
 
