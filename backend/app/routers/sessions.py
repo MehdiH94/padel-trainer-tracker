@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from ..auth import current_coach
 from ..db import get_db
 from ..constants import CAPACITY
-from ..models import Attendance, Club, Coach, CourtBooking, Payment, Player, Proposal, TrainingSession
+from ..models import Attendance, Club, Coach, CoachEvent, CourtBooking, Payment, Player, Proposal, TrainingSession
 from ..schemas import PlayerPaymentOut, SessionIn, SessionOut, SessionPatch
 from ..notify import letter
 from ..services import booking as booking_svc
@@ -18,7 +18,7 @@ from ..services.accounts import has_account
 from ..services import groups, isolation
 from ..services import finance
 from ..services.finance import session_payments, share
-from ..services.pricing import base_price
+from ..services.pricing import SESSION_DURATIONS, grid_price
 from ..services.common import aware, dinars, quand
 from ..sms import get_sms_provider
 from ..sms.base import SmsProvider
@@ -27,8 +27,22 @@ from .players import get_owned_player
 router = APIRouter(prefix="/sessions", tags=["sessions"])
 
 
-def to_out(s: TrainingSession, court_status: str | None = None, paid: dict[tuple[int, int], int] | None = None) -> SessionOut:
+def invited_of(db: Session, s: TrainingSession) -> list[dict]:
+    """Joueurs prévenus de cette séance qui n'y sont pas (encore): pas répondu (proposee) ou refusé."""
+    inside = {a.player_id for a in s.attendances}
+    out = []
+    for p in db.scalars(select(Proposal).where(Proposal.session_id == s.id, Proposal.status.in_(("proposee", "refusee"))).order_by(Proposal.id)):
+        if p.player_id not in inside:
+            pl = db.get(Player, p.player_id)
+            out.append({"player_id": p.player_id, "name": pl.name if pl else "?", "status": p.status})
+    return out
+
+
+def to_out(s: TrainingSession, court_status: str | None = None, paid: dict[tuple[int, int], int] | None = None,
+           db: Session | None = None) -> SessionOut:
     out = SessionOut.model_validate(s)
+    if db is not None and s.status == "prevue":
+        out.invited = invited_of(db, s)
     out.player_ids = [a.player_id for a in s.attendances]
     out.court_status = court_status
     out.has_plan = bool(s.plan)
@@ -72,7 +86,7 @@ def list_sessions(
     out = []
     for s in db.scalars(q.order_by(TrainingSession.start)):
         cb = court.get(s.id)
-        o = to_out(s, cb.status if cb else None, paid)
+        o = to_out(s, cb.status if cb else None, paid, db)
         o.court = o.court or (cb.court_label if cb else "")  # terrain affiché sur le planning et l'accueil
         out.append(o)
     return out
@@ -91,8 +105,17 @@ def create_sessions(
         raise HTTPException(422, f"Une séance {body.kind} accepte {max_players} joueur(s) maximum")
     if not 1 <= body.repeat_weeks <= 52:
         raise HTTPException(422, "repeat_weeks doit être entre 1 et 52")
+    if body.duration_min not in SESSION_DURATIONS:
+        raise HTTPException(422, "Durée de la séance : 1 h ou 1 h 30.")
     for pid in body.player_ids:
         get_owned_player(db, coach, pid)
+    invite_ids = [pid for pid in dict.fromkeys(body.invite_ids) if pid not in body.player_ids]
+    for pid in invite_ids:
+        get_owned_player(db, coach, pid)
+    if invite_ids and body.repeat_weeks > 1:
+        raise HTTPException(422, "Pour prévenir des joueurs, créez une seule séance (sans répétition).")
+    if invite_ids and len(body.player_ids) >= (max_players or 4):
+        raise HTTPException(422, "La séance est déjà complète : il n'y a plus de place pour les joueurs prévenus.")
     club = None
     if body.club_id:
         club = db.get(Club, body.club_id)
@@ -100,16 +123,26 @@ def create_sessions(
             raise HTTPException(404, "Club introuvable")
     rec = str(uuid.uuid4()) if body.repeat_weeks > 1 else None
     data = body.model_dump(exclude={"player_ids", "repeat_weeks", "start", "court_booked", "discount_pct", "discount_millimes"})
-    if body.discount_millimes is not None:  # prix des réglages (par joueur), moins une réduction en dinars
-        if body.discount_millimes < 0:
-            raise HTTPException(422, "Réduction invalide.")
-        data["price_millimes"] = max(base_price(coach, body.kind, body.duration_min) - body.discount_millimes, 0)  # au prorata de la durée
+    data.pop("invite_message", None)
+    data.pop("invite_ids", None)
+    if body.discount_millimes is not None or body.discount_pct is not None:
+        # prix par joueur fixé dans Réglages › Formules pour cette formule et cette durée, tel quel (pas de prorata)
+        grid = grid_price(coach, body.kind, body.duration_min)
+        if grid is None:
+            label = {"individuel": "seul", "duo": "à deux", "groupe": "en groupe"}[body.kind]
+            raise HTTPException(422, f"Vous n'avez pas fixé le prix d'une séance {label} de {'1 h 30' if body.duration_min == 90 else '1 h'} : "
+                                     "Réglages › Formules.")
+        if body.discount_millimes is not None:  # moins une réduction en dinars
+            if body.discount_millimes < 0:
+                raise HTTPException(422, "Réduction invalide.")
+            data["price_millimes"] = max(grid - body.discount_millimes, 0)
+        else:  # ancien fonctionnement: promotion en %
+            if not 0 <= body.discount_pct <= 90:
+                raise HTTPException(422, "Promotion : entre 0 et 90 %.")
+            data["price_millimes"] = round(grid * (100 - body.discount_pct) / 100)
         data["price_mode"] = "par_joueur"
-    elif body.discount_pct is not None:  # prix des réglages (par joueur), promotion éventuelle
-        if not 0 <= body.discount_pct <= 90:
-            raise HTTPException(422, "Promotion : entre 0 et 90 %.")
-        data["price_millimes"] = round(base_price(coach, body.kind, body.duration_min) * (100 - body.discount_pct) / 100)
-        data["price_mode"] = "par_joueur"
+    if invite_ids:
+        data["open"] = True  # les joueurs prévenus pourront accepter la proposition
     if club:
         data["club"] = club.name
     # Le coach ne peut pas être à deux séances en même temps (ni un joueur)
@@ -122,6 +155,10 @@ def create_sessions(
             who = [db.get(Player, a.player_id).name for a in clash.attendances]
             raise HTTPException(409, f"Vous avez déjà une séance à ce moment-là ({quand(clash.start, clash.duration_min)}"
                                      f"{', avec ' + ', '.join(who) if who else ''}). Choisissez une autre heure.")
+        event = next((e for e in db.scalars(select(CoachEvent).where(CoachEvent.coach_id == coach.id))
+                      if aware(e.start) < end and start < aware(e.start) + timedelta(minutes=e.duration_min)), None)
+        if event:
+            raise HTTPException(409, f"Vous avez « {event.title} » à ce moment-là ({quand(event.start, event.duration_min)}). Choisissez une autre heure.")
     created = []
     for i in range(body.repeat_weeks):
         s = TrainingSession(
@@ -145,11 +182,17 @@ def create_sessions(
             if busy:
                 raise HTTPException(409, courts.busy_message(db, busy[0]))
             courts.create_for_session(db, coach, club, s, already_booked=body.court_booked)
+    if invite_ids:  # joueurs prévenus: proposition dans leur appli + e-mail; la séance montre qui n'a pas répondu
+        s = created[0]
+        chosen = [db.get(Player, pid) for pid in invite_ids]
+        db.add_all(Proposal(coach_id=coach.id, session_id=s.id, player_id=p.id) for p in chosen)
+        message = body.invite_message.strip() or new_session_invite(coach, s)
+        booking_svc.notify(db, chosen, "Une séance de padel pour vous", lambda _p: message, "invitation")
     db.commit()
     if club:
         courts.send_due(db, coach, sms)  # envoie tout de suite celles qui ont lieu dans les 7 jours
     court = {cb.session_id: cb.status for cb in db.scalars(select(CourtBooking).where(CourtBooking.coach_id == coach.id))}
-    return [to_out(s, court.get(s.id)) for s in created]
+    return [to_out(s, court.get(s.id), None, db) for s in created]
 
 
 @router.patch("/{session_id}", response_model=SessionOut)
@@ -181,7 +224,7 @@ def patch_session(
         s.start = body.start
     db.commit()
     cb = db.scalar(select(CourtBooking).where(CourtBooking.session_id == s.id))
-    return to_out(s, cb.status if cb else None, session_payments(db, coach.id))
+    return to_out(s, cb.status if cb else None, session_payments(db, coach.id), db)
 
 
 class AddPlayerIn(BaseModel):
@@ -202,7 +245,7 @@ def add_player(session_id: int, body: AddPlayerIn, coach: Coach = Depends(curren
     s.attendances.append(Attendance(player_id=body.player_id))
     db.commit()
     cb = db.scalar(select(CourtBooking).where(CourtBooking.session_id == s.id))
-    return to_out(s, cb.status if cb else None, session_payments(db, coach.id))
+    return to_out(s, cb.status if cb else None, session_payments(db, coach.id), db)
 
 
 # --- Le coach invite ses joueurs à rejoindre une séance -------------------------
@@ -221,6 +264,13 @@ def invitable(session_id: int, coach: Coach = Depends(current_coach), db: Sessio
                         "contact_channel": p.contact_channel or "sms", "trained": p.id in trained})
     out.sort(key=lambda x: (not x["trained"], not x["has_account"]))  # déjà entraînés chez lui d'abord
     return {"players": out, "spots_left": booking_svc.spots_left(db, s), "message": default_invite(coach, s)}
+
+
+def new_session_invite(coach: Coach, s: TrainingSession) -> str:
+    """Message aux joueurs prévenus d'une nouvelle séance (ils répondent dans l'application)."""
+    what = {"duo": " à deux", "groupe": " en groupe"}.get(s.kind, "")
+    return letter(None, f"Je vous propose une séance de padel{what} :", booking_svc._details(s),
+                  "Pour l'accepter ou la refuser, ouvrez l'application : la proposition est sur votre page d'accueil.", sign=coach.name)
 
 
 def default_invite(coach: Coach, s: TrainingSession) -> str:
@@ -312,7 +362,8 @@ def message_players(session_id: int, body: LowIn, coach: Coach = Depends(current
                 b.discount_pct, b.discount_millimes = 0, body.discount_millimes
                 booking_svc._reprice(db, coach, s, b)
         if s.price_mode == "par_joueur":  # séance montée par le coach: prix par joueur
-            s.price_millimes = min(s.price_millimes, max(base_price(coach, s.kind, s.duration_min) - body.discount_millimes, 0))
+            ref = grid_price(coach, s.kind, s.duration_min) or s.price_millimes  # prix des réglages, sans prorata
+            s.price_millimes = min(s.price_millimes, max(ref - body.discount_millimes, 0))
     message = body.message.strip() or default_low_message(coach, s, body.discount_millimes)
     sent = booking_svc.notify(db, chosen, "Votre séance de padel", lambda _p: message)
     db.commit()

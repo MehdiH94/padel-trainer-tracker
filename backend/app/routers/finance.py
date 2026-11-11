@@ -1,4 +1,4 @@
-"""Onglet Finance du coach: impayés, crédits d'avance, ce qu'il a gagné et encaissé sur une période,
+"""Onglet Finance du coach: impayés, crédits d'avance, ce qu'il a gagné (moins les terrains qu'il a payés) et encaissé sur une période,
 journal des versements (qui lui a donné de l'argent, quel jour)."""
 from datetime import date, datetime, time, timedelta
 
@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from ..auth import current_coach
 from ..db import get_db
-from ..models import Coach, Payment, Player, TimeOff, TrainingSession
+from ..models import Coach, CourtExpense, Payment, Player, TimeOff, TrainingSession
 from ..services.common import TUNIS, aware
 from ..services.finance import credit_balance, net_balance, share
 
@@ -65,6 +65,11 @@ def finance(start: date | None = None, end: date | None = None, coach: Coach = D
         hours[k] = hours.get(k, 0) + s.duration_min / 60
         for pid, v in val.items():
             by_player[pid] = by_player.get(pid, 0) + v
+    # terrains payés par le coach (prix saisi avec le terrain): déduits de ce qu'il a gagné
+    costs = {}
+    for e in db.scalars(select(CourtExpense).where(CourtExpense.coach_id == coach.id, CourtExpense.start >= lo, CourtExpense.start < hi)):
+        k = _bucket(aware(e.start).astimezone(TUNIS).date(), group)
+        costs[k] = costs.get(k, 0) + e.amount_millimes
     cashed, journal = {}, []
     for pay in db.scalars(select(Payment).where(Payment.coach_id == coach.id, Payment.paid_at >= lo, Payment.paid_at < hi).order_by(Payment.paid_at.desc())):
         k = _bucket(aware(pay.paid_at).astimezone(TUNIS).date(), group)
@@ -82,8 +87,10 @@ def finance(start: date | None = None, end: date | None = None, coach: Coach = D
     return {
         "start": start, "end": end, "group": group,
         "earned_millimes": sum(earned.values()), "cashed_millimes": sum(cashed.values()),
+        "court_costs_millimes": sum(costs.values()), "net_millimes": sum(earned.values()) - sum(costs.values()),
         "hours": round(sum(hours.values()), 1), "sessions": len(sessions),
-        "series": [{"key": k, "earned_millimes": earned.get(k, 0), "cashed_millimes": cashed.get(k, 0), "hours": round(hours.get(k, 0), 1)} for k in keys],
+        "series": [{"key": k, "earned_millimes": earned.get(k, 0), "court_costs_millimes": costs.get(k, 0),
+                    "net_millimes": earned.get(k, 0) - costs.get(k, 0), "cashed_millimes": cashed.get(k, 0), "hours": round(hours.get(k, 0), 1)} for k in keys],
         "unpaid": sorted([b for b in bal if b["balance_millimes"] < 0], key=lambda b: b["balance_millimes"]),
         "unpaid_total_millimes": -sum(b["balance_millimes"] for b in bal if b["balance_millimes"] < 0),
         "credits": sorted([b for b in bal if b["balance_millimes"] > 0], key=lambda b: -b["balance_millimes"]),

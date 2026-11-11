@@ -3,7 +3,11 @@ import { api, peek, dayLabel, hhmm, useLive } from "./api.js";
 import Icon from "./Icon.jsx";
 import { confirmDialog, Modal, toast, toastError } from "./feedback.jsx";
 import InvitePlayers from "./InvitePlayers.jsx";
-import { COURT_STATUS, DateSelect, dinars, Loading, OFFS, reduction, TimeSelect } from "./ui.jsx";
+import { COURT_STATUS, DateSelect, dinars, Loading, MoneyInput, OFFS, reduction, TimeSelect } from "./ui.jsx";
+
+// « 18:30 » ↔ minutes; heure de fin proposée: une heure après le début (23 h 30 au plus)
+const toMin = (t) => { const [h, m] = t.split(":").map(Number); return h * 60 + m; };
+const addHour = (t) => { const x = Math.min(toMin(t) + 60, 23 * 60 + 30); return `${String(Math.floor(x / 60)).padStart(2, "0")}:${String(x % 60).padStart(2, "0")}`; };
 
 const PLACEHOLDERS = "{date} {debut} {fin} {duree} {joueurs} {coach} {club}";
 const toDate = (iso) => new Date(iso + (iso.endsWith("Z") || /[+-]\d\d:\d\d$/.test(iso) ? "" : "Z"));
@@ -53,7 +57,7 @@ export const COURT_LABELS = ["Terrain 1", "Terrain 2", "Terrain 3", "Terrain 4",
 
 export function ManualForm({ clubs, onDone, onCancel, initial }) {
   const today = initial?.date ?? new Date().toLocaleDateString("fr-CA", { timeZone: "Africa/Tunis" });
-  const [f, setF] = useState({ club_id: clubs[0]?.id ?? "", date: today, time: initial?.time ?? "18:00", duration_min: 60, court_label: "Terrain 1", repeat: "none", weekdays: [weekdayOf(today)], until: plusDays(today, 55) }); // 8 semaines par défaut
+  const [f, setF] = useState({ club_id: clubs[0]?.id ?? "", date: today, time: initial?.time ?? "18:00", end: addHour(initial?.time ?? "18:00"), cost: null, court_label: "Terrain 1", repeat: "none", weekdays: [weekdayOf(today)], until: plusDays(today, 55) }); // 8 semaines par défaut
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
@@ -63,21 +67,25 @@ export function ManualForm({ clubs, onDone, onCancel, initial }) {
   // Mode « disponibilités »: un terrain hors de ses horaires de travail ne sera jamais proposé aux joueurs
   const [prefs, setPrefs] = useState(() => peek("/booking/settings"));
   useEffect(() => { api("/booking/settings").then(setPrefs).catch(() => {}); }, []);
-  const end = (() => { const [h, m] = f.time.split(":").map(Number); const t = h * 60 + m + +f.duration_min; return `${String(Math.floor(t / 60)).padStart(2, "0")}:${String(t % 60).padStart(2, "0")}`; })();
+  // date, heure de début, heure de fin (pas de durée à choisir)
+  const end = f.end;
+  const minutes = toMin(f.end) - toMin(f.time);
   const days = f.repeat === "none" ? [weekdayOf(f.date)] : f.repeat === "daily" ? [0, 1, 2, 3, 4, 5, 6] : f.weekdays;
   const outside = prefs?.booking_mode === "disponibilites" && days.some((d) =>
     !(prefs.availability ?? []).some((w) => w.weekday === d && w.start_time <= f.time && end <= w.end_time));
   async function save(e) {
     e.preventDefault();
+    if (minutes <= 0) return setErr("L'heure de fin doit être après l'heure de début.");
     if (outside && !(await confirmDialog({
       title: "En dehors de vos horaires de travail",
       message: "Ce terrain est en dehors de vos horaires de travail (Réglages › Disponibilités) : les joueurs ne verront pas ce créneau lorsqu'ils essaieront de réserver via l'application. Êtes-vous sûr de vouloir l'ajouter ?",
       confirm: "Oui, l'ajouter", cancel: "Non",
     }))) return;
+    if (f.cost === null) return setErr("Indiquez le prix que vous avez payé pour ce terrain (0 s'il est gratuit).");
     setBusy(true);
     try {
       const r = await api("/court-bookings/manual", { method: "POST", body: {
-        club_id: +f.club_id, start: `${f.date}T${f.time}:00+01:00`, duration_min: +f.duration_min, court_label: f.court_label,
+        club_id: +f.club_id, start: `${f.date}T${f.time}:00+01:00`, duration_min: minutes, court_label: f.court_label, cost_millimes: f.cost,
         repeat: f.repeat, weekdays: f.weekdays, until: f.until,
       } });
       toast(r.created ? `${r.created} terrain${r.created > 1 ? "s" : ""} ajouté${r.created > 1 ? "s" : ""}${r.skipped ? ` (${r.skipped} déjà saisi${r.skipped > 1 ? "s" : ""} ou passé${r.skipped > 1 ? "s" : ""})` : ""}` : "Terrain ajouté");
@@ -95,12 +103,14 @@ export function ManualForm({ clubs, onDone, onCancel, initial }) {
       <label className="field"><span className="mut">Club</span><select value={f.club_id} onChange={set("club_id")}>{clubs.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></label>
       <div className="grid">
         <label className="field"><span className="mut">{f.repeat === "none" ? "Date" : "À partir du"}</span><DateSelect label="Date" value={f.date} to={180} onChange={(v) => setDate({ target: { value: v } })} /></label>
-        <label className="field"><span className="mut">Début</span><TimeSelect label="Début" value={f.time} onChange={(v) => setF({ ...f, time: v })} /></label>
-        <label className="field"><span className="mut">Durée</span>
-          <select value={f.duration_min} onChange={set("duration_min")}>{[60, 90, 120, 180, 240].map((m) => <option key={m} value={m}>{m % 60 ? `${Math.floor(m / 60)} h ${m % 60}` : `${m / 60} h`}</option>)}</select>
-        </label>
+        <label className="field"><span className="mut">Début</span><TimeSelect label="Début" value={f.time} onChange={(v) => setF({ ...f, time: v, end: toMin(f.end) > toMin(v) ? f.end : addHour(v) })} /></label>
+        <label className="field"><span className="mut">Fin</span><TimeSelect label="Fin" value={f.end} onChange={(v) => setF({ ...f, end: v })} /></label>
         <label className="field"><span className="mut">Terrain</span><select value={f.court_label} onChange={set("court_label")}>{COURT_LABELS.map((l) => <option key={l}>{l}</option>)}</select></label>
       </div>
+      <label className="field"><span className="mut">Prix payé au club{f.repeat !== "none" ? " (chaque fois)" : ""}</span>
+        <span className="inputunit"><MoneyInput label="Prix payé au club" value={f.cost ?? 0} onChange={(v) => setF({ ...f, cost: v })} /><em>TND</em></span>
+      </label>
+      <div className="mut small-p" style={{ margin: "-4px 0 8px" }}>Déduit de vos revenus dans Finance.</div>
       <div className="field"><span className="mut">Répétition</span>
         <div className="seg">
           {[["none", "Une fois"], ["daily", "Tous les jours"], ["weekly", "Chaque semaine"]].map(([k, l]) => (
@@ -120,7 +130,7 @@ export function ManualForm({ clubs, onDone, onCancel, initial }) {
           </select>
         </label>
       )}
-      {f.repeat !== "none" && <div className="multi-hint"><Icon name="repeat" size={16} /> <span><b>{count} terrain{count > 1 ? "s" : ""}</b> seront ajoutés, de {f.time} pour {f.duration_min} min. Les créneaux déjà saisis sont ignorés.</span></div>}
+      {f.repeat !== "none" && <div className="multi-hint"><Icon name="repeat" size={16} /> <span><b>{count} terrain{count > 1 ? "s" : ""}</b> seront ajoutés, de {f.time.replace(":", " h ")} à {f.end.replace(":", " h ")}. Les créneaux déjà saisis sont ignorés.</span></div>}
       {outside && <div className="note warn small-p"><Icon name="alert" size={14} /> En dehors de vos horaires de travail : les joueurs ne verront pas ce créneau en réservant.</div>}
       {err && <div className="err" role="alert">{err}</div>}
       <button style={{ width: "100%" }} disabled={busy}>{busy ? "Enregistrement…" : f.repeat === "none" ? "Enregistrer le terrain" : `Enregistrer les ${count} terrains`}</button>

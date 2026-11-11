@@ -3,8 +3,8 @@
 Le coach choisit, pour chaque formule, les durées qu'il propose aux joueurs (1 h, 1 h 30) et le prix par joueur de
 chacune, pas forcément au prorata (1 h = 100 TND, 1 h 30 = 120 TND). Sans grille (anciens réglages): prix de l'heure,
 seul 1 h, à deux et en groupe 1 h ou 1 h 30 au prorata. Côté joueur, la durée se choisit à la réservation parmi
-celles du coach (à deux 1 h par défaut, en groupe 1 h 30). Le coach, lui, crée ses séances de la durée qu'il veut
-(prix au prorata de sa grille pour une autre durée)."""
+celles du coach (à deux 1 h par défaut, en groupe 1 h 30). Le coach crée ses séances de 1 h ou 1 h 30, au prix de
+sa grille pour cette formule et cette durée, sans calcul au prorata (`grid_price`)."""
 import json
 from datetime import datetime, timedelta
 
@@ -60,6 +60,15 @@ def base_price(coach: Coach, kind: str, minutes: int | None = None) -> int:
         return round({"individuel": coach.price_individuel, "duo": coach.price_duo, "groupe": coach.price_groupe}[kind] * m / 60)
     ref = 60 if 60 in g else min(g, key=lambda x: abs(x - m))
     return round(g[ref] * m / ref)
+
+
+SESSION_DURATIONS = (60, 90)  # durées d'une séance créée par le coach
+
+
+def grid_price(coach: Coach, kind: str, minutes: int) -> int | None:
+    """Prix par joueur que le coach a fixé dans Réglages › Formules pour cette formule et cette durée, tel quel
+    (jamais au prorata); None = pas de prix réglé pour cette durée."""
+    return grid(coach).get(kind, {}).get(minutes)
 
 
 def reduced(base: int, pct: int = 0, millimes: int = 0) -> int:

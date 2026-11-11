@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 
 from ..auth import current_coach
 from ..db import get_db
-from ..models import Club, Coach, CourtBooking, Player, Promotion, TrainingSession
+from ..models import Club, Coach, CourtBooking, CourtExpense, Player, Promotion, TrainingSession
 from ..services.common import TUNIS, aware
 from ..schemas import normalize_tn_phone
 from ..services import courts, groups
@@ -154,7 +154,21 @@ def cb_out(db: Session, cb: CourtBooking) -> dict:
         "players_count": len(s.attendances) if s else 0, "min_needed": groups.min_needed(s) if s and s.attendances else None,
         "max_players": groups.capacity(s) if s and s.attendances else None,
         "kind": s.kind if s else None, "state": court_state_label(cb, s),
+        "cost_millimes": court_cost(db, cb),
     }
+
+
+def _span(x) -> tuple[datetime, datetime]:
+    return aware(x.start), aware(x.start) + timedelta(minutes=x.duration_min)
+
+
+def court_cost(db: Session, cb: CourtBooking) -> int:
+    """Prix payé par le coach pour ce terrain (terrains saisis à la main, voir CourtExpense)."""
+    if not cb.start:
+        return 0
+    lo, hi = _span(cb)
+    return sum(e.amount_millimes for e in db.scalars(select(CourtExpense).where(CourtExpense.coach_id == cb.coach_id, CourtExpense.club_id == cb.club_id))
+               if _span(e)[0] < hi and lo < _span(e)[1])
 
 
 @router.get("/court-bookings")
@@ -192,9 +206,16 @@ class ManualIn(BaseModel):
     repeat: str = "none"  # none / daily / weekly
     weekdays: list[int] = []  # 0 = lundi (weekly; par défaut le jour de la première date)
     until: date | None = None  # dernier jour inclus (par défaut 8 semaines)
+    cost_millimes: int = 0  # prix payé au club pour ce terrain (chaque fois): déduit des revenus du coach
 
 
 MAX_DAYS = 183  # six mois au plus
+
+
+def _expense(db: Session, coach: Coach, club: Club, start: datetime, minutes: int, amount: int, series: str | None = None) -> None:
+    """Prix du terrain payé par le coach (rien si 0), pour le créneau saisi."""
+    if amount:
+        db.add(CourtExpense(coach_id=coach.id, club_id=club.id, start=start, duration_min=minutes, amount_millimes=amount, series_id=series))
 
 
 @router.post("/court-bookings/manual", status_code=201)
@@ -204,12 +225,15 @@ def add_manual(body: ManualIn, coach: Coach = Depends(current_coach), db: Sessio
     club = owned_club(db, coach, body.club_id)
     if not 15 <= body.duration_min <= 480 or body.repeat not in ("none", "daily", "weekly"):
         raise HTTPException(422, "Durée ou répétition invalide")
+    if body.cost_millimes < 0:
+        raise HTTPException(422, "Prix du terrain invalide.")
     label = body.court_label.strip()
     if body.repeat == "none":
         busy = courts.overlapping(db, coach, body.start, body.duration_min)
         if busy:  # un coach n'a qu'un terrain à la fois
             raise HTTPException(409, courts.busy_message(db, busy[0]))
         cb = courts.create_free_court(db, coach, club, body.start, body.duration_min, label)
+        _expense(db, coach, club, body.start, body.duration_min, body.cost_millimes)
         db.commit()
         return cb_out(db, cb)
     first = aware(body.start).astimezone(TUNIS)
@@ -232,6 +256,7 @@ def add_manual(body: ManualIn, coach: Coach = Depends(current_coach), db: Sessio
             else:
                 cb = courts.create_free_court(db, coach, club, start, body.duration_min, label)
                 cb.series_id = series
+                _expense(db, coach, club, body.start, body.duration_min, body.cost_millimes)
                 created.append(cb)
         d += timedelta(days=1)
     if not created:
@@ -303,6 +328,10 @@ def delete_free_court(cb_id: int, series: bool = False, coach: Coach = Depends(c
     for t in targets:
         for p in db.scalars(select(Promotion).where(Promotion.court_booking_id == t.id)):
             db.delete(p)
+        lo, hi = _span(t)  # terrain annulé: son prix ne compte plus dans les dépenses
+        for e in db.scalars(select(CourtExpense).where(CourtExpense.coach_id == coach.id, CourtExpense.club_id == t.club_id)):
+            if lo <= _span(e)[0] and _span(e)[1] <= hi:
+                db.delete(e)
         db.delete(t)
     db.commit()
     return {"ok": True, "deleted": len(targets)}

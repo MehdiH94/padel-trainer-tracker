@@ -106,7 +106,7 @@ export default function Players({ playerId, openPlayer, closePlayer, go }) {
       {adding && (
         <form className="card" onSubmit={add}>
           <label className="field"><span className="mut">Nom complet</span><input value={f.name} onChange={set("name")} required /></label>
-          <label className="field"><span className="mut">Téléphone (8 chiffres)</span><input inputMode="tel" placeholder="22 123 456" value={f.phone} onChange={set("phone")} required aria-invalid={!!taken.phone} /></label>
+          <label className="field"><span className="mut">Téléphone (facultatif, 8 chiffres)</span><input inputMode="tel" placeholder="22 123 456" value={f.phone} onChange={set("phone")} aria-invalid={!!taken.phone} /></label>
           {taken.phone && <div className="err" role="alert">{taken.phone}</div>}
           <label className="field"><span className="mut">E-mail (facultatif)</span><input type="email" value={f.email} onChange={set("email")} aria-invalid={!!(badEmail || taken.email)} /></label>
           {(badEmail || taken.email) && <div className="err" role="alert">{badEmail || taken.email}</div>}
@@ -126,7 +126,7 @@ export default function Players({ playerId, openPlayer, closePlayer, go }) {
         <div className="card row pl" key={p.id} onClick={() => openPlayer(p.id)}>
           <div className="row g10">
             <Avatar name={p.name} size={44} />
-            <div><b>{p.name}</b><div className="mut">{p.phone}{p.has_account && <> · <Icon name="shield" size={13} /> compte actif{!p.email_verified && <span className="unverified"> · e-mail non vérifié</span>}</>}{p.signup_status === "a_valider" && <span className="unverified"> · inscription à confirmer</span>}{p.invite_path && <> · <Icon name="link" size={13} /> lien à envoyer</>}</div></div>
+            <div><b>{p.name}</b><div className="mut">{p.phone || "Pas de téléphone"}{p.has_account && <> · <Icon name="shield" size={13} /> compte actif{!p.email_verified && <span className="unverified"> · e-mail non vérifié</span>}</>}{p.signup_status === "a_valider" && <span className="unverified"> · inscription à confirmer</span>}{p.invite_path && <> · <Icon name="link" size={13} /> lien à envoyer</>}</div></div>
           </div>
           <div style={{ textAlign: "right" }}>
             <CategoryBadge category={p.category} gender={p.gender} />
@@ -142,7 +142,7 @@ export default function Players({ playerId, openPlayer, closePlayer, go }) {
         <div className="card empty first-player">
           <Icon name="userPlus" size={30} />
           <b>Ajoutez votre premier élève</b>
-          <div className="mut">Touchez le bouton « + Joueur » en bas de l'écran : nom, téléphone et niveau suffisent. Il reçoit ensuite un lien pour créer son compte.</div>
+          <div className="mut">Touchez le bouton « + Joueur » en bas de l'écran : nom et niveau suffisent (téléphone facultatif). Il reçoit ensuite un lien pour créer son compte.</div>
         </div>
       )}
       <button className={"fab" + (list.length === 0 && !adding ? " hint-pulse" : "")} onClick={() => setAdding(!adding)}>{adding ? <><Icon name="x" size={18} /> Fermer</> : <><Icon name="plus" size={18} /> Joueur</>}</button>

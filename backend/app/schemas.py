@@ -27,7 +27,7 @@ class Creds(BaseModel):
 
 class PlayerIn(BaseModel):
     name: str
-    phone: str
+    phone: str = ""  # facultatif quand le coach ajoute un joueur
     email: str | None = None
     gender: str = "M"
     category: str = "P100-"
@@ -47,8 +47,8 @@ class PlayerIn(BaseModel):
 
     @field_validator("phone")
     @classmethod
-    def _phone(cls, v: str) -> str:
-        return normalize_tn_phone(v)
+    def _phone(cls, v: str | None) -> str:
+        return normalize_tn_phone(v) if (v or "").strip() else ""
 
     @field_validator("gender")
     @classmethod
@@ -100,8 +100,11 @@ class SessionIn(BaseModel):
     # None = ancien fonctionnement (prix saisi dans price_millimes).
     discount_pct: int | None = None
     discount_millimes: int | None = None  # réduction en dinars par joueur (remplace discount_pct)
-    player_ids: list[int] = []
+    player_ids: list[int] = []  # joueurs inscrits d'office: la séance est confirmée sans leur réponse
     repeat_weeks: int = 1  # >1 crée une série hebdomadaire
+    # Joueurs prévenus (e-mail + appli) qui répondent à la proposition; la séance montre qui n'a pas encore répondu
+    invite_ids: list[int] = []
+    invite_message: str = ""
 
 
 class SessionPatch(BaseModel):
@@ -140,6 +143,7 @@ class SessionOut(BaseModel):
     recurrence_id: str | None
     player_ids: list[int] = []
     payments: list[PlayerPaymentOut] = []  # séance effectuée: ce que chaque joueur a réglé
+    invited: list[dict] = []  # joueurs prévenus: {player_id, name, status} (proposee = pas encore répondu, refusee)
 
 
 class PaymentIn(BaseModel):

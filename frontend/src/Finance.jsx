@@ -115,7 +115,8 @@ export default function Finance({ openPlayer }) {
 
   const journal = {};
   (f?.journal ?? []).forEach((j) => (journal[j.paid_at.slice(0, 10)] ||= []).push(j));
-  const pick = (x) => (metric === "hours" ? x.hours : (metric === "earned" ? x.earned_millimes : x.cashed_millimes) / 1000);
+  // gagné = séances effectuées moins les terrains payés au club
+  const pick = (x) => (metric === "hours" ? x.hours : (metric === "earned" ? (x.net_millimes ?? x.earned_millimes) : x.cashed_millimes) / 1000);
   // Axe lisible: une semaine (≤ 7 jours) = un jour par colonne (« lun » + « 2 »); un mois = une colonne par semaine
   // (« S1 » + « 1–7 »); plus long = semaines (date du lundi) ou mois (« nov »)
   const raw = f?.series ?? [];
@@ -153,7 +154,10 @@ export default function Finance({ openPlayer }) {
           </div>
 
           <div className="grid kpis">
-            <div className="kpi"><span className="ico ok"><Icon name="trophy" size={18} /></span><div className="big sm">{tnd(f.earned_millimes)}</div><div className="mut">Gagné ({f.sessions} séance{f.sessions > 1 ? "s" : ""})</div></div>
+            <div className="kpi"><span className="ico ok"><Icon name="trophy" size={18} /></span><div className="big sm">{tnd(f.net_millimes ?? f.earned_millimes)}</div>
+              <div className="mut">Gagné ({f.sessions} séance{f.sessions > 1 ? "s" : ""})</div>
+              {f.court_costs_millimes > 0 && <div className="mut small-p">{tnd(f.earned_millimes)} − {tnd(f.court_costs_millimes)} de terrains</div>}
+            </div>
             <div className="kpi"><span className="ico"><Icon name="wallet" size={18} /></span><div className="big sm">{tnd(f.cashed_millimes)}</div><div className="mut">Argent reçu</div></div>
             <div className="kpi"><span className="ico"><Icon name="clock" size={18} /></span><div className="big">{f.hours} h</div><div className="mut">Heures de cours</div></div>
             <div className="kpi"><span className="ico"><Icon name="card" size={18} /></span><div className="big sm">{tnd(f.credits_total_millimes)}</div><div className="mut">Crédits d'avance</div></div>
@@ -169,7 +173,7 @@ export default function Finance({ openPlayer }) {
             {series.every((x) => !x.value) ? <div className="empty mut">Rien sur cette période.</div>
               : <BarChart data={series.map((x, i) => ({ ...x, label: series.length > 12 && i % Math.ceil(series.length / 8) ? "" : x.label }))}
                 format={(v) => (series.length > 12 ? "" : metric === "hours" ? `${String(v).replace(".", ",")} h` : `${Math.round(v)} DT`)} color={metric === "cashed" ? "var(--brand)" : "var(--green)"} />}
-            <div className="mut small-p center">{unit} · gagné = valeur des séances effectuées, reçu = argent versé par les joueurs</div>
+            <div className="mut small-p center">{unit} · gagné = valeur des séances effectuées moins les terrains payés au club, reçu = argent versé par les joueurs</div>
           </div>
 
           <h2>Impayés{f.unpaid.length > 0 && ` · ${f.unpaid.length}`}</h2>

@@ -856,3 +856,11 @@ button.saved { background: var(--green); border-color: var(--green); color: #fff
 .offer.compact { border: 0; box-shadow: none; padding: 4px 0 0; background: none; }
 .link-plain { background: none; padding: 0; min-height: 0; color: var(--txt); font: inherit; font-weight: 700; display: inline-flex; align-items: center; gap: 2px; align-self: flex-start; text-align: left; }
 .join-req .join-time { font-size: 1.05rem; }
+
+/* Séance: joueurs prévenus par le coach (pas encore répondu / refusé) */
+.invited { margin-top: 8px; padding: 8px 10px; border-radius: 10px; background: var(--soft); display: grid; gap: 4px; }
+/* Autre chose que des séances sur le planning du coach (rendez-vous, tournoi…) */
+.cal-block.evenement, .cal-dot.evenement, .cal-pill.evenement { background: #475569; color: #fff; }
+@media (prefers-color-scheme: dark) { .cal-block.evenement, .cal-dot.evenement, .cal-pill.evenement { background: #64748b; } }
+.cal-block .ev-title { font-weight: 600; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.card.ev-card { border-left: 5px solid #475569; }

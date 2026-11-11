@@ -42,7 +42,7 @@ function EditForm({ player, onSave, onCancel }) {
       <b>Modifier la fiche</b>
       <label className="field"><span className="mut">Nom complet</span><input value={f.name} onChange={set("name")} required /></label>
       <div className="grid">
-        <label className="field"><span className="mut">Téléphone</span><input inputMode="tel" value={f.phone} onChange={set("phone")} required aria-invalid={!!taken.phone} />{taken.phone && <small className="err">{taken.phone}</small>}</label>
+        <label className="field"><span className="mut">Téléphone</span><input inputMode="tel" placeholder="Facultatif" value={f.phone} onChange={set("phone")} aria-invalid={!!taken.phone} />{taken.phone && <small className="err">{taken.phone}</small>}</label>
         <label className="field"><span className="mut">E-mail{player.has_account && " (compte actif)"}</span><input type="email" value={f.email} onChange={set("email")} disabled={player.has_account} aria-invalid={!!taken.email} />{taken.email && <small className="err">{taken.email}</small>}</label>
         <label className="field"><span className="mut">Genre</span><select value={f.gender} onChange={set("gender")}><option value="M">Homme</option><option value="F">Dame</option></select></label>
         <label className="field"><span className="mut">Classement</span><select value={f.category} onChange={set("category")}>{CATEGORIES.map((c) => <option key={c} value={c}>{catOption(c)}</option>)}</select></label>
@@ -210,11 +210,11 @@ export default function PlayerPage({ id, onBack }) {
           <button className="sec" onClick={() => setAdding(true)}><Icon name="userPlus" size={16} /> Ajouter à une séance</button>
         </div>
       )}
-      <div className="actions">
+      {player.phone && <div className="actions">
         <a className="btnlink" href={`tel:${player.phone}`}><Icon name="phone" size={16} /> Appeler</a>
         <a className="btnlink" href={`sms:${player.phone}`}><Icon name="message" size={16} /> SMS</a>
         <a className="btnlink wa" href={`https://wa.me/${player.phone.replace("+", "")}`} target="_blank" rel="noreferrer"><Icon name="whatsapp" size={16} /> WhatsApp</a>
-      </div>
+      </div>}
 
       {adding && <AddToSession player={player} onClose={() => { setAdding(false); load(); }} />}
       {!player.has_account && <InviteCard player={player} />}

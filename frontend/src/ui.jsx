@@ -170,8 +170,10 @@ export function ContactLinks({ phone, email, message, subject = "", onSent }) {
   const enc = encodeURIComponent;
   return (
     <div className="actions">
-      <a className="btnlink" href={`sms:${phone}?body=${enc(message)}`} onClick={() => onSent?.("sms")}><Icon name="message" size={16} /> SMS</a>
-      <a className="btnlink wa" href={`https://wa.me/${digits}?text=${enc(message)}`} target="_blank" rel="noreferrer" onClick={() => onSent?.("whatsapp")}><Icon name="whatsapp" size={16} /> WhatsApp</a>
+      {phone ? <>
+        <a className="btnlink" href={`sms:${phone}?body=${enc(message)}`} onClick={() => onSent?.("sms")}><Icon name="message" size={16} /> SMS</a>
+        <a className="btnlink wa" href={`https://wa.me/${digits}?text=${enc(message)}`} target="_blank" rel="noreferrer" onClick={() => onSent?.("whatsapp")}><Icon name="whatsapp" size={16} /> WhatsApp</a>
+      </> : <span className="btnlink off"><Icon name="phone" size={16} /> Pas de téléphone</span>}
       {email ? (
         <a className="btnlink" href={`mailto:${email}?subject=${enc(subject)}&body=${enc(message)}`} onClick={() => onSent?.("email")}><Icon name="mail" size={16} /> E-mail</a>
       ) : (

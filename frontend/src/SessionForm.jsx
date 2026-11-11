@@ -44,7 +44,7 @@ function PlayerPicker({ players, chosen, max, onToggle }) {
   );
 }
 
-const DURATIONS = [45, 60, 90, 120];
+const DURATIONS = [60, 90]; // une séance du coach dure 1 h ou 1 h 30
 
 // Champ: un <label> pour un seul contrôle (menu, saisie); « group » pour une rangée de boutons
 // (un <label> activerait son premier bouton quand on touche l'intitulé)
@@ -61,8 +61,11 @@ function Field({ label, children, group }) {
 export default function SessionForm({ players, onDone, initial }) {
   const today = new Date().toLocaleDateString("fr-CA", { timeZone: "Africa/Tunis" });
   const [f, setF] = useState({
-    date: today, time: "18:00", duration_min: 60, kind: "individuel", club_id: "", court_booked: false, court: "",
+    date: today, time: "18:00", duration_min: 60, kind: "individuel", club_id: "", court_booked: true, court: "",
     discount_millimes: 0, repeat: false, repeat_weeks: 4, player_ids: [], open: false, level: "",
+    // confirm = le coach inscrit ses joueurs, la séance est confirmée sans leur réponse;
+    // invite = il prévient certains joueurs (e-mail + appli) et attend leurs réponses
+    mode: "confirm", invite_ids: [], invite_message: "",
     ...(initial ?? {}), // « Créer une séance sur ce terrain » (calendrier): date, heure, club et terrain déjà choisis
   });
   // Un de mes terrains réservés couvre-t-il ce créneau ? (au club choisi, ou ailleurs: proposer ce club)
@@ -89,8 +92,10 @@ export default function SessionForm({ players, onDone, initial }) {
     api("/booking/settings").then((st) => { setPrefs(st); setF((x) => ({ ...x, duration_min: x.duration_min || 60 })); }).catch(() => {});
   }, []);
   const DUR = { individuel: 60, duo: 90, groupe: 90 }; // durée proposée par défaut (le coach choisit librement)
-  const base = prefs ? Math.round((prefs["price_" + f.kind] * f.duration_min) / 60) : 0; // prix de l'heure (Réglages) au prorata de la durée
-  const price = Math.max(base - f.discount_millimes, 0); // réduction en dinars par joueur
+  // prix par joueur fixé dans Réglages › Formules pour cette formule et cette durée, tel quel (pas de prorata)
+  const base = prefs?.price_grid?.[f.kind]?.[String(f.duration_min)] ?? null;
+  const price = Math.max((base ?? 0) - f.discount_millimes, 0); // réduction en dinars par joueur
+  const durLabel = (d) => (d === 90 ? "1 h 30" : "1 h");
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
   const max = KIND[f.kind].cap;
   const club = clubs.find((c) => c.id === +f.club_id);
@@ -99,6 +104,7 @@ export default function SessionForm({ players, onDone, initial }) {
     setF({ ...f, kind, player_ids: f.player_ids.slice(0, KIND[kind].cap), open: kind !== "individuel",
       duration_min: DUR[kind] }); // durée proposée, modifiable
   }
+  const toggleInvite = (id) => setF({ ...f, invite_ids: f.invite_ids.includes(id) ? f.invite_ids.filter((x) => x !== id) : [...f.invite_ids, id] });
   function togglePlayer(id) {
     if (max === 1) return setF({ ...f, player_ids: [id] });
     if (f.player_ids.includes(id)) return setF({ ...f, player_ids: f.player_ids.filter((x) => x !== id) });
@@ -107,7 +113,8 @@ export default function SessionForm({ players, onDone, initial }) {
   }
 
   // Le coach mélange les niveaux comme il veut, mais il est prévenu si la règle des niveaux n'est pas respectée
-  const chosenPlayers = f.player_ids.map((id) => players.find((p) => p.id === id)).filter(Boolean);
+  const inviting = f.mode === "invite";
+  const chosenPlayers = (inviting ? f.invite_ids : f.player_ids).map((id) => players.find((p) => p.id === id)).filter(Boolean);
   const clashes = levelClashes(chosenPlayers);
   const clashText = clashes.map(([a, b]) => `${a.name.split(" ")[0]} (${catLabel(a.category)}${a.gender === "F" ? ", dame" : ""}) et ${b.name.split(" ")[0]} (${catLabel(b.category)}${b.gender === "F" ? ", dame" : ""})`).join(" ; ");
 
@@ -124,9 +131,10 @@ export default function SessionForm({ players, onDone, initial }) {
         body: {
           start: `${f.date}T${f.time}:00+01:00`, // Tunisie: UTC+1 toute l'année
           duration_min: f.duration_min, kind: f.kind, club_id: f.club_id ? +f.club_id : null, court_booked: !!f.club_id && f.court_booked,
-          court: f.court, level: f.open ? f.level : "", open: f.open && f.kind !== "individuel",
+          court: f.court, level: f.open ? f.level : "", open: inviting || (f.open && f.kind !== "individuel"),
           discount_millimes: +f.discount_millimes, // le prix vient des réglages (par joueur), moins la réduction
-          repeat_weeks: f.repeat ? +f.repeat_weeks : 1, player_ids: f.player_ids,
+          repeat_weeks: f.repeat && !inviting ? +f.repeat_weeks : 1, player_ids: inviting ? [] : f.player_ids,
+          invite_ids: inviting ? f.invite_ids : [], invite_message: inviting ? f.invite_message : "",
         },
       });
       onDone(created[0]); // première séance créée (la suite si elle se répète)
@@ -183,27 +191,53 @@ export default function SessionForm({ players, onDone, initial }) {
       {f.club_id && !cover?.here && !cover?.busy && !cover?.elsewhere?.length && (
         <>
           <div className="note warn" style={{ margin: "-4px 0 8px" }}><Icon name="alert" size={14} /> Aucun de vos terrains réservés ne couvre ce créneau dans ce club.</div>
-          <label className="check">
-            <input type="checkbox" checked={f.court_booked} onChange={(e) => setF({ ...f, court_booked: e.target.checked })} />
-            J'ai déjà réservé le terrain (aucun SMS au club)
-          </label>
+          <Field label="Terrain" group>
+            <div className="seg">
+              <button type="button" className={f.court_booked ? "on" : ""} aria-pressed={f.court_booked} onClick={() => setF({ ...f, court_booked: true })}>Réservé, je le confirme</button>
+              <button type="button" className={!f.court_booked ? "on" : ""} aria-pressed={!f.court_booked} onClick={() => setF({ ...f, court_booked: false })}>Le demander au club</button>
+            </div>
+          </Field>
           {f.court_booked && <Field label="Terrain (facultatif)"><input placeholder="ex. Terrain 2" value={f.court} onChange={set("court")} /></Field>}
           {!f.court_booked && <div className="mut" style={{ margin: "-4px 0 10px" }}><Icon name="send" size={13} /> Un SMS de réservation sera envoyé au club{club?.phone ? "" : " (ce club n'a pas de numéro : ajoutez-le dans Terrains)"}.</div>}
         </>
       )}
 
-      {/* pas de <label> ici: il contient plusieurs boutons */}
-      <div className="field">
-        <span className="mut">Joueurs ({f.player_ids.length}/{max})</span>
-        <PlayerPicker players={players} chosen={f.player_ids} max={max} onToggle={togglePlayer} />
+      <Field label="Joueurs" group>
+        <div className="seg">
+          <button type="button" className={!inviting ? "on" : ""} aria-pressed={!inviting} onClick={() => setF({ ...f, mode: "confirm" })}>Je les inscris</button>
+          <button type="button" className={inviting ? "on" : ""} aria-pressed={inviting} onClick={() => setF({ ...f, mode: "invite", repeat: false })}>Je préviens des joueurs</button>
+        </div>
+      </Field>
+      <div className="mut small-p" style={{ margin: "-4px 0 8px" }}>
+        {inviting
+          ? "Les joueurs choisis reçoivent un e-mail et une proposition dans l'application. La séance indique qui n'a pas encore répondu ; elle se remplit à mesure qu'ils acceptent."
+          : "La séance est confirmée tout de suite : vos joueurs n'ont rien à accepter."}
       </div>
+      {/* pas de <label> ici: il contient plusieurs boutons */}
+      {inviting ? (
+        <div className="field">
+          <span className="mut">Joueurs à prévenir ({f.invite_ids.length})</span>
+          <PlayerPicker players={players} chosen={f.invite_ids} max={players.length || 1} onToggle={toggleInvite} />
+          {f.invite_ids.length > max && <small className="mut">{max} place{max > 1 ? "s" : ""} : les premiers qui acceptent sont pris.</small>}
+        </div>
+      ) : (
+        <div className="field">
+          <span className="mut">Joueurs ({f.player_ids.length}/{max})</span>
+          <PlayerPicker players={players} chosen={f.player_ids} max={max} onToggle={togglePlayer} />
+        </div>
+      )}
+      {inviting && (
+        <label className="field"><span className="mut">Message (facultatif)</span>
+          <textarea className="msg" rows={3} placeholder="ex. Séance spéciale volée, qui est partant ?" value={f.invite_message} onChange={set("invite_message")} />
+        </label>
+      )}
       {clashes.length > 0 && (
         <div className="note warn" style={{ margin: "-4px 0 10px" }}>
           <Icon name="alert" size={14} /> Niveaux qui ne sont pas censés se mélanger : {clashText}. Vous pouvez quand même créer la séance.
         </div>
       )}
 
-      {f.kind !== "individuel" && (
+      {f.kind !== "individuel" && !inviting && (
         <>
           <label className="check">
             <input type="checkbox" checked={f.open} onChange={(e) => setF({ ...f, open: e.target.checked })} />
@@ -223,10 +257,10 @@ export default function SessionForm({ players, onDone, initial }) {
       <div className="pricebox">
         <div className="row">
           <span className="mut">Prix par joueur</span>
-          <b>{prefs ? tnd(price) : "…"}{f.discount_millimes > 0 && <s className="mut small-p" style={{ marginLeft: 6 }}>{tnd(base)}</s>}</b>
+          <b>{!prefs ? "…" : base === null ? "—" : tnd(price)}{f.discount_millimes > 0 && <s className="mut small-p" style={{ marginLeft: 6 }}>{tnd(base)}</s>}</b>
         </div>
-        <div className="mut small-p">D'après vos réglages ({KIND[f.kind].label.toLowerCase()}). Pour le changer : Réglages › Formules.</div>
-        {prefs && !base && <div className="err small-p">Vous n'avez pas encore fixé ce prix : Réglages › Formules.</div>}
+        <div className="mut small-p">D'après vos réglages ({KIND[f.kind].label.toLowerCase()}, {durLabel(f.duration_min)}). Pour le changer : Réglages › Formules.</div>
+        {prefs && base === null && <div className="err small-p">Vous n'avez pas encore fixé le prix {KIND[f.kind].label.toLowerCase()} en {durLabel(f.duration_min)} : Réglages › Formules.</div>}
         <Field label="Réduction (facultatif)">
           <select value={f.discount_millimes} onChange={(e) => setF({ ...f, discount_millimes: +e.target.value })}>
             <option value={0}>Aucune réduction</option>
@@ -235,14 +269,16 @@ export default function SessionForm({ players, onDone, initial }) {
         </Field>
       </div>
 
-      <label className="check">
+      {!inviting && <label className="check">
         <input type="checkbox" checked={f.repeat} onChange={(e) => setF({ ...f, repeat: e.target.checked })} />
         Répéter chaque semaine
-      </label>
-      {f.repeat && <Field label="Nombre de semaines"><input type="number" min="2" max="52" value={f.repeat_weeks} onChange={set("repeat_weeks")} /></Field>}
+      </label>}
+      {f.repeat && !inviting && <Field label="Nombre de semaines"><input type="number" min="2" max="52" value={f.repeat_weeks} onChange={set("repeat_weeks")} /></Field>}
 
       {err && <div className="err">{err}</div>}
-      <button style={{ width: "100%" }} disabled={!!cover?.busy && !!f.club_id}>Enregistrer la séance</button>
+      <button style={{ width: "100%" }} disabled={(!!cover?.busy && !!f.club_id) || (prefs && base === null) || (inviting && !f.invite_ids.length)}>
+        {inviting ? `Créer la séance et prévenir ${f.invite_ids.length || ""} joueur${f.invite_ids.length > 1 ? "s" : ""}`.replace("  ", " ") : "Enregistrer la séance"}
+      </button>
     </form>
   );
 }

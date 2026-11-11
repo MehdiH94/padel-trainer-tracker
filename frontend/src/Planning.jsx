@@ -10,7 +10,7 @@ import SessionForm from "./SessionForm.jsx";
 import DonePanel, { ToRate } from "./DonePanel.jsx";
 import { PaySummary } from "./SessionPayments.jsx";
 import { duplicateNextWeek, sessionStatus } from "./sessionActions.js";
-import { DateSelect, KIND, Loading, PlayerTags, swipe } from "./ui.jsx";
+import { DateSelect, KIND, Loading, PlayerTags, swipe, TimeSelect } from "./ui.jsx";
 
 const TZ = "Africa/Tunis";
 const ymd = (d) => d.toLocaleDateString("fr-CA", { timeZone: TZ });
@@ -49,6 +49,44 @@ function TimeOffForm({ onCancel, onDone }) {
   );
 }
 
+// Autre chose qu'une séance sur le planning (rendez-vous, tournoi, réunion…): date, début, fin; créneau bloqué
+const toMin = (t) => { const [h, m] = t.split(":").map(Number); return h * 60 + m; };
+const plusHour = (t) => { const x = Math.min(toMin(t) + 60, 23 * 60 + 30); return `${String(Math.floor(x / 60)).padStart(2, "0")}:${String(x % 60).padStart(2, "0")}`; };
+function EventForm({ initial, onCancel, onDone }) {
+  const [f, setF] = useState({ title: "", date: initial?.date ?? ymd(new Date()), time: initial?.time ?? "12:00", end: plusHour(initial?.time ?? "12:00"), note: "" });
+  const [err, setErr] = useState("");
+  const [busy, setBusy] = useState(false);
+  const save = async (e) => {
+    e.preventDefault();
+    const minutes = toMin(f.end) - toMin(f.time);
+    if (minutes <= 0) return setErr("L'heure de fin doit être après l'heure de début.");
+    setBusy(true);
+    try {
+      await api("/coach-events", { method: "POST", body: { title: f.title, start: `${f.date}T${f.time}:00+01:00`, duration_min: minutes, note: f.note } });
+      toast("Ajouté au planning : aucune séance ne sera proposée à ce moment-là");
+      onDone();
+    } catch (x) {
+      setErr(x.message);
+      setBusy(false);
+    }
+  };
+  return (
+    <form className="card" onSubmit={save}>
+      <h3 style={{ margin: "0 0 10px" }}>Autre chose sur mon planning</h3>
+      <label className="field"><span className="mut">Quoi</span><input required maxLength={120} placeholder="ex. Tournoi, rendez-vous, réunion du club…" value={f.title} onChange={(e) => setF({ ...f, title: e.target.value })} /></label>
+      <label className="field"><span className="mut">Date</span><DateSelect label="Date" value={f.date} to={365} onChange={(v) => setF({ ...f, date: v })} /></label>
+      <div className="grid">
+        <label className="field"><span className="mut">Début</span><TimeSelect label="Début" value={f.time} onChange={(v) => setF({ ...f, time: v, end: toMin(f.end) > toMin(v) ? f.end : plusHour(v) })} /></label>
+        <label className="field"><span className="mut">Fin</span><TimeSelect label="Fin" value={f.end} onChange={(v) => setF({ ...f, end: v })} /></label>
+      </div>
+      <label className="field"><span className="mut">Note (facultatif)</span><input maxLength={300} value={f.note} onChange={(e) => setF({ ...f, note: e.target.value })} /></label>
+      <p className="mut small-p">Vos joueurs ne pourront pas réserver à ce moment-là.</p>
+      {err && <div className="err" role="alert">{err}</div>}
+      <div className="actions"><button className="sec" type="button" onClick={onCancel}>Annuler</button><button disabled={busy}>Ajouter au planning</button></div>
+    </form>
+  );
+}
+
 export default function Planning({ go, summary }) {
   // dernières données connues tout de suite (peek, voir api.js), mises à jour dès que les nouvelles arrivent
   const [sessions, setSessions] = useState(() => peek("/sessions") ?? null);
@@ -66,6 +104,8 @@ export default function Planning({ go, summary }) {
   const [promos, setPromos] = useState(() => peek("/promotions")?.items ?? []);
   const [offs, setOffs] = useState(() => peek("/time-off") ?? []); // absences du coach
   const [addingOff, setAddingOff] = useState(false);
+  const [events, setEvents] = useState(() => peek("/coach-events") ?? []); // autres choses sur le planning
+  const [addingEvent, setAddingEvent] = useState(null); // null, ou { date, time } (formulaire ouvert)
   const [inviteFor, setInviteFor] = useState(null); // séance qui vient d'être créée: inviter des joueurs
   const [addingCourt, setAddingCourt] = useState(false);
   const [prefill, setPrefill] = useState(null); // « Créer une séance sur ce terrain »
@@ -77,6 +117,11 @@ export default function Planning({ go, summary }) {
     api("/clubs").then(setClubs).catch(() => {});
     api("/promotions").then((r) => setPromos(r.items)).catch(() => {});
     api("/time-off").then(setOffs).catch(() => {});
+    api("/coach-events").then(setEvents).catch(() => {});
+  };
+  const removeEvent = async (ev) => {
+    if (!(await confirmDialog({ title: `Supprimer « ${ev.title} » ?`, message: "Ce créneau pourra de nouveau être proposé à vos joueurs.", confirm: "Supprimer", danger: true }))) return;
+    api(`/coach-events/${ev.id}`, { method: "DELETE" }).then(() => { toast("Supprimé du planning"); load(); }).catch(toastError);
   };
   const removeOff = async (o) => {
     if (!(await confirmDialog({ title: "Supprimer cette absence ?", message: "Vos joueurs pourront de nouveau réserver ces jours-là.", confirm: "Supprimer", danger: true }))) return;
@@ -87,7 +132,7 @@ export default function Planning({ go, summary }) {
     setAdding(false);
     setPrefill(null);
     load();
-    if (s && s.open && s.kind !== "individuel" && s.player_ids.length < s.max_players) setInviteFor(s.id);
+    if (s && s.open && s.kind !== "individuel" && s.player_ids.length < s.max_players && !s.invited?.length) setInviteFor(s.id); // déjà prévenus: rien à proposer
   };
   const stopPromo = (p) => api(`/promotions/${p.id}`, { method: "DELETE" }).then(() => { toast("Promotion arrêtée"); load(); }).catch(toastError);
   const removeCourt = async (cb) => {
@@ -169,13 +214,15 @@ export default function Planning({ go, summary }) {
         <>
           <div className="row" style={{ gap: 6, justifyContent: "flex-start", marginBottom: 8 }}>
             <button className="small sec" onClick={() => { setAddingCourt(!addingCourt); setAddingOff(false); }}><Icon name="plus" size={15} /> Terrain</button>
-            <button className="small sec" onClick={() => { setAddingOff(!addingOff); setAddingCourt(false); }}><Icon name="sun" size={15} /> Absence</button>
+            <button className="small sec" onClick={() => { setAddingOff(!addingOff); setAddingCourt(false); setAddingEvent(null); }}><Icon name="sun" size={15} /> Absence</button>
+            <button className="small sec" onClick={() => { setAddingEvent(addingEvent ? null : {}); setAddingCourt(false); setAddingOff(false); }}><Icon name="plus" size={15} /> Autre</button>
           </div>
+          {addingEvent && <EventForm key={JSON.stringify(addingEvent)} initial={addingEvent} onCancel={() => setAddingEvent(null)} onDone={() => { setAddingEvent(null); load(); }} />}
           {addingCourt && <ManualForm key={JSON.stringify(courtAt)} initial={courtAt} clubs={clubs} onCancel={() => { setAddingCourt(false); setCourtAt(null); }} onDone={() => { setAddingCourt(false); setCourtAt(null); load(); }} />}
           {addingOff && <TimeOffForm onCancel={() => setAddingOff(false)} onDone={() => { setAddingOff(false); load(); }} />}
           {adding && <SessionForm key={JSON.stringify(prefill)} initial={prefill} players={players} onDone={created} />}
           {sessions === null ? <Loading rows={2} /> : (
-            <CourtCalendar list={courts} promos={promos} sessions={sessions} offs={offs} monday={monday} onWeek={setMonday} maxMonday={maxMonday}
+            <CourtCalendar list={courts} promos={promos} sessions={sessions} offs={offs} events={events} onRemoveEvent={removeEvent} monday={monday} onWeek={setMonday} maxMonday={maxMonday}
               cardProps={{ byId, name, onStatus: setStatus, onDuplicate: duplicate, onPrepare: (x) => go(`session/${x.id}`), onChanged: load,
                 // séance effectuée: noter, encaisser, rembourser un absent, annuler (même panneau que l'accueil)
                 renderDone: (s, close) => (
@@ -189,7 +236,8 @@ export default function Planning({ go, summary }) {
               onRemove={removeCourt} onStopPromo={stopPromo} onChanged={load} onCreateAt={createAt} onRemoveOff={removeOff}
               onAddAt={(what, at) => { // case vide touchée dans le calendrier
                 setAddingOff(false);
-                if (what === "court") { setCourtAt(at); setAddingCourt(true); setAdding(false); } else { setPrefill({ date: at.date, time: at.time }); setAdding(true); setAddingCourt(false); }
+                setAddingEvent(what === "event" ? at : null);
+                if (what === "event") { setAddingCourt(false); setAdding(false); } else if (what === "court") { setCourtAt(at); setAddingCourt(true); setAdding(false); } else { setPrefill({ date: at.date, time: at.time }); setAdding(true); setAddingCourt(false); }
                 window.scrollTo({ top: 0, behavior: "smooth" });
               }} />
           )}
@@ -219,6 +267,14 @@ export default function Planning({ go, summary }) {
       {offOn(offs, sel) && <div className="note warn" style={{ marginBottom: 8 }}><Icon name="sun" size={15} /> Absent ce jour-là{offOn(offs, sel).reason && ` · ${offOn(offs, sel).reason}`} : aucun créneau n'est proposé aux joueurs.</div>}
 
       {sessions === null && <Loading rows={2} />}
+      {events.filter((e) => dayKey(e.start) === sel).map((e) => (
+        <div key={"e" + e.id} className="card sess ev-card">
+          <div className="row">
+            <div><div className="time">{hhmm(e.start)} <span className="mut">→ {hhmm(new Date(new Date(e.start.endsWith("Z") || /[+-]\d\d:\d\d$/.test(e.start) ? e.start : e.start + "Z").getTime() + e.duration_min * 60000).toISOString())}</span></div><b>{e.title}</b>{e.note && <div className="mut small-p">{e.note}</div>}</div>
+            <button className="small sec iconbtn" aria-label={`Supprimer ${e.title}`} onClick={() => removeEvent(e)}><Icon name="trash" size={15} /></button>
+          </div>
+        </div>
+      ))}
       {active.map((s) => <SessionCard key={s.id} s={s} name={name} byId={byId} onStatus={setStatus} onDuplicate={duplicate} onPrepare={(x) => go(`session/${x.id}`)} onChanged={load} />)}
 
       {done.length > 0 && (
@@ -247,7 +303,7 @@ export default function Planning({ go, summary }) {
           </div>
         </>
       )}
-      {sessions !== null && list.length === 0 && !adding && (
+      {sessions !== null && list.length === 0 && !adding && !events.some((e) => dayKey(e.start) === sel) && (
         <div className="card empty">
           <Icon name="sun" size={32} />
           <b>Journée libre</b>

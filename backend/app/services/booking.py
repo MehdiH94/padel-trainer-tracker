@@ -87,9 +87,13 @@ def join_price(coach: Coach, s: TrainingSession, target: int) -> int:
 # --- Créneaux libres ----------------------------------------------------
 
 def _busy(db: Session, coach: Coach) -> list[tuple[datetime, datetime]]:
-    """Périodes déjà prises chez ce coach: ses séances (durée la plus longue encore possible)."""
+    """Périodes déjà prises chez ce coach: ses séances (durée la plus longue encore possible) et ses autres événements."""
+    from ..models import CoachEvent
     busy = [(aware(s.start), aware(s.start) + timedelta(minutes=s.duration_min))
             for s in db.scalars(select(TrainingSession).where(TrainingSession.coach_id == coach.id, TrainingSession.status != "annulee"))]
+    # autres choses sur son planning (rendez-vous, tournoi…): créneau bloqué aussi
+    busy += [(aware(e.start), aware(e.start) + timedelta(minutes=e.duration_min))
+             for e in db.scalars(select(CoachEvent).where(CoachEvent.coach_id == coach.id))]
     return busy  # les demandes pas encore traitées ne bloquent pas: le coach voit ensemble celles d'un même créneau
 
 

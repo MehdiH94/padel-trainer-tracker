@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { dayLabel, hhmm } from "./api.js";
+import { dayLabel, hhmm, tnd } from "./api.js";
 import Icon from "./Icon.jsx";
 import InvitePlayers from "./InvitePlayers.jsx";
 import SessionCard from "./SessionCard.jsx";
@@ -27,6 +27,7 @@ export const STATES = {
   demande: { label: "Terrain demandé au club, pas confirmé", short: "Demandé" },
   sans_terrain: { label: "Joueurs sans terrain réservé", short: "Sans terrain" },
   refuse: { label: "Terrain refusé par le club", short: "Refusé" },
+  evenement: { label: "Autre chose (rendez-vous, tournoi…) : aucune séance à ce moment-là", short: "Autre" },
 };
 
 // Côte à côte quand plusieurs blocs se chevauchent le même jour
@@ -49,6 +50,7 @@ function Details({ cb, session, promo, cardProps, onClose, onRemove, onStopPromo
       <div className="row"><span className={"cal-pill " + cb.state}>{st?.short}</span><button className="small sec iconbtn" aria-label="Fermer" onClick={onClose}><Icon name="x" size={15} /></button></div>
       <b className="sheet-title" style={{ marginTop: 8 }}><span className="cap1">{dayLabel(cb.start)}</span> · {h24(cb.start)} – {h24(end)}</b>
       {cb.club_name && <div className="mut">{cb.club_name}{cb.court_label && ` · ${cb.court_label}`}{cb.series_id && <> · <Icon name="repeat" size={12} /> régulier</>}</div>}
+      {cb.cost_millimes > 0 && <div className="mut small-p">Payé au club : {tnd(cb.cost_millimes)}</div>}
       <p className="small-p">{st?.label}.</p>
       {cb.state === "completable" && <p className="mut small-p">La séance a lieu quoi qu'il arrive (minimum atteint), mais les joueurs acceptent d'être plus nombreux : complétez-la jusqu'au dernier moment, ils paieront le prix du groupe.</p>}
       {cb.state === "sans_terrain" && <p className="small-p warn-txt">Pensez à réserver un terrain pour cette séance : ajoutez-le avec « + Terrain » (il sera utilisé automatiquement s'il couvre l'horaire) ou demandez-le au club.</p>}
@@ -85,13 +87,27 @@ function Details({ cb, session, promo, cardProps, onClose, onRemove, onStopPromo
   );
 }
 
+// Autre chose que des séances sur le planning (rendez-vous, tournoi…): le créneau est bloqué
+function EventDetails({ ev, onClose, onRemove }) {
+  return (
+    <Modal onClose={onClose} label="Événement">
+      <div className="row"><span className="cal-pill evenement">Autre</span><button className="small sec iconbtn" aria-label="Fermer" onClick={onClose}><Icon name="x" size={15} /></button></div>
+      <b className="sheet-title" style={{ marginTop: 8 }}>{ev.title}</b>
+      <div className="mut"><span className="cap1">{dayLabel(ev.start)}</span> · {h24(ev.start)} – {h24(endIso(ev))}</div>
+      {ev.note && <p className="small-p">{ev.note}</p>}
+      <p className="mut small-p">Aucune séance ni réservation de joueur ne peut avoir lieu à ce moment-là.</p>
+      {onRemove && <div className="actions"><button className="sec danger" onClick={() => { onRemove(ev); onClose(); }}><Icon name="trash" size={15} /> Supprimer</button></div>}
+    </Modal>
+  );
+}
+
 // Absence du coach ce jour-là ? (dates de Tunis « AAAA-MM-JJ », bornes incluses)
 export const offOn = (offs, key) => offs.find((o) => o.start_date <= key && key <= o.end_date);
 
 // Calendrier: semaine (par défaut) ou un seul jour (toucher l'en-tête d'un jour). Terrains (couleur selon leur état),
 // séances qui n'ont pas encore de terrain, et absences du coach (vacances…).
 // sessions / cardProps (facultatifs): séances du coach, pour ouvrir leur carte complète depuis le calendrier.
-export default function CourtCalendar({ list, promos = [], sessions = [], offs = [], cardProps, monday: weekStart, onWeek, onRemove, onStopPromo, onChanged, onCreateAt, onRemoveOff, maxMonday, onAddAt }) {
+export default function CourtCalendar({ list, promos = [], sessions = [], offs = [], events = [], onRemoveEvent, cardProps, monday: weekStart, onWeek, onRemove, onStopPromo, onChanged, onCreateAt, onRemoveOff, maxMonday, onAddAt }) {
   const [adding, setAdding] = useState(null); // case vide touchée: { date, time }
   const [own, setOwn] = useState(mondayOf(new Date()));
   const monday = weekStart ?? own;
@@ -109,7 +125,9 @@ export default function CourtCalendar({ list, promos = [], sessions = [], offs =
     id: "s" + s.id, start: s.start, duration_min: s.duration_min, state: "sans_terrain", club_name: s.club, court_label: s.court,
     session_id: s.id, players: s.player_ids.map(name).filter(Boolean), players_count: s.player_ids.length, min_needed: s.min_players,
   }));
-  const shown = [...list.filter((cb) => cb.start && STATES[cb.state] && cb.session_status !== "annulee"), ...noCourt];
+  // autres choses sur le planning (rendez-vous, tournoi…)
+  const evs = events.map((e) => ({ ...e, id: "e" + e.id, event_id: e.id, state: "evenement" }));
+  const shown = [...list.filter((cb) => cb.start && STATES[cb.state] && cb.session_status !== "annulee"), ...noCourt, ...evs];
   const byDay = Object.fromEntries(days.map((d) => [ymd(d), lanes(shown.filter((cb) => ymd(toDate(cb.start)) === ymd(d)).sort((a, b) => toDate(a.start) - toDate(b.start)))]));
   const all = Object.values(byDay).flat();
   const minH = Math.min(8, ...all.map((x) => Math.floor(x.s)));
@@ -202,7 +220,8 @@ export default function CourtCalendar({ list, promos = [], sessions = [], offs =
                   <button key={cb.id} className={"cal-block " + cb.state} onClick={() => setSel(cb)}
                     style={{ top: (s - minH) * PX, height: Math.max((e - s) * PX - 2, 18), left: `${(lane / count) * 100}%`, width: `${100 / count}%` }}
                     aria-label={`${STATES[cb.state].short}, ${h24(cb.start)}${cb.club_name ? ", " + cb.club_name : ""}`}>
-                    <b>{byId[cb.session_id]?.feedback_missing && byId[cb.session_id]?.status === "effectuee" && <i className="todo-dot mini" title="À noter" />}{short(cb.start)}–{short(endIso(cb))}{day && ` · ${STATES[cb.state].short}`}</b>
+                    {cb.state === "evenement" && <small className="ev-title">{cb.title}</small>}
+                    <b>{byId[cb.session_id]?.feedback_missing && byId[cb.session_id]?.status === "effectuee" && <i className="todo-dot mini" title="À noter" />}{short(cb.start)}–{short(endIso(cb))}{day && cb.state !== "evenement" && ` · ${STATES[cb.state].short}`}</b>
                     {day && cb.club_name && <small>{cb.club_name}{cb.court_label && ` · ${cb.court_label}`}</small>}
                     {!day && multi && cb.club_name && <small className="club-code">{codes[cb.club_name]}</small>}
                     {day && cb.players?.length > 0 && <small>{cb.players.join(", ")}{cb.state === "completable" ? ` · encore ${cb.max_players - cb.players_count} place${cb.max_players - cb.players_count > 1 ? "s" : ""}` : cb.min_needed > 1 ? ` (${cb.players_count}/${cb.min_needed})` : ""}</small>}
@@ -218,7 +237,8 @@ export default function CourtCalendar({ list, promos = [], sessions = [], offs =
         <div className="club-legend">{weekClubs.map((n) => <span key={n}><b className="club-code">{codes[n]}</b> {n}</span>)}</div>
       )}
       {all.length === 0 && <p className="mut center small-p">{day ? "Rien ce jour-là." : "Rien cette semaine."} Ajoutez un terrain réservé ou une séance.</p>}
-      {sel && <Details cb={sel} session={byId[sel.session_id]} cardProps={cardProps} promo={promos.find((p) => p.court_booking_id === sel.id && p.active)}
+      {sel?.state === "evenement" && <EventDetails ev={sel} onClose={() => setSel(null)} onRemove={onRemoveEvent && ((x) => onRemoveEvent({ ...x, id: x.event_id }))} />}
+      {sel && sel.state !== "evenement" && <Details cb={sel} session={byId[sel.session_id]} cardProps={cardProps} promo={promos.find((p) => p.court_booking_id === sel.id && p.active)}
         onClose={() => setSel(null)} onRemove={onRemove} onStopPromo={onStopPromo} onChanged={onChanged} onCreateAt={onCreateAt} />}
       {adding && (
         <Modal onClose={() => setAdding(null)} label="Ajouter">
@@ -226,6 +246,7 @@ export default function CourtCalendar({ list, promos = [], sessions = [], offs =
           <div className="actions" style={{ flexDirection: "column" }}>
             <button className="sec choice" onClick={() => { onAddAt("session", adding); setAdding(null); }}><Icon name="plus" size={18} /><span><b>Ajouter une séance</b><small>Formulaire prérempli à ce jour et cette heure.</small></span></button>
             <button className="sec choice" onClick={() => { onAddAt("court", adding); setAdding(null); }}><Icon name="pin" size={18} /><span><b>Ajouter un terrain</b><small>Terrain réservé au club à partir de cette heure.</small></span></button>
+            <button className="sec choice" onClick={() => { onAddAt("event", adding); setAdding(null); }}><Icon name="calendar" size={18} /><span><b>Ajouter autre chose</b><small>Rendez-vous, tournoi, réunion… : pas de séance à ce moment-là.</small></span></button>
           </div>
         </Modal>
       )}

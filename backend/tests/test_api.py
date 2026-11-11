@@ -2534,3 +2534,108 @@ def test_coach_can_allow_gaps_and_choose_duration(client):
     assert client.post(f"/booking/requests/{r['id']}/accept", json={"minutes": 60}).status_code == 200  # le coach choisit 1 h
     s = next(x for x in client.get("/sessions").json() if x["player_ids"] == [p["id"]])
     assert s["duration_min"] == 60
+
+
+# --- Demandes de Mehdi (2026-11-11): joueur sans téléphone, séances confirmées ou joueurs prévenus,
+# autre chose sur le planning, prix des terrains déduits, prix des réglages sans prorata, durées 1 h / 1 h 30 ---
+
+def test_coach_adds_player_without_phone(client):
+    a = client.post("/players", json={"name": "Sans Tel"})
+    assert a.status_code == 201 and a.json()["phone"] == ""
+    b = client.post("/players", json={"name": "Sans Tel 2", "phone": ""})  # deux joueurs sans numéro: pas un doublon
+    assert b.status_code == 201
+    assert client.post("/players", json={"name": "Mauvais", "phone": "123"}).status_code == 422
+
+
+def test_session_duration_one_hour_or_ninety_minutes(client):
+    p = mkplayer(client)
+    for minutes in (45, 120):
+        r = client.post("/sessions", json={"start": "2026-12-01T10:00:00Z", "duration_min": minutes, "player_ids": [p["id"]]})
+        assert r.status_code == 422
+    assert client.post("/sessions", json={"start": "2026-12-01T10:00:00Z", "duration_min": 90, "player_ids": [p["id"]]}).status_code == 201
+
+
+def test_session_price_comes_from_settings_without_prorata(client):
+    open_week(client)
+    st = client.get("/booking/settings").json()
+    grid = {"individuel": {"60": 60000}, "duo": {"60": 40000, "90": 50000}, "groupe": {"90": 35000}}
+    client.put("/booking/settings", json={**st, "price_grid": grid})
+    a, b = mkplayer(client, name="A"), mkplayer(client, name="B")
+    s = client.post("/sessions", json={"start": "2026-12-01T10:00:00Z", "kind": "duo", "duration_min": 90, "player_ids": [a["id"], b["id"]],
+                                       "discount_millimes": 0}).json()[0]
+    assert s["price_millimes"] == 50000  # le prix fixé pour 1 h 30, pas 40 × 1,5
+    s = client.post("/sessions", json={"start": "2026-12-02T10:00:00Z", "kind": "duo", "duration_min": 60, "player_ids": [a["id"]],
+                                       "discount_millimes": 5000}).json()[0]
+    assert s["price_millimes"] == 35000
+    r = client.post("/sessions", json={"start": "2026-12-03T10:00:00Z", "kind": "individuel", "duration_min": 90, "player_ids": [a["id"]],
+                                       "discount_millimes": 0})
+    assert r.status_code == 422 and "Réglages" in r.json()["detail"]  # aucun prix réglé pour seul 1 h 30
+
+
+def test_session_confirmed_by_coach_or_players_warned(client):
+    future = (datetime.now(timezone.utc) + timedelta(days=3)).replace(minute=0, second=0, microsecond=0)
+    club = mkclub(client)
+    a = mkplayer(client, name="Ali")
+    # le coach inscrit ses joueurs et confirme lui-même le terrain: séance prête, aucun SMS
+    n = len(FakeSmsProvider.sent)
+    s = client.post("/sessions", json={"start": future.isoformat(), "kind": "duo", "club_id": club["id"], "court_booked": True,
+                                       "player_ids": [a["id"]]}).json()[0]
+    assert s["court_status"] == "confirmee" and s["player_ids"] == [a["id"]] and s["invited"] == [] and len(FakeSmsProvider.sent) == n
+    # ou il prévient des joueurs: e-mail + appli, la séance montre qui n'a pas encore répondu
+    b, bc = player_client(client, name="Bilel", phone="20111111")
+    c, cc = player_client(client, name="Chedi", phone="20222222", category="P1000")  # niveau différent: le coach choisit
+    later = future + timedelta(days=1)
+    r = client.post("/sessions", json={"start": later.isoformat(), "kind": "duo", "player_ids": [a["id"]], "invite_ids": [b["id"], c["id"]],
+                                       "invite_message": "Séance spéciale volée, partants ?"})
+    assert r.status_code == 201
+    s = r.json()[0]
+    assert s["open"] is True and [(x["name"], x["status"]) for x in s["invited"]] == [("Bilel", "proposee"), ("Chedi", "proposee")]
+    note = bc.get("/me/notifications").json()
+    assert any("volée" in (x.get("body") or "") for x in (note["items"] if isinstance(note, dict) else note))
+    # Chedi refuse, Bilel accepte: il rejoint la séance, il n'est plus « en attente »
+    pid = cc.get("/me/proposals").json()[0]["id"]
+    cc.post(f"/me/proposals/{pid}/decline")
+    client.post(f"/players/{b['id']}/credits", json={"amount_millimes": 100000})
+    pid = bc.get("/me/proposals").json()[0]["id"]
+    assert bc.post(f"/me/proposals/{pid}/accept").status_code == 200
+    s = next(x for x in client.get("/sessions").json() if x["id"] == s["id"])
+    assert sorted(s["player_ids"]) == sorted([a["id"], b["id"]]) and [(x["name"], x["status"]) for x in s["invited"]] == [("Chedi", "refusee")]
+    # pas de répétition avec des joueurs prévenus
+    r = client.post("/sessions", json={"start": (later + timedelta(days=1)).isoformat(), "invite_ids": [b["id"]], "repeat_weeks": 2})
+    assert r.status_code == 422
+
+
+def test_coach_event_blocks_the_planning(client):
+    open_week(client)
+    start = (datetime.now(timezone.utc) + timedelta(days=2)).astimezone(timezone(timedelta(hours=1))).replace(hour=14, minute=0, second=0, microsecond=0)
+    e = client.post("/coach-events", json={"title": "Rendez-vous banque", "start": start.isoformat(), "duration_min": 90})
+    assert e.status_code == 201 and client.get("/coach-events").json()[0]["title"] == "Rendez-vous banque"
+    assert client.post("/coach-events", json={"title": " ", "start": start.isoformat()}).status_code == 422
+    assert client.post("/coach-events", json={"title": "Autre", "start": start.isoformat()}).status_code == 409
+    p = mkplayer(client)
+    r = client.post("/sessions", json={"start": (start + timedelta(minutes=30)).isoformat(), "player_ids": [p["id"]]})
+    assert r.status_code == 409 and "Rendez-vous banque" in r.json()["detail"]
+    # les joueurs ne se voient proposer aucun créneau qui chevauche l'événement
+    from app.models import Coach
+    from app.services import booking as svc
+    db = next(_db())
+    coach = db.query(Coach).first()
+    slots = svc.free_slots(db, coach, minutes=60)
+    assert slots and not any(start - timedelta(minutes=60) < x < start + timedelta(minutes=90) for x in slots)
+    assert client.delete(f"/coach-events/{e.json()['id']}").status_code == 200
+    assert client.get("/coach-events").json() == []
+
+
+def test_court_cost_is_deducted_from_earnings(client):
+    club = mkclub(client)
+    start = (datetime.now(timezone.utc) + timedelta(hours=2)).replace(minute=0, second=0, microsecond=0)
+    c = client.post("/court-bookings/manual", json={"club_id": club["id"], "start": start.isoformat(), "duration_min": 90, "court_label": "Terrain 1",
+                                                    "cost_millimes": 60000}).json()
+    assert c["cost_millimes"] == 60000
+    d = start.astimezone(timezone(timedelta(hours=1))).date()
+    f = client.get(f"/finance?start={d.replace(day=1)}&end={d}").json()
+    assert f["court_costs_millimes"] == 60000 and f["net_millimes"] == f["earned_millimes"] - 60000
+    assert client.post("/court-bookings/manual", json={"club_id": club["id"], "start": (start + timedelta(days=1)).isoformat(),
+                                                       "cost_millimes": -1}).status_code == 422
+    client.delete(f"/court-bookings/{c['id']}")  # terrain annulé: plus de dépense
+    assert client.get(f"/finance?start={d.replace(day=1)}&end={d}").json()["court_costs_millimes"] == 0

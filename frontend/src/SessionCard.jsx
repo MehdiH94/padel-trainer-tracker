@@ -17,6 +17,9 @@ export default function SessionCard({ s, name, byId, onStatus, onDuplicate, onPr
   const k = KIND[s.kind];
   const end = new Date(new Date(s.start.endsWith("Z") || /[+-]\d\d:\d\d$/.test(s.start) ? s.start : s.start + "Z").getTime() + s.duration_min * 60000).toISOString();
   const free = s.max_players - s.player_ids.length;
+  // joueurs prévenus par le coach: qui n'a pas encore répondu, qui a refusé
+  const waiting = (s.invited ?? []).filter((x) => x.status === "proposee");
+  const declined = (s.invited ?? []).filter((x) => x.status === "refusee");
   return (
     <div className={"card sess " + s.status} style={{ borderLeft: `5px solid ${k.color}` }}>
       <div className="row">
@@ -35,8 +38,15 @@ export default function SessionCard({ s, name, byId, onStatus, onDuplicate, onPr
         {s.open && s.status === "prevue" && s.played_min < s.duration_min && <span className="court-badge idle"><Icon name="clock" size={12} /> {s.played_min} min s'il reste {s.player_ids.length > 1 ? "à " + s.player_ids.length : "seul"}</span>}
         {s.level && <span className="court-badge idle">Niveau {s.level}</span>}
         {canInvite && !short && s.player_ids.length > 0 && <span className="court-badge ok"><Icon name="plus" size={12} /> Confirmée · encore {s.max_players - s.player_ids.length} place{s.max_players - s.player_ids.length > 1 ? "s" : ""} à compléter</span>}
-        {short && <span className="court-badge wait"><Icon name="clock" size={12} /> En attente de joueurs {s.player_ids.length}/{s.min_players}</span>}
+        {short && !waiting.length && <span className="court-badge wait"><Icon name="clock" size={12} /> En attente de joueurs {s.player_ids.length}/{s.min_players}</span>}
+        {waiting.length > 0 && <span className="court-badge wait"><Icon name="send" size={12} /> {waiting.length} joueur{waiting.length > 1 ? "s" : ""} prévenu{waiting.length > 1 ? "s" : ""} · en attente de réponse</span>}
       </div>
+      {(waiting.length > 0 || declined.length > 0) && (
+        <div className="invited small-p">
+          {waiting.length > 0 && <div><Icon name="clock" size={13} /> <b>Pas encore répondu :</b> {waiting.map((x) => x.name).join(", ")}</div>}
+          {declined.length > 0 && <div className="mut"><Icon name="x" size={13} /> Ont refusé : {declined.map((x) => x.name).join(", ")}</div>}
+        </div>
+      )}
       <div className="row" style={{ marginTop: 10 }}>
         {names.length ? <AvatarStack names={names} /> : <span className="mut">Aucun joueur</span>}
         <div style={{ textAlign: "right" }}>

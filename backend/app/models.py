@@ -371,3 +371,30 @@ class Notification(Base):
     promotion_id: Mapped[int | None] = mapped_column(ForeignKey("promotions.id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
     read_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+
+
+class CoachEvent(Base):
+    """Autre chose qu'une séance sur le planning du coach (rendez-vous, tournoi, réunion…): bloque ce créneau
+    (aucune séance ni réservation de joueur à ce moment-là)."""
+
+    __tablename__ = "coach_events"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    coach_id: Mapped[int] = mapped_column(ForeignKey("coaches.id"), index=True)
+    title: Mapped[str] = mapped_column(String(120))
+    start: Mapped[datetime] = mapped_column(UTCDateTime, index=True)
+    duration_min: Mapped[int] = mapped_column(Integer, default=60)
+    note: Mapped[str] = mapped_column(Text, default="")
+
+
+class CourtExpense(Base):
+    """Prix payé par le coach pour un terrain qu'il a réservé lui-même: déduit de ses revenus (Finance).
+    Gardé à part du terrain (que les séances découpent ou réunissent): club, début et durée du terrain réservé."""
+
+    __tablename__ = "court_expenses"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    coach_id: Mapped[int] = mapped_column(ForeignKey("coaches.id"), index=True)
+    club_id: Mapped[int] = mapped_column(ForeignKey("clubs.id"))
+    start: Mapped[datetime] = mapped_column(UTCDateTime, index=True)
+    duration_min: Mapped[int] = mapped_column(Integer, default=60)
+    amount_millimes: Mapped[int] = mapped_column(Integer, default=0)
+    series_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
