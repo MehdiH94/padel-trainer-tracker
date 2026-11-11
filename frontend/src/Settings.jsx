@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { api, peek, tnd } from "./api.js";
 import Icon from "./Icon.jsx";
-import { toast, toastError } from "./feedback.jsx";
 import CriteriaEditor from "./CriteriaEditor.jsx";
 import { ClockPicker, KIND, Loading, MoneyInput } from "./ui.jsx";
 
@@ -9,10 +8,26 @@ const DAYS = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"];
 const HORIZONS = [[7, "1 semaine"], [14, "2 semaines"], [21, "3 semaines"], [30, "1 mois"], [60, "2 mois"], [90, "3 mois"]];
 const FULL_DAYS = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"];
 
+// Réglages incomplets: on attend que le coach corrige avant d'enregistrer (message dans la pastille)
+function problem(x) {
+  if (x.availability.some((w) => w.start_time >= w.end_time)) return "dans Disponibilités, la fin doit être après le début.";
+  if (x.happy_hours.some((h) => h.start_time >= h.end_time)) return "dans Heures creuses, la fin doit être après le début.";
+  if (x.happy_hours.some((h) => !(h.discount_millimes > 0))) return "indiquez la réduction des heures creuses, en dinars.";
+  if (!Object.values(x.price_grid ?? {}).some((g) => Object.keys(g).length)) return "proposez au moins une formule et une durée à vos joueurs.";
+  return null;
+}
+
 export default function Settings({ onBack, sub }) {
   const [s, setS] = useState(() => peek("/booking/settings") ?? null);
   const touched = useRef(false); // le coach a commencé à modifier: les réglages qui arrivent du serveur ne l'écrasent pas
-  const [saved, setSaved] = useState(false);
+  // Enregistrement automatique (pas de bouton en bas de page): chaque modification part ~0,8 s après la dernière
+  // frappe; une pastille en bas de l'écran dit où on en est, et la section modifiée affiche « Enregistré ».
+  const [status, setStatus] = useState({ state: "idle" }); // idle | saving | saved | invalid | error
+  const [flash, setFlash] = useState(null); // section qui vient d'être enregistrée
+  const section = useRef(null); // section en cours de modification
+  const dirty = useRef({ settings: false, clubs: false });
+  const timer = useRef(null);
+  const latest = useRef({});
   const [themes, setThemes] = useState(() => peek("/exercise-themes")?.work ?? []);
   const [cat, setCat] = useState(() => peek("/clubs/catalog") ?? null); // clubs connus + les miens
   const [sel, setSel] = useState(() => peek("/clubs/catalog")?.mine ?? []);
@@ -20,12 +35,47 @@ export default function Settings({ onBack, sub }) {
   const [nc, setNc] = useState({ name: "", phone: "" });
   const loadClubs = () => api("/clubs/catalog").then((c) => { setCat(c); setSel(c.mine); setNewClubs([]); });
   useEffect(() => { loadClubs(); }, []);
-  const toggleClub = (n) => setSel(sel.includes(n) ? sel.filter((x) => x !== n) : [...sel, n]);
+  const toggleClub = (n) => { setSel(sel.includes(n) ? sel.filter((x) => x !== n) : [...sel, n]); changed("clubs"); };
   const addClub = () => {
     if (!nc.name.trim()) return;
     setNewClubs([...newClubs, { ...nc, name: nc.name.trim() }]);
     setNc({ name: "", phone: "" });
+    changed("clubs");
   };
+  latest.current = { s, sel, newClubs, cat };
+  function changed(what = "settings") {
+    touched.current = true;
+    dirty.current[what] = true;
+    clearTimeout(timer.current);
+    timer.current = setTimeout(flush, 800);
+  }
+  function edit(next) {
+    setS(next);
+    changed("settings");
+  }
+  async function flush() {
+    clearTimeout(timer.current);
+    const d = { ...dirty.current };
+    if (!d.settings && !d.clubs) return;
+    const { s: cur, sel: names, newClubs: added, cat: catalog } = latest.current;
+    const bad = d.settings && problem(cur);
+    if (bad) return setStatus({ state: "invalid", msg: bad }); // rien d'envoyé tant que ce n'est pas corrigé
+    dirty.current = { settings: false, clubs: false };
+    const where = section.current;
+    setStatus({ state: "saving" });
+    try {
+      if (d.settings) await api("/booking/settings", { method: "PUT", body: cur });
+      if (d.clubs && catalog) await api("/clubs/selection", { method: "PUT", body: { names, new: added } }).then(loadClubs);
+    } catch (x) {
+      dirty.current = { settings: dirty.current.settings || d.settings, clubs: dirty.current.clubs || d.clubs };
+      return setStatus({ state: "error", msg: x.message });
+    }
+    setStatus({ state: "saved" });
+    setFlash(where);
+    setTimeout(() => { setFlash((f) => (f === where ? null : f)); setStatus((st) => (st.state === "saved" ? { state: "idle" } : st)); }, 2200);
+  }
+  // en quittant la page: ce qui n'est pas encore parti est enregistré
+  useEffect(() => () => { if (dirty.current.settings || dirty.current.clubs) flush(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { api("/booking/settings").then((x) => setS((cur) => (cur && touched.current ? cur : x))); api("/exercise-themes").then((t) => setThemes(t.work)); }, []);
   // Ouvert depuis le guide « Bien démarrer » (#settings/formules…): on va directement à la bonne section, mise en valeur
   useEffect(() => {
@@ -34,46 +84,39 @@ export default function Settings({ onBack, sub }) {
   }, [Boolean(s), sub]);
   if (!s) return <><h1>Réglages</h1><Loading rows={3} /></>;
 
-  const setHappy = (i, patch) => setS({ ...s, happy_hours: s.happy_hours.map((h, j) => (j === i ? { ...h, ...patch } : h)) });
+  const setHappy = (i, patch) => edit({ ...s, happy_hours: s.happy_hours.map((h, j) => (j === i ? { ...h, ...patch } : h)) });
   const dayWindows = (d) => s.availability.filter((w) => w.weekday === d);
-  const setDay = (d, windows) => setS({ ...s, availability: [...s.availability.filter((w) => w.weekday !== d), ...windows.map((w) => ({ ...w, weekday: d }))] });
-  async function save() {
-    try {
-      await api("/booking/settings", { method: "PUT", body: s });
-      if (cat) await api("/clubs/selection", { method: "PUT", body: { names: sel, new: newClubs } }).then(loadClubs);
-    } catch (x) {
-      return toastError(x);
-    }
-    toast("Réglages enregistrés");
-    setSaved(true);
-    setTimeout(() => setSaved(false), 1800);
-  }
+  const setDay = (d, windows) => edit({ ...s, availability: [...s.availability.filter((w) => w.weekday !== d), ...windows.map((w) => ({ ...w, weekday: d }))] });
+  const Saved = ({ id }) => (flash === id ? <span className="saved-tag" role="status"><Icon name="check" size={13} /> Enregistré</span> : null);
+  const card = (id) => "card" + (flash === id ? " just-saved" : "");
 
   return (
-    <div onInput={() => { touched.current = true; }} onClick={(e) => { if (e.target.closest("button, input, select")) touched.current = true; }}>
+    <div onInput={() => { touched.current = true; }} onClick={(e) => { if (e.target.closest("button, input, select")) touched.current = true; }}
+      onPointerDownCapture={(e) => { section.current = e.target.closest("[data-sec]")?.dataset.sec ?? section.current; }}
+      onFocusCapture={(e) => { section.current = e.target.closest("[data-sec]")?.dataset.sec ?? section.current; }}>
       <button className="small sec" onClick={onBack}><Icon name="chevL" size={15} /> Retour</button>
       <h1 style={{ marginTop: 10 }}>Réglages de réservation</h1>
-      <p className="mut" style={{ marginTop: -6 }}>Ce que vos joueurs voient dans leur application : créneaux, prix, politique d'annulation.</p>
+      <p className="mut" style={{ marginTop: -6 }}>Ce que vos joueurs voient dans leur application : créneaux, prix, politique d'annulation. <b>Chaque modification est enregistrée automatiquement.</b></p>
 
-      <h2 id="profil">Ma page publique</h2>
-      <div className="card">
+      <h2 id="profil">Ma page publique <Saved id="profil" /></h2>
+      <div className={card("profil")} data-sec="profil">
         <div className="mut small-p" style={{ marginBottom: 8 }}>Ce que les joueurs voient quand ils cherchent un coach.</div>
-        <label className="field"><span className="mut">Mon nom (affiché aux joueurs)</span><input value={s.name ?? ""} onChange={(e) => setS({ ...s, name: e.target.value })} /></label>
+        <label className="field"><span className="mut">Mon nom (affiché aux joueurs)</span><input value={s.name ?? ""} onChange={(e) => edit({ ...s, name: e.target.value })} /></label>
         <label className="field"><span className="mut">Présentation</span>
-          <textarea className="msg" rows={4} value={s.bio} onChange={(e) => setS({ ...s, bio: e.target.value })} placeholder="Votre parcours, votre façon d'entraîner, les niveaux que vous accompagnez…" />
+          <textarea className="msg" rows={4} value={s.bio} onChange={(e) => edit({ ...s, bio: e.target.value })} placeholder="Votre parcours, votre façon d'entraîner, les niveaux que vous accompagnez…" />
         </label>
         <div className="field"><span className="mut">Spécialités</span>
           <div className="chips">
             {themes.map((t) => {
               const on = s.specialties.includes(t);
-              return <button type="button" key={t} className={"chip small" + (on ? " on" : "")} aria-pressed={on} onClick={() => setS({ ...s, specialties: on ? s.specialties.filter((x) => x !== t) : [...s.specialties, t] })}>{t}</button>;
+              return <button type="button" key={t} className={"chip small" + (on ? " on" : "")} aria-pressed={on} onClick={() => edit({ ...s, specialties: on ? s.specialties.filter((x) => x !== t) : [...s.specialties, t] })}>{t}</button>;
             })}
           </div>
         </div>
       </div>
 
-      <h2 id="clubs">Mes clubs</h2>
-      <div className="card">
+      <h2 id="clubs">Mes clubs <Saved id="clubs" /></h2>
+      <div className={card("clubs")} data-sec="clubs">
         <div className="mut small-p" style={{ marginBottom: 8 }}>Les clubs où vous entraînez : les joueurs vous trouvent en filtrant par club, et vos terrains y sont réservés.</div>
         {cat === null ? <div className="skel" style={{ height: 40 }} /> : (
           <div className="chips">
@@ -82,7 +125,7 @@ export default function Settings({ onBack, sub }) {
               return <button type="button" key={n} className={"chip small" + (on ? " on" : "")} aria-pressed={on} onClick={() => toggleClub(n)}>{on && <Icon name="check" size={13} />} {n}</button>;
             })}
             {newClubs.map((c, i) => (
-              <button type="button" key={"new" + i} className="chip small on" aria-label={`Retirer ${c.name}`} onClick={() => setNewClubs(newClubs.filter((_, j) => j !== i))}><Icon name="plus" size={13} /> {c.name}</button>
+              <button type="button" key={"new" + i} className="chip small on" aria-label={`Retirer ${c.name}`} onClick={() => { setNewClubs(newClubs.filter((_, j) => j !== i)); changed("clubs"); }}><Icon name="plus" size={13} /> {c.name}</button>
             ))}
           </div>
         )}
@@ -91,15 +134,14 @@ export default function Settings({ onBack, sub }) {
           <input placeholder="Téléphone (facultatif)" aria-label="Téléphone du club" inputMode="tel" value={nc.phone} onChange={(e) => setNc({ ...nc, phone: e.target.value })} />
           <button type="button" className="small sec" onClick={addClub}><Icon name="plus" size={15} /> Ajouter</button>
         </div>
-        <div className="mut small-p" style={{ marginTop: 6 }}>Pensez à enregistrer en bas de la page.</div>
       </div>
 
-      <h2 id="formules">Formules : durées et prix par joueur</h2>
-      <div className="card">
+      <h2 id="formules">Formules : durées et prix par joueur <Saved id="formules" /></h2>
+      <div className={card("formules")} data-sec="formules">
         <div className="mut small-p" style={{ marginBottom: 8 }}>Pour chaque formule, cochez les durées que vos joueurs peuvent réserver et fixez le prix par joueur de chacune (pas forcément proportionnel : 1 h à 100 TND, 1 h 30 à 120 TND…). Une formule sans durée n'est pas proposée. Vos propres séances, vous les créez de la durée que vous voulez.</div>
         {Object.entries(KIND).map(([k, v]) => {
           const g = s.price_grid?.[k] ?? {};
-          const setG = (next) => setS({ ...s, price_grid: { ...s.price_grid, [k]: next } });
+          const setG = (next) => edit({ ...s, price_grid: { ...s.price_grid, [k]: next } });
           const toggle = (m) => {
             const { [m]: had, ...rest } = g;
             if (had !== undefined) return setG(rest);
@@ -121,8 +163,8 @@ export default function Settings({ onBack, sub }) {
         })}
       </div>
 
-      <h2>Heures creuses</h2>
-      <div className="card">
+      <h2>Heures creuses <Saved id="heures" /></h2>
+      <div className={card("heures")} data-sec="heures">
         <div className="mut small-p" style={{ marginBottom: 8 }}>Réduction automatique, en dinars par joueur, sur les nouvelles séances qui commencent dans ces plages (toutes formules).</div>
         {s.happy_hours.map((h, i) => (
           <div className="happy" key={i}>
@@ -130,23 +172,23 @@ export default function Settings({ onBack, sub }) {
             <ClockPicker label="Heures creuses · début" value={h.start_time} onChange={(v) => setHappy(i, { start_time: v })} />
             <ClockPicker label="Heures creuses · fin" value={h.end_time} onChange={(v) => setHappy(i, { end_time: v })} />
             <span className="inputunit"><em>−</em><MoneyInput label="Réduction par joueur" value={h.discount_millimes || 0} onChange={(m) => setHappy(i, { discount_millimes: m, discount_pct: 0 })} /><em>TND</em></span>
-            <button className="small sec iconbtn" aria-label="Supprimer ces heures creuses" onClick={() => setS({ ...s, happy_hours: s.happy_hours.filter((_, j) => j !== i) })}><Icon name="trash" size={14} /></button>
+            <button className="small sec iconbtn" aria-label="Supprimer ces heures creuses" onClick={() => edit({ ...s, happy_hours: s.happy_hours.filter((_, j) => j !== i) })}><Icon name="trash" size={14} /></button>
           </div>
         ))}
         {!s.happy_hours.length && <div className="mut">Aucune heure creuse.</div>}
-        <button className="small sec" style={{ marginTop: 8 }} onClick={() => setS({ ...s, happy_hours: [...s.happy_hours, { weekday: 0, start_time: "10:00", end_time: "12:00", discount_millimes: 10000 }] })}><Icon name="plus" size={15} /> Ajouter des heures creuses</button>
+        <button className="small sec" style={{ marginTop: 8 }} onClick={() => edit({ ...s, happy_hours: [...s.happy_hours, { weekday: 0, start_time: "10:00", end_time: "12:00", discount_millimes: 10000 }] })}><Icon name="plus" size={15} /> Ajouter des heures creuses</button>
       </div>
 
-      <h2 id="reservation">Créneaux proposés aux joueurs</h2>
-      <div className="card">
+      <h2 id="reservation">Créneaux proposés aux joueurs <Saved id="reservation" /></h2>
+      <div className={card("reservation")} data-sec="reservation">
         <div className="field"><span className="mut">Les joueurs réservent au plus</span>
           <div className="chips" role="group" aria-label="Limite de réservation à l'avance">
-            {HORIZONS.map(([d, l]) => <button key={d} type="button" className={"chip small" + ((s.booking_horizon_days ?? 14) === d ? " on" : "")} aria-pressed={(s.booking_horizon_days ?? 14) === d} onClick={() => setS({ ...s, booking_horizon_days: d })}>{l}</button>)}
+            {HORIZONS.map(([d, l]) => <button key={d} type="button" className={"chip small" + ((s.booking_horizon_days ?? 14) === d ? " on" : "")} aria-pressed={(s.booking_horizon_days ?? 14) === d} onClick={() => edit({ ...s, booking_horizon_days: d })}>{l}</button>)}
           </div>
           <small className="mut">à l'avance (jamais plus de 3 mois).</small>
         </div>
         <label className="check mode">
-          <input type="checkbox" checked={s.avoid_gaps !== false} onChange={(e) => setS({ ...s, avoid_gaps: e.target.checked })} aria-label="Éviter les trous de moins d'1 h" />
+          <input type="checkbox" checked={s.avoid_gaps !== false} onChange={(e) => edit({ ...s, avoid_gaps: e.target.checked })} aria-label="Éviter les trous de moins d'1 h" />
           <span><b>Éviter les trous de moins d'1 h</b><span className="mut small-p" style={{ display: "block" }}>
             {s.avoid_gaps !== false
               ? "Les joueurs ne voient que les horaires qui ne laissent pas de bout de terrain inutilisable (terrain 10 h-12 h : 1 h à 10 h ou 11 h, pas d'1 h 30)."
@@ -156,17 +198,17 @@ export default function Settings({ onBack, sub }) {
         {[["terrains", "Seulement sur mes terrains réservés", "Les joueurs ne voient que les heures où vous avez un terrain libre (Planning › Terrains). Recommandé : tout ce qui est réservé a un terrain."],
           ["disponibilites", "Sur toutes mes disponibilités", "Les joueurs voient toutes vos plages ci-dessous ; vous réservez le terrain après leur demande."]].map(([k, l, d]) => (
           <label key={k} className="check mode">
-            <input type="radio" name="booking_mode" checked={(s.booking_mode ?? "terrains") === k} onChange={() => setS({ ...s, booking_mode: k })} />
+            <input type="radio" name="booking_mode" checked={(s.booking_mode ?? "terrains") === k} onChange={() => edit({ ...s, booking_mode: k })} />
             <span><b>{l}</b><span className="mut small-p" style={{ display: "block" }}>{d}</span></span>
           </label>
         ))}
       </div>
 
-      <h2>Validation et annulation</h2>
-      <div className="card">
+      <h2>Validation et annulation <Saved id="validation" /></h2>
+      <div className={card("validation")} data-sec="validation">
         <div className={"autoconfirm" + (s.auto_confirm ? " on" : "")}>
           <label className="check" style={{ margin: 0 }}>
-            <input type="checkbox" checked={s.auto_confirm} onChange={(e) => setS({ ...s, auto_confirm: e.target.checked })} />
+            <input type="checkbox" checked={s.auto_confirm} onChange={(e) => edit({ ...s, auto_confirm: e.target.checked })} />
             <b>Validation automatique des réservations</b>
           </label>
           {s.auto_confirm ? (
@@ -181,8 +223,8 @@ export default function Settings({ onBack, sub }) {
         <div className="mut">Annulation par le joueur : jusqu'à 24 h avant pour une séance seul, 48 h avant à deux ou en groupe (crédits rendus). Après ce délai, il ne peut plus annuler mais peut envoyer un lien pour se faire remplacer.</div>
       </div>
 
-      <h2 id="disponibilites">Disponibilités</h2>
-      <div className="card">
+      <h2 id="disponibilites">Disponibilités <Saved id="disponibilites" /></h2>
+      <div className={card("disponibilites")} data-sec="disponibilites">
         <div className="mut small-p" style={{ marginBottom: 4 }}>Vos heures de travail, jour par jour (format 24 h). Touchez une heure pour la changer.</div>
         {DAYS.map((name, d) => {
           const ws = dayWindows(d);
@@ -195,7 +237,7 @@ export default function Settings({ onBack, sub }) {
                   <b>{FULL_DAYS[d]}</b>
                 </label>
                 {ws.length === 0 ? <span className="mut small-p">Fermé</span>
-                  : <button type="button" className="link small-p" onClick={() => setS({ ...s, availability: [0, 1, 2, 3, 4, 5, 6].flatMap((x) => ws.map((w) => ({ ...w, weekday: x }))) })}>Copier sur tous les jours</button>}
+                  : <button type="button" className="link small-p" onClick={() => edit({ ...s, availability: [0, 1, 2, 3, 4, 5, 6].flatMap((x) => ws.map((w) => ({ ...w, weekday: x }))) })}>Copier sur tous les jours</button>}
               </div>
               {ws.length > 0 && (
                 <>
@@ -217,7 +259,15 @@ export default function Settings({ onBack, sub }) {
           );
         })}
       </div>
-      <button style={{ width: "100%" }} onClick={save}>{saved ? "Enregistré" : "Enregistrer les réglages"}</button>
+      {/* État de l'enregistrement automatique, toujours visible en bas de l'écran */}
+      {status.state !== "idle" && (
+        <div className={"autosave " + status.state} role={status.state === "invalid" || status.state === "error" ? "alert" : "status"}>
+          {status.state === "saving" && <><span className="spin" aria-hidden="true" /> Enregistrement…</>}
+          {status.state === "saved" && <><Icon name="checkCircle" size={16} /> Modifications enregistrées</>}
+          {status.state === "invalid" && <><Icon name="alert" size={16} /> Pas encore enregistré : {status.msg}</>}
+          {status.state === "error" && <><Icon name="alert" size={16} /> {status.msg} <button className="link" onClick={() => { dirty.current.settings = true; flush(); }}>Réessayer</button></>}
+        </div>
+      )}
 
       <h2 id="araignee">Araignée : critères d'évaluation</h2>
       <CriteriaEditor url="/criteria" intro="Ce que vous notez de 0 à 10 pour vos joueurs (3 à 12 critères). Chaque joueur peut aussi avoir les siens, depuis sa fiche." reset="Revenir aux standards" />

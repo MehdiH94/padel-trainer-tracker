@@ -864,3 +864,20 @@ button.saved { background: var(--green); border-color: var(--green); color: #fff
 @media (prefers-color-scheme: dark) { .cal-block.evenement, .cal-dot.evenement, .cal-pill.evenement { background: #64748b; } }
 .cal-block .ev-title { font-weight: 600; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .card.ev-card { border-left: 5px solid #475569; }
+
+/* Réglages enregistrés automatiquement: pastille d'état au-dessus de la barre d'onglets, repère sur la section */
+.autosave { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(84px + env(safe-area-inset-bottom)); z-index: 6;
+  display: flex; align-items: center; gap: 8px; max-width: calc(100vw - 32px); padding: 10px 16px; border-radius: 99px;
+  background: var(--card); color: var(--txt); border: 1px solid var(--line); box-shadow: var(--glow); font-weight: 600; font-size: 14px;
+  animation: autosave-in .18s ease-out; }
+.autosave.saved { border-color: var(--green); color: var(--ok-txt); }
+.autosave.invalid, .autosave.error { border-color: var(--red); color: var(--red); border-radius: 14px; }
+.autosave .link { color: inherit; text-decoration: underline; }
+.autosave .spin { width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--line); border-top-color: var(--brand); animation: autosave-spin .7s linear infinite; }
+@keyframes autosave-in { from { opacity: 0; transform: translate(-50%, 8px); } }
+@keyframes autosave-spin { to { transform: rotate(360deg); } }
+@media (min-width: 1024px) { .autosave { bottom: 28px; } }
+.saved-tag { display: inline-flex; align-items: center; gap: 4px; margin-left: 8px; padding: 2px 8px; border-radius: 99px; font-size: 12px; font-weight: 600;
+  vertical-align: middle; color: var(--ok-txt); background: color-mix(in srgb, var(--green) 14%, transparent); animation: autosave-in .18s ease-out; }
+.card.just-saved { box-shadow: 0 0 0 2px var(--green); transition: box-shadow .3s; }
+@media (prefers-reduced-motion: reduce) { .autosave, .saved-tag { animation: none; } .autosave .spin { animation-duration: 2s; } }

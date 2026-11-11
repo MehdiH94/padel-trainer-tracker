@@ -2639,3 +2639,18 @@ def test_court_cost_is_deducted_from_earnings(client):
                                                        "cost_millimes": -1}).status_code == 422
     client.delete(f"/court-bookings/{c['id']}")  # terrain annulé: plus de dépense
     assert client.get(f"/finance?start={d.replace(day=1)}&end={d}").json()["court_costs_millimes"] == 0
+
+
+def test_session_with_booked_court_records_its_price(client):
+    club = mkclub(client)
+    p = mkplayer(client)
+    start = (datetime.now(timezone.utc) + timedelta(hours=3)).replace(minute=0, second=0, microsecond=0)
+    s = client.post("/sessions", json={"start": start.isoformat(), "club_id": club["id"], "court_booked": True, "court_cost_millimes": 45000,
+                                       "player_ids": [p["id"]]}).json()[0]
+    assert s["court_status"] == "confirmee"
+    cb = next(x for x in client.get("/court-bookings").json() if x["session_id"] == s["id"])
+    assert cb["cost_millimes"] == 45000
+    d = start.astimezone(timezone(timedelta(hours=1))).date()
+    assert client.get(f"/finance?start={d.replace(day=1)}&end={d}").json()["court_costs_millimes"] == 45000
+    assert client.post("/sessions", json={"start": (start + timedelta(days=1)).isoformat(), "club_id": club["id"], "court_booked": True,
+                                          "court_cost_millimes": -5}).status_code == 422

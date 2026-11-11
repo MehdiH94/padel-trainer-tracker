@@ -244,7 +244,7 @@ test("nouveau coach: confirmé par l'administrateur, puis le guide « Bien déma
   await page.getByLabel("Prix Individuel 1 h", { exact: true }).fill("60");
   await page.getByLabel("Prix Individuel 1 h", { exact: true }).fill("060"); // le 0 de départ ne reste pas collé: « 60 »
   await expect(page.getByLabel("Prix Individuel 1 h", { exact: true })).toHaveValue("060");
-  await page.getByRole("button", { name: /Enregistrer/ }).click();
+  await expect(page.getByText("Modifications enregistrées")).toBeVisible(); // enregistré tout seul, sans bouton
   // étape terminée: message de félicitations, puis retour au guide
   const bravo = page.getByRole("dialog", { name: "Étape terminée" });
   await expect(bravo).toContainText("Bravo, une étape de plus !");
@@ -479,16 +479,15 @@ test("réglages: durées et prix par formule (pas forcément proportionnels) et 
   await solo.getByRole("button", { name: "1 h 30" }).click();
   await page.getByLabel("Prix Individuel 1 h 30").fill("70");
   await page.getByRole("group", { name: "Limite de réservation à l'avance" }).getByRole("button", { name: "1 mois" }).click();
-  await page.getByRole("button", { name: /Enregistrer/ }).last().click();
-  await expect(page.getByText("Réglages enregistrés")).toBeVisible();
+  await expect(page.getByText("Modifications enregistrées")).toBeVisible(); // enregistrement automatique, sans bouton
+  await expect(page.getByRole("heading", { name: /Créneaux proposés aux joueurs/ }).getByText("Enregistré")).toBeVisible(); // repère sur la section
   await page.reload();
   await expect(page.getByLabel("Prix Individuel 1 h 30")).toHaveValue("70");
   await expect(page.getByRole("group", { name: "Limite de réservation à l'avance" }).getByRole("button", { name: "1 mois" })).toHaveAttribute("aria-pressed", "true");
   // on remet comme avant (les autres parcours utilisent les mêmes données)
   await page.getByRole("group", { name: "Durées Individuel" }).getByRole("button", { name: "1 h 30" }).click();
   await page.getByRole("group", { name: "Limite de réservation à l'avance" }).getByRole("button", { name: "2 semaines" }).click();
-  await page.getByRole("button", { name: /Enregistrer/ }).last().click();
-  await expect(page.getByText("Réglages enregistrés")).toBeVisible();
+  await expect(page.getByText("Modifications enregistrées")).toBeVisible();
 });
 
 test("séance effectuée: le coach rembourse un joueur absent (en entier), depuis le planning", async ({ page }) => {

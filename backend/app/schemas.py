@@ -92,6 +92,7 @@ class SessionIn(BaseModel):
     club: str = ""
     club_id: int | None = None
     court_booked: bool = False  # terrain déjà réservé à la main: aucun SMS au club
+    court_cost_millimes: int = 0  # terrain déjà réservé: prix payé au club (par séance), déduit des revenus
     open: bool = False  # places libres proposées aux autres joueurs
     court: str = ""
     price_millimes: int = 0

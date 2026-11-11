@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from ..auth import current_coach
 from ..db import get_db
 from ..constants import CAPACITY
-from ..models import Attendance, Club, Coach, CoachEvent, CourtBooking, Payment, Player, Proposal, TrainingSession
+from ..models import Attendance, Club, Coach, CoachEvent, CourtBooking, CourtExpense, Payment, Player, Proposal, TrainingSession
 from ..schemas import PlayerPaymentOut, SessionIn, SessionOut, SessionPatch
 from ..notify import letter
 from ..services import booking as booking_svc
@@ -123,6 +123,9 @@ def create_sessions(
             raise HTTPException(404, "Club introuvable")
     rec = str(uuid.uuid4()) if body.repeat_weeks > 1 else None
     data = body.model_dump(exclude={"player_ids", "repeat_weeks", "start", "court_booked", "discount_pct", "discount_millimes"})
+    if body.court_cost_millimes < 0:
+        raise HTTPException(422, "Prix du terrain invalide.")
+    data.pop("court_cost_millimes", None)
     data.pop("invite_message", None)
     data.pop("invite_ids", None)
     if body.discount_millimes is not None or body.discount_pct is not None:
@@ -182,6 +185,9 @@ def create_sessions(
             if busy:
                 raise HTTPException(409, courts.busy_message(db, busy[0]))
             courts.create_for_session(db, coach, club, s, already_booked=body.court_booked)
+            if body.court_booked and body.court_cost_millimes:  # prix payé au club: déduit des revenus (Finance)
+                db.add(CourtExpense(coach_id=coach.id, club_id=club.id, start=s.start, duration_min=s.duration_min,
+                                    amount_millimes=body.court_cost_millimes, series_id=rec))
     if invite_ids:  # joueurs prévenus: proposition dans leur appli + e-mail; la séance montre qui n'a pas répondu
         s = created[0]
         chosen = [db.get(Player, pid) for pid in invite_ids]

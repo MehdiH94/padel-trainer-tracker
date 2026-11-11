@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { api, hhmm, tnd } from "./api.js";
 import Icon from "./Icon.jsx";
 import { confirmDialog } from "./feedback.jsx";
-import { Avatar, CATEGORIES, CategoryBadge, catLabel, catOption, DateSelect, dinars, KIND, levelClashes, OFFS, TimeSelect } from "./ui.jsx";
+import { Avatar, CATEGORIES, CategoryBadge, catLabel, catOption, DateSelect, dinars, KIND, levelClashes, MoneyInput, OFFS, TimeSelect } from "./ui.jsx";
 
 // Choix des joueurs: liste déroulante avec recherche, niveau de chacun; les joueurs choisis restent affichés au-dessus
 function PlayerPicker({ players, chosen, max, onToggle }) {
@@ -61,7 +61,7 @@ function Field({ label, children, group }) {
 export default function SessionForm({ players, onDone, initial }) {
   const today = new Date().toLocaleDateString("fr-CA", { timeZone: "Africa/Tunis" });
   const [f, setF] = useState({
-    date: today, time: "18:00", duration_min: 60, kind: "individuel", club_id: "", court_booked: true, court: "",
+    date: today, time: "18:00", duration_min: 60, kind: "individuel", club_id: "", court_booked: true, court: "", court_cost: 0,
     discount_millimes: 0, repeat: false, repeat_weeks: 4, player_ids: [], open: false, level: "",
     // confirm = le coach inscrit ses joueurs, la séance est confirmée sans leur réponse;
     // invite = il prévient certains joueurs (e-mail + appli) et attend leurs réponses
@@ -131,6 +131,7 @@ export default function SessionForm({ players, onDone, initial }) {
         body: {
           start: `${f.date}T${f.time}:00+01:00`, // Tunisie: UTC+1 toute l'année
           duration_min: f.duration_min, kind: f.kind, club_id: f.club_id ? +f.club_id : null, court_booked: !!f.club_id && f.court_booked,
+          court_cost_millimes: f.club_id && f.court_booked && !cover?.here ? +f.court_cost || 0 : 0, // terrain réservé: prix payé au club
           court: f.court, level: f.open ? f.level : "", open: inviting || (f.open && f.kind !== "individuel"),
           discount_millimes: +f.discount_millimes, // le prix vient des réglages (par joueur), moins la réduction
           repeat_weeks: f.repeat && !inviting ? +f.repeat_weeks : 1, player_ids: inviting ? [] : f.player_ids,
@@ -197,7 +198,15 @@ export default function SessionForm({ players, onDone, initial }) {
               <button type="button" className={!f.court_booked ? "on" : ""} aria-pressed={!f.court_booked} onClick={() => setF({ ...f, court_booked: false })}>Le demander au club</button>
             </div>
           </Field>
-          {f.court_booked && <Field label="Terrain (facultatif)"><input placeholder="ex. Terrain 2" value={f.court} onChange={set("court")} /></Field>}
+          {f.court_booked && (
+            <div className="grid">
+              <Field label="Terrain (facultatif)"><input placeholder="ex. Terrain 2" value={f.court} onChange={set("court")} /></Field>
+              <Field label={`Prix payé au club${f.repeat ? " (chaque fois)" : ""}`}>
+                <span className="inputunit"><MoneyInput label="Prix payé au club" value={f.court_cost} onChange={(v) => setF({ ...f, court_cost: v })} /><em>TND</em></span>
+              </Field>
+            </div>
+          )}
+          {f.court_booked && <div className="mut small-p" style={{ margin: "-4px 0 10px" }}>Le prix du terrain est déduit de vos revenus dans Finance.</div>}
           {!f.court_booked && <div className="mut" style={{ margin: "-4px 0 10px" }}><Icon name="send" size={13} /> Un SMS de réservation sera envoyé au club{club?.phone ? "" : " (ce club n'a pas de numéro : ajoutez-le dans Terrains)"}.</div>}
         </>
       )}
