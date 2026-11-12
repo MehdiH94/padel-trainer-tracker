@@ -29,7 +29,6 @@ Base.metadata.create_all(engine)
 
 # Petites migrations pour une base déjà en service: create_all n'ajoute pas les colonnes aux tables existantes.
 NEW_COLUMNS = [
-    ("coaches", "vip_price_grid", "TEXT"), ("players", "vip", "BOOLEAN DEFAULT 0"), ("attendances", "price_millimes", "INTEGER"),
     ("bookings", "cancelled_at", "DATETIME"), ("bookings", "group_id", "INTEGER"), ("bookings", "group_token", "VARCHAR(24)"),
     ("coaches", "avoid_gaps", "BOOLEAN DEFAULT 1"), ("coaches", "price_grid", "TEXT"), ("coaches", "booking_horizon_days", "INTEGER DEFAULT 14"),
     ("players", "contact_channel", "VARCHAR(10)"), ("sessions", "plan", "TEXT"), ("players", "account_id", "INTEGER"),
@@ -50,6 +49,7 @@ NEW_COLUMNS = [
     ("players", "fav_clubs", "TEXT DEFAULT ''"), ("bookings", "accepted_opts", "VARCHAR(120) DEFAULT ''"),
     ("attendances", "accepted_opts", "VARCHAR(120) DEFAULT ''"), ("coaches", "join_token", "VARCHAR(32)"), ("players", "open_signup", "BOOLEAN DEFAULT 0"),
     ("bookings", "proposed_start", "TIMESTAMP"), ("bookings", "proposed_minutes", "INTEGER"),
+    ("coaches", "vip_price_grid", "TEXT"), ("players", "vip", "BOOLEAN DEFAULT 0"), ("attendances", "price_millimes", "INTEGER"),
 ]
 def _ddl(ddl: str) -> str:
     """Types écrits pour SQLite, traduits pour PostgreSQL (sandbox et prod de l'usine)."""
@@ -58,9 +58,12 @@ def _ddl(ddl: str) -> str:
     return ddl.replace("DATETIME", "TIMESTAMP").replace("BOOLEAN DEFAULT 1", "BOOLEAN DEFAULT TRUE").replace("BOOLEAN DEFAULT 0", "BOOLEAN DEFAULT FALSE")
 
 
+# Colonnes existantes lues d'abord, avant toute modification: une lecture faite pendant la transaction (autre
+# connexion) attendrait le verrou d'une table déjà modifiée et bloquerait le démarrage sous PostgreSQL.
+_existing = {t: {c["name"] for c in inspect(engine).get_columns(t)} for t in {t for t, _, _ in NEW_COLUMNS}}
 with engine.begin() as conn:
     for table, column, ddl in NEW_COLUMNS:
-        if column not in {c["name"] for c in inspect(engine).get_columns(table)}:
+        if column not in _existing[table]:
             conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {column} {_ddl(ddl)}"))
             if column == "hourly_prices":  # prix par séance de la durée de la formule -> prix par heure (une seule fois)
                 conn.execute(text("UPDATE coaches SET price_individuel = ROUND(price_individuel * 60.0 / slot_minutes) WHERE slot_minutes > 0 AND slot_minutes != 60"))
