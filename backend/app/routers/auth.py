@@ -43,8 +43,10 @@ def register(c: RegisterIn, db: Session = Depends(get_db)):
     check_fields(name=c.name or email, email=email, password=c.password)
     if db.scalar(select(Coach).where(Coach.email == email)) or db.scalar(select(Player).where(Player.email == email, Player.password_hash.is_not(None))):
         raise HTTPException(409, "Cette adresse e-mail a déjà un compte : connectez-vous, ou utilisez une autre adresse.")
+    if not c.phone.strip():  # numéro tunisien obligatoire à l'inscription
+        raise HTTPException(422, "Indiquez votre numéro de téléphone tunisien : 8 chiffres (ex. 22 123 456).")
     try:
-        phone = normalize_tn_phone(c.phone) if c.phone.strip() else ""
+        phone = normalize_tn_phone(c.phone)
     except ValueError as e:
         raise HTTPException(422, str(e))
     coach = Coach(email=email, password_hash=hash_password(c.password), name=c.name.strip() or email, phone=phone)
@@ -174,7 +176,14 @@ def invite_accept(token: str, body: InviteAccept, db: Session = Depends(get_db))
         raise HTTPException(422, "Genre ou niveau invalide")
     p.invited_category = p.category  # niveau indiqué par le coach, comparé par l'administrateur
     p.name = (body.name or "").strip() or p.name
-    p.phone = (body.phone or "").strip() or p.phone
+    if (body.phone or "").strip():  # numéro tunisien seulement
+        from ..schemas import normalize_tn_phone
+        try:
+            p.phone = normalize_tn_phone(body.phone)
+        except ValueError as e:
+            raise HTTPException(422, str(e))
+    if not p.phone:  # fiche créée sans numéro par le coach: le joueur le donne en créant son compte
+        raise HTTPException(422, "Indiquez votre numéro de téléphone tunisien : 8 chiffres (ex. 22 123 456).")
     p.gender, p.category = body.gender or p.gender, body.category or p.category
     _profile(p, body.dominant_hand, body.side, body.goals)
     p.fav_coaches = str(p.coach_id)  # son coach: favori d'office (choisi d'office dans Réserver)

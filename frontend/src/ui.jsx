@@ -476,3 +476,23 @@ export function byWeek(days, pick) {
   });
   return out.map((w) => ({ label: w.label, sub: w.from === w.to ? `${w.from}` : `${w.from}–${w.to}`, value: Math.round(w.value * 10) / 10, current: w.current }));
 }
+
+// Téléphone à l'inscription: numéros tunisiens seulement (8 chiffres, +216 affiché devant)
+export const tnDigits = (v) => (v || "").replace(/[\s.\-()]/g, "").replace(/^(\+216|00216)/, "");
+export const tnPhoneProblem = (v) => (!tnDigits(v) ? "Indiquez votre numéro de téléphone tunisien."
+  : /^\d{8}$/.test(tnDigits(v)) ? null : "Numéro tunisien uniquement : 8 chiffres (ex. 22 123 456).");
+export function PhoneTN({ value, onChange, label = "Téléphone (numéro tunisien)" }) {
+  const [seen, setSeen] = useState(false); // erreur affichée après la saisie, pas pendant
+  const problem = tnPhoneProblem(value);
+  const show = problem && (seen || tnDigits(value).replace(/\D/g, "").length > 8 || /[^\d\s.\-()+]/.test(value));
+  return (
+    <label className="field">
+      <span className="mut">{label}</span>
+      <span className="inputunit phone-tn"><em>+216</em>
+        <input inputMode="tel" autoComplete="tel-national" placeholder="22 123 456" value={value}
+          onChange={(e) => onChange(e.target.value)} onBlur={() => setSeen(true)} required aria-invalid={!!show} aria-label={label} />
+      </span>
+      {show ? <small className="err" role="alert">{problem}</small> : <small className="mut">Seuls les numéros tunisiens sont acceptés.</small>}
+    </label>
+  );
+}

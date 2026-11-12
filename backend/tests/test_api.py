@@ -43,7 +43,7 @@ def confirm_coach(boss, email):
 
 def register(email="a@b.tn"):
     c = TestClient(app)
-    r = c.post("/auth/register", json={"email": email, "password": "secret1", "name": "Coach Test"}).json()
+    r = c.post("/auth/register", json={"email": email, "password": "secret1", "name": "Coach Test", "phone": "22 000 111"}).json()
     return login_as(c, r["token"])
 
 
@@ -1816,7 +1816,7 @@ def test_new_coach_waits_for_email_and_admin_then_more_admins(client, monkeypatc
     assert new.put(f"/admin/coaches/{boss_id}/admin", json={"admin": False}).status_code == 409  # fixé par ADMIN_EMAILS
     assert boss.put(f"/admin/coaches/{c['id']}/admin", json={"admin": False}).json()["admin"] is False
     # un coach refusé ne peut rien faire
-    r = anon.post("/auth/register", json={"email": "faux@b.tn", "password": "secret1", "name": "Faux"}).json()
+    r = anon.post("/auth/register", json={"email": "faux@b.tn", "password": "secret1", "name": "Faux", "phone": "22 444 555"}).json()
     fake = next(x for x in boss.get("/admin/coach-signups").json() if x["email"] == "faux@b.tn")
     boss.post(f"/admin/coach-signups/{fake['id']}/refuse")
     assert login_as(TestClient(app), r["token"]).get("/auth/account").json()["signup_status"] == "refusee"
@@ -2667,3 +2667,14 @@ def test_sender_address_always_has_a_name_and_an_address(monkeypatch):
     ]:
         monkeypatch.setenv("SMTP_FROM", raw)
         assert sender_address() == expected
+
+
+def test_signup_accepts_only_tunisian_phones(client):
+    anon = TestClient(app)
+    r = anon.post("/auth/register", json={"email": "sanstel@b.tn", "password": "secret1", "name": "Coach"})
+    assert r.status_code == 422 and "tunisien" in r.json()["detail"]
+    r = anon.post("/auth/register", json={"email": "fr@b.tn", "password": "secret1", "name": "Coach", "phone": "+33 6 12 34 56 78"})
+    assert r.status_code == 422 and "tunisien" in r.json()["detail"]
+    assert anon.post("/auth/register", json={"email": "tn@b.tn", "password": "secret1", "name": "Coach", "phone": "+216 22 333 444"}).status_code in (200, 201)
+    r = TestClient(app).post("/auth/signup", json={"name": "Joueur FR", "phone": "06 12 34 56 78", "email": "jfr@b.tn", "password": "secret1"})
+    assert r.status_code == 422 and "tunisien" in r.json()["detail"]

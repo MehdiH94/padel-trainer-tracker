@@ -62,7 +62,7 @@ def check_contact(email: str = "", phone: str = "", exclude: int | None = None, 
     try:
         phone = normalize_tn_phone(phone) if phone.strip() else ""
     except ValueError:
-        return {"email": None, "phone": "Numéro de téléphone invalide : il faut 8 chiffres (ex. 22 123 456)."}
+        return {"email": None, "phone": "Numéro tunisien uniquement : il faut 8 chiffres (ex. 22 123 456)."}
     return contact_conflicts(db, coach.id, email, phone, exclude)
 
 

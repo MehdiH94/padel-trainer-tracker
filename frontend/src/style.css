@@ -881,3 +881,7 @@ button.saved { background: var(--green); border-color: var(--green); color: #fff
   vertical-align: middle; color: var(--ok-txt); background: color-mix(in srgb, var(--green) 14%, transparent); animation: autosave-in .18s ease-out; }
 .card.just-saved { box-shadow: 0 0 0 2px var(--green); transition: box-shadow .3s; }
 @media (prefers-reduced-motion: reduce) { .autosave, .saved-tag { animation: none; } .autosave .spin { animation-duration: 2s; } }
+/* Téléphone tunisien à l'inscription: +216 devant, champ sur toute la largeur */
+.inputunit.phone-tn { max-width: none; }
+.inputunit.phone-tn input { text-align: left; flex: 1; }
+.inputunit.phone-tn em { font-weight: 600; color: var(--txt); }

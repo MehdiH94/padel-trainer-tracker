@@ -48,7 +48,7 @@ function EditForm({ player, onSave, onCancel }) {
         <label className="field"><span className="mut">Classement</span><select value={f.category} onChange={set("category")}>{CATEGORIES.map((c) => <option key={c} value={c}>{catOption(c)}</option>)}</select></label>
         <label className="field"><span className="mut">Main forte</span><select value={f.dominant_hand} onChange={set("dominant_hand")}><option value="droitier">Droitier</option><option value="gaucher">Gaucher</option></select></label>
         <div className="mut small-p">Rappels et confirmations : par e-mail (version bêta).</div>
-        <label className="field"><span className="mut">Côté de jeu</span><select value={f.side} onChange={set("side")}><option value="drive">Drive</option><option value="revers">Revers</option><option value="deux">Les deux</option></select></label>
+        <label className="field"><span className="mut">Côté de jeu</span><select value={f.side} onChange={set("side")}><option value="drive">À droite</option><option value="revers">À gauche</option><option value="deux">Les deux</option></select></label>
       </div>
       <label className="field"><span className="mut">Objectifs</span><input value={f.goals} onChange={set("goals")} placeholder="ex. préparer un tournoi de club" /></label>
       <label className="field"><span className="mut">Notes du coach (privées)</span><textarea className="msg" rows={3} value={f.notes} onChange={set("notes")} placeholder="blessures, disponibilités, caractère…" /></label>
@@ -199,7 +199,7 @@ export default function PlayerPage({ id, onBack }) {
         <div>
           <h1 style={{ margin: 0 }}>{player.name}</h1>
           <CategoryBadge category={player.category} gender={player.gender} />{" "}
-          <span className="mut">{player.dominant_hand} · {player.side === "deux" ? "les deux côtés" : player.side}</span>
+          <span className="mut">{player.dominant_hand} · {{ drive: "joue à droite", revers: "joue à gauche", deux: "joue des deux côtés" }[player.side] ?? player.side}</span>
         </div>
       </div>
       {editing ? (

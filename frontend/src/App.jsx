@@ -19,7 +19,7 @@ import { actingAs, api, getRole, getToken, prefetch, setSession, setToken, stopA
 import { FeedbackHost, Modal, toast, toastError } from "./feedback.jsx";
 import { guideHidden, loadGuide, newlyDone } from "./guide.js";
 import { useRoute } from "./router.js";
-import { Avatar, CategoryBadge, OfflineBar } from "./ui.jsx";
+import { Avatar, CategoryBadge, OfflineBar, PhoneTN, tnPhoneProblem } from "./ui.jsx";
 
 function Login() {
   const [f, setF] = useState({ email: "", password: "", name: "", phone: "" });
@@ -46,7 +46,7 @@ function Login() {
         <h1>Padel Boost</h1>
         <p className="mut">{mode === "login" ? "Connectez-vous à votre espace" : "Créez votre espace coach"}</p>
         {mode === "register" && <label className="field"><span className="mut">Votre nom de coach</span><input value={f.name} onChange={set("name")} autoComplete="name" required /></label>}
-        {mode === "register" && <label className="field"><span className="mut">Téléphone</span><input type="tel" value={f.phone} onChange={set("phone")} autoComplete="tel" placeholder="ex. 22 123 456" required /></label>}
+        {mode === "register" && <PhoneTN value={f.phone} onChange={(v) => setF({ ...f, phone: v })} />}
         <label className="field"><span className="mut">E-mail</span><input type="email" value={f.email} onChange={set("email")} autoComplete="email" required /></label>
         <label className="field"><span className="mut">Mot de passe</span><input type="password" value={f.password} onChange={set("password")} autoComplete={mode === "login" ? "current-password" : "new-password"} required /></label>
         <label className="check" style={{ margin: "4px 0 10px" }}>
@@ -54,7 +54,7 @@ function Login() {
         </label>
         {err && <div className="err" role="alert">{err}</div>}
         {mode === "register" && <p className="mut small-p">Vous confirmerez votre adresse e-mail, puis un administrateur validera votre compte avant que vous puissiez commencer.</p>}
-        <button style={{ width: "100%" }} disabled={busy}>{busy ? "Connexion…" : mode === "login" ? "Se connecter" : "Créer mon compte coach"}</button>
+        <button style={{ width: "100%" }} disabled={busy || (mode === "register" && !!tnPhoneProblem(f.phone))}>{busy ? "Connexion…" : mode === "login" ? "Se connecter" : "Créer mon compte coach"}</button>
         <button type="button" className="link center" style={{ marginTop: 10 }} onClick={() => { setMode(mode === "login" ? "register" : "login"); setErr(""); }}>
           {mode === "login" ? "Vous êtes coach ? Créer un compte" : "J'ai déjà un compte"}
         </button>

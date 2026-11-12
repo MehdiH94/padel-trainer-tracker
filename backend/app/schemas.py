@@ -15,7 +15,7 @@ def normalize_tn_phone(raw: str) -> str:
     elif digits.startswith("00216"):
         digits = digits[5:]
     if not re.fullmatch(r"\d{8}", digits):
-        raise ValueError("Numéro de téléphone invalide : il faut 8 chiffres (ex. 22 123 456), éventuellement précédés de +216")
+        raise ValueError("Numéro tunisien uniquement : il faut 8 chiffres (ex. 22 123 456), éventuellement précédés de +216.")
     return "+216" + digits
 
 

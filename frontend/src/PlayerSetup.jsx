@@ -18,7 +18,7 @@ export const GOALS = [
 export const TABLEAUX = ["P25", "P50", "P100", "P250", "P500", "P1000"];
 const WIN = "Gagner un tableau en tournoi";
 
-export const SIDES = { drive: "Drive", revers: "Revers", deux: "Les deux" }; // drive = côté droit, revers = côté gauche
+export const SIDES = { drive: "À droite", revers: "À gauche", deux: "Les deux" }; // valeurs gardées en base: drive = à droite, revers = à gauche
 
 // Texte enregistré: « Améliorer ma technique · Gagner un tableau P250 · Autre précision »
 export function goalsText(sel, tableau, other) {

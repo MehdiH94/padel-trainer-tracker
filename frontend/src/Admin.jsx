@@ -257,7 +257,7 @@ function AdminPlayers({ coaches }) {
             fields={[["name", "Nom"], ["phone", "Téléphone", "tel"], ["email", p.has_account ? "E-mail de connexion" : "E-mail", "email"],
               ["gender", "Genre", null, [["M", "Homme"], ["F", "Dame"]]], ["category", "Niveau", null, CATEGORIES.map((c) => [c, catOption(c)])],
               ["dominant_hand", "Main forte", null, [["droitier", "Droitier"], ["gaucher", "Gaucher"]]],
-              ["side", "Côté de jeu", null, [["drive", "Drive"], ["revers", "Revers"], ["deux", "Les deux"]]], ["goals", "Objectif"],
+              ["side", "Côté de jeu", null, [["drive", "À droite"], ["revers", "À gauche"], ["deux", "Les deux"]]], ["goals", "Objectif"],
               ["password", p.has_account ? "Nouveau mot de passe (vide = inchangé)" : "Mot de passe (crée son compte avec l'e-mail)", "password"]]} />
         )}
         </div>
