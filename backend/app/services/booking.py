@@ -185,20 +185,37 @@ def is_day_off(offs: list[tuple], when: datetime) -> bool:
 
 
 def day_states(db: Session, coach: Coach, days: list, now: datetime | None = None) -> dict:
-    """Jours où ce coach n'a plus rien à proposer: « absent » (absence déclarée) ou « complet » (plus aucun début
-    d'1 h libre dans ses horaires de travail ou ses terrains, et aucune séance ouverte à rejoindre). Les autres jours
-    ne sont pas dans le résultat."""
+    """Jours où ce coach n'a plus rien à proposer: « absent » (absence déclarée) ou « complet »: dans ses horaires de
+    travail (Réglages › Disponibilités) de ce jour-là, plus aucun trou d'au moins 1 h une fois retirées ses séances et
+    ses autres événements (terrains et mode de réservation ne comptent pas). Un jour sans horaires de travail est
+    complet; un coach qui n'a déclaré aucun horaire n'est jamais complet. Les autres jours ne sont pas dans le résultat."""
     now = now or datetime.now(timezone.utc)
     offs = days_off(db, coach)
-    free = {s.astimezone(TUNIS).date() for s in _free_slots(db, coach, now, 60)}
-    joinable = {aware(s.start).astimezone(TUNIS).date() for s in db.scalars(select(TrainingSession).where(
-        TrainingSession.coach_id == coach.id, TrainingSession.status == "prevue", TrainingSession.open.is_(True),
-        TrainingSession.start > now)) if spots_left(db, s) > 0}
+    windows = list(db.scalars(select(Availability).where(Availability.coach_id == coach.id)))
+    busy = _busy(db, coach)
+    hour = timedelta(hours=1)
+
+    def at(d, hm: str) -> datetime:
+        h, m = (int(x) for x in hm.split(":"))
+        return datetime.combine(d, time(h, m), TUNIS).astimezone(timezone.utc)
+
+    def has_hour(d) -> bool:
+        for w in (w for w in windows if w.weekday == d.weekday()):
+            lo, hi = max(at(d, w.start_time), now), at(d, w.end_time)
+            cur = lo
+            for b0, b1 in sorted((b0, b1) for b0, b1 in busy if b0 < hi and b1 > lo):
+                if b0 - cur >= hour:
+                    return True
+                cur = max(cur, b1)
+            if hi - cur >= hour:
+                return True
+        return False
+
     out = {}
     for d in days:
         if any(a <= d <= b for a, b in offs):
             out[d] = "absent"
-        elif d not in free and d not in joinable:
+        elif windows and not has_hour(d):
             out[d] = "complet"
     return out
 

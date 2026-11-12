@@ -2694,6 +2694,11 @@ def test_player_sees_full_and_absent_days(client):
     days = pc.get(f"/me/days?coach_ids={coach_id}").json()["days"]
     assert days[d1.isoformat()] == "absent" and days[d2.isoformat()] == "complet"
     assert (d2 + timedelta(days=1)).isoformat() not in days  # jour suivant: libre
+    # complet = seulement d'après ses horaires de travail: 9 h - 21 h occupés sauf 30 min ne laissent pas d'heure libre
+    d3 = d2 + timedelta(days=2)
+    client.post("/coach-events", json={"title": "Matin", "start": datetime(d3.year, d3.month, d3.day, 9, tzinfo=tunis).isoformat(), "duration_min": 6 * 60})
+    client.post("/coach-events", json={"title": "Soir", "start": datetime(d3.year, d3.month, d3.day, 15, 30, tzinfo=tunis).isoformat(), "duration_min": 330})
+    assert pc.get(f"/me/days?coach_ids={coach_id}").json()["days"][d3.isoformat()] == "complet"
     # son planning montre l'absence de son coach
     absences = pc.get("/me/coach-absences").json()
     assert [(a["start_date"], a["coach_name"]) for a in absences] == [(d1.isoformat(), "Coach Test")]
