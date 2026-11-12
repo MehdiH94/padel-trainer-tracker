@@ -30,3 +30,15 @@ Durée conseillée : 2 à 3 s par image, 1 s pour les images de saisie (04, 07, 
 Remarques :
 - 01 à 24 sont de vraies captures de l'application ; 25 à 32 sont des schémas simplifiés des menus de Safari et de Chrome (leur apparence exacte varie selon le téléphone).
 - Ordre conseillé pour le montage : 01 → 23, puis 25 → 28 (iPhone), puis 24, 29 → 32 (Android).
+
+## Vidéos (dossier `videos/`)
+
+Même parcours, filmé en pleine définition (sans son) : la frappe se voit lettre par lettre, une onde orange marque chaque toucher.
+
+| Vidéo | Durée | Contenu |
+|---|---|---|
+| `1-inscription.mp4` | 32 s | Connexion → « Joueur ? Créer mon compte » → nom, téléphone, niveau, main, côté, objectifs, e-mail, mot de passe → « Créer mon compte » → « Bienvenue Yassine ! » |
+| `2-installer-iphone.mp4` | 20 s | Carte « Installer l'application » dans l'appli, puis Safari : Partager → « Sur l'écran d'accueil » → « Ajouter » → icône Padel Boost |
+| `3-installer-android.mp4` | 20 s | Bouton « Installer » dans l'appli, puis Chrome : menu ⋮ → « Installer l'application » → « Installer » → icône Padel Boost |
+
+iPhone : 1170 × 1992 px ; Android : 1236 × 2516 px ; 30 images/s. La voix off du tableau ci-dessus s'applique dans le même ordre. La partie Safari / Chrome est un schéma simplifié (pas une capture du système).
