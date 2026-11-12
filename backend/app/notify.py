@@ -11,7 +11,7 @@ import logging
 import os
 import smtplib
 from email.message import EmailMessage
-from email.utils import formatdate, make_msgid
+from email.utils import formataddr, formatdate, make_msgid, parseaddr
 
 from .models import Player
 from .sms.base import SmsProvider
@@ -106,8 +106,18 @@ def send_email(to: str, subject: str, body: str) -> bool:
         return False
 
 
+def sender_address() -> str:
+    """Expéditeur « Padel Boost <noreply@padel-boost.net> ». SMTP_FROM peut être l'adresse seule (forme la plus sûre
+    dans un fichier de réglages) ou « Nom <adresse> »; sans nom, « Padel Boost » (SMTP_FROM_NAME pour le changer).
+    Sans adresse valable dans SMTP_FROM, celle de SMTP_USER."""
+    name, addr = parseaddr(os.getenv("SMTP_FROM", "").strip().strip('"').strip("'"))
+    if "@" not in addr:
+        addr = os.getenv("SMTP_USER", "")
+    return formataddr((name or os.getenv("SMTP_FROM_NAME", "Padel Boost"), addr))
+
+
 def _smtp_send(host: str, to: str, subject: str, body: str) -> None:
-    sender = os.getenv("SMTP_FROM") or os.getenv("SMTP_USER", "")
+    sender = sender_address()
     msg = EmailMessage()
     msg["From"], msg["To"], msg["Subject"] = sender, to, subject
     # En-têtes attendus par les filtres anti-spam

@@ -1,7 +1,7 @@
-## Mise en prod du 2026-11-12 : envoi des e-mails par Brevo (réglages seulement)
-Ce qui change pour les utilisateurs : les e-mails partent enfin en prod (expéditeur « Padel Boost <noreply@padel-boost.net> », service Brevo, domaine authentifié DKIM + DMARC) : lien de vérification à l'inscription, confirmations, rappels, invitations. La vérification de l'e-mail est exigée (REQUIRE_EMAIL_VERIFICATION=1) : un nouveau joueur ne peut pas réserver avant d'avoir ouvert le lien ; un nouveau coach confirme son e-mail puis attend l'administrateur.
-Tickets inclus : aucun (pas de changement de code depuis d1f1559 ; seuls les documents de démo ont été ajoutés dans docs/)
+## Mise en prod du 2026-11-12 : expéditeur des e-mails corrigé (Brevo)
+Ce qui change pour les utilisateurs : les e-mails partent enfin (lien de vérification, confirmations, rappels, invitations), avec l'expéditeur « Padel Boost <noreply@padel-boost.net> ». La version précédente refusait l'envoi : l'adresse d'expéditeur arrivait sans son adresse (« Padel Boost » seul), Brevo répondait 501.
+Tickets inclus : aucun (correctif : notify.sender_address ajoute le nom « Padel Boost » à une adresse seule et accepte « Nom <adresse> », avec ou sans guillemets)
 Migrations de données : aucune
-Risques et retour arrière : les joueurs inscrits en prod avant ce changement n'ont pas d'e-mail vérifié : ils ne pourront plus réserver avant d'ouvrir le lien (bouton « Renvoyer le lien » dans l'appli). Si l'envoi échoue (clé SMTP fausse), l'action n'échoue pas mais l'e-mail est seulement journalisé ; retour possible en vidant SMTP_HOST dans les réglages et en redemandant la mise en prod.
-Vérifications : réglages SMTP remplis par Mehdi dans /etc/usine-prod/padel-trainer-tracker.reglages ; enregistrements DNS Brevo (code, DKIM 1 et 2, DMARC) publiés et vérifiés ; après la mise en prod : inscription test avec une adresse Gmail puis Outlook, e-mail reçu en boîte de réception.
+Risques et retour arrière : faible, une seule fonction d'envoi change (test ajouté, 156 tests). Réglage à corriger par Mehdi avant de signer : SMTP_FROM=noreply@padel-boost.net (l'adresse seule). Les joueurs inscrits avant ont un e-mail non vérifié : bouton « Renvoyer le lien » dans l'appli.
+Vérifications : usine tester OK (156 tests) ; connexion SMTP à Brevo acceptée depuis le VPS (identifiants bons, seule l'adresse d'expéditeur était refusée) ; après la mise en prod : « Renvoyer le lien » sur un compte test, e-mail reçu dans Gmail.
 Domaine : padel-boost.net (enregistrement A vers 141.95.86.176)

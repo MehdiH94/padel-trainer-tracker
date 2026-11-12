@@ -2654,3 +2654,16 @@ def test_session_with_booked_court_records_its_price(client):
     assert client.get(f"/finance?start={d.replace(day=1)}&end={d}").json()["court_costs_millimes"] == 45000
     assert client.post("/sessions", json={"start": (start + timedelta(days=1)).isoformat(), "club_id": club["id"], "court_booked": True,
                                           "court_cost_millimes": -5}).status_code == 422
+
+
+def test_sender_address_always_has_a_name_and_an_address(monkeypatch):
+    from app.notify import sender_address
+    monkeypatch.setenv("SMTP_USER", "login@smtp-brevo.com")
+    for raw, expected in [
+        ("noreply@padel-boost.net", "Padel Boost <noreply@padel-boost.net>"),  # adresse seule: nom ajouté
+        ("Padel Boost <noreply@padel-boost.net>", "Padel Boost <noreply@padel-boost.net>"),
+        ('"Padel Boost <noreply@padel-boost.net>"', "Padel Boost <noreply@padel-boost.net>"),  # guillemets laissés dans le fichier
+        ("Padel Boost", "Padel Boost <login@smtp-brevo.com>"),  # nom sans adresse: celle du compte SMTP
+    ]:
+        monkeypatch.setenv("SMTP_FROM", raw)
+        assert sender_address() == expected
