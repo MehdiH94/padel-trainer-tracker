@@ -184,6 +184,25 @@ def is_day_off(offs: list[tuple], when: datetime) -> bool:
     return any(a <= d <= b for a, b in offs)
 
 
+def day_states(db: Session, coach: Coach, days: list, now: datetime | None = None) -> dict:
+    """Jours où ce coach n'a plus rien à proposer: « absent » (absence déclarée) ou « complet » (plus aucun début
+    d'1 h libre dans ses horaires de travail ou ses terrains, et aucune séance ouverte à rejoindre). Les autres jours
+    ne sont pas dans le résultat."""
+    now = now or datetime.now(timezone.utc)
+    offs = days_off(db, coach)
+    free = {s.astimezone(TUNIS).date() for s in _free_slots(db, coach, now, 60)}
+    joinable = {aware(s.start).astimezone(TUNIS).date() for s in db.scalars(select(TrainingSession).where(
+        TrainingSession.coach_id == coach.id, TrainingSession.status == "prevue", TrainingSession.open.is_(True),
+        TrainingSession.start > now)) if spots_left(db, s) > 0}
+    out = {}
+    for d in days:
+        if any(a <= d <= b for a, b in offs):
+            out[d] = "absent"
+        elif d not in free and d not in joinable:
+            out[d] = "complet"
+    return out
+
+
 def free_slots(db: Session, coach: Coach, now: datetime | None = None, minutes: int | None = None) -> list[datetime]:
     """Créneaux libres, sauf les jours d'absence du coach."""
     offs = days_off(db, coach)

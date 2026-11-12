@@ -2678,3 +2678,22 @@ def test_signup_accepts_only_tunisian_phones(client):
     assert anon.post("/auth/register", json={"email": "tn@b.tn", "password": "secret1", "name": "Coach", "phone": "+216 22 333 444"}).status_code in (200, 201)
     r = TestClient(app).post("/auth/signup", json={"name": "Joueur FR", "phone": "06 12 34 56 78", "email": "jfr@b.tn", "password": "secret1"})
     assert r.status_code == 422 and "tunisien" in r.json()["detail"]
+
+
+def test_player_sees_full_and_absent_days(client):
+    """Réserver: un jour où le coach choisi est absent, ou n'a plus aucun créneau d'1 h, n'est pas proposé."""
+    open_week(client)  # disponible 9 h - 21 h tous les jours (mode disponibilités)
+    p, pc = player_client(client)
+    tunis = timezone(timedelta(hours=1))
+    d1 = (datetime.now(tunis) + timedelta(days=3)).date()
+    d2 = d1 + timedelta(days=1)
+    client.post("/time-off", json={"start_date": d1.isoformat(), "reason": "Tournoi"})
+    # d2: la journée entière prise par « autre chose »
+    client.post("/coach-events", json={"title": "Stage", "start": datetime(d2.year, d2.month, d2.day, 9, tzinfo=tunis).isoformat(), "duration_min": 12 * 60})
+    coach_id = pc.get("/me/coaches").json()[0]["id"]
+    days = pc.get(f"/me/days?coach_ids={coach_id}").json()["days"]
+    assert days[d1.isoformat()] == "absent" and days[d2.isoformat()] == "complet"
+    assert (d2 + timedelta(days=1)).isoformat() not in days  # jour suivant: libre
+    # son planning montre l'absence de son coach
+    absences = pc.get("/me/coach-absences").json()
+    assert [(a["start_date"], a["coach_name"]) for a in absences] == [(d1.isoformat(), "Coach Test")]

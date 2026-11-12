@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { api, dayKey, dayLabel, hhmm, toDate } from "./api.js";
+import { useEffect, useState } from "react";
+import { api, dayKey, dayLabel, hhmm, peek, toDate } from "./api.js";
 import { lanes, mondayOf } from "./CourtCalendar.jsx";
 import Icon from "./Icon.jsx";
 import { confirmDialog, Modal, toast, toastError } from "./feedback.jsx";
@@ -181,7 +181,7 @@ const short = (iso) => { const [h, m] = hhmm(iso).split(":"); return `${+h}${m =
 const MAX_WEEKS = 13; // trois mois avant et après
 
 // Agenda de la semaine (comme le calendrier du coach): entraînements, matchs, tournois et le reste
-function Week({ items, onOpen, onAdd }) {
+function Week({ items, onOpen, onAdd, absences = [] }) {
   const [monday, setMonday] = useState(mondayOf(new Date()));
   const [day, setDay] = useState(null); // un seul jour en grand
   const PX = day ? 70 : 44;
@@ -198,6 +198,9 @@ function Week({ items, onOpen, onAdd }) {
   const hoursList = Array.from({ length: maxH - minH + 1 }, (_, i) => minH + i);
   const range = `${days[0].toLocaleDateString("fr-FR", { day: "numeric", month: "short", timeZone: TZ })} – ${days[days.length - 1].toLocaleDateString("fr-FR", { day: "numeric", month: "short", timeZone: TZ })}`;
   const present = new Set(all.map((x) => x.cb.type));
+  // coachs du joueur absents ce jour-là (prénom en semaine, nom complet sur un seul jour)
+  const offOn = (k) => absences.filter((a) => a.start_date <= k && k <= a.end_date);
+  const anyOff = days.some((d) => offOn(ymd(d)).length);
   // toucher une case vide: ajouter quelque chose ce jour-là, à cette heure
   const addAt = (d, e) => {
     const r = e.currentTarget.getBoundingClientRect();
@@ -226,9 +229,10 @@ function Week({ items, onOpen, onAdd }) {
           <button className="small sec iconbtn" aria-label="Semaine suivante" disabled={offset >= MAX_WEEKS} onClick={() => move(1)}><Icon name="chevR" size={18} /></button>
         </div>
       )}
-      {present.size > 0 && (
+      {(present.size > 0 || anyOff) && (
         <div className="cal-legend">
           {Object.entries(TYPES).filter(([k]) => present.has(k)).map(([k, l]) => <span key={k}><i className={"cal-dot p-" + k} />{l}</span>)}
+          {anyOff && <span><i className="cal-dot off" />Coach absent</span>}
         </div>
       )}
       <div className={"cal card" + (day ? " one" : "")} {...sw} role="grid" aria-label="Mon agenda de la semaine">
@@ -244,7 +248,12 @@ function Week({ items, onOpen, onAdd }) {
         <div className="cal-body" style={{ height: (maxH - minH) * PX }}>
           <div className="cal-times">{hoursList.map((h) => <span key={h} style={{ top: (h - minH) * PX }}>{h} h</span>)}</div>
           {days.map((d) => (
-            <div key={ymd(d)} className={"cal-col" + (ymd(d) === today ? " today" : "")} style={{ backgroundSize: `100% ${PX}px` }} onClick={(e) => e.target === e.currentTarget && addAt(d, e)}>
+            <div key={ymd(d)} className={"cal-col" + (ymd(d) === today ? " today" : "") + (offOn(ymd(d)).length ? " coach-off" : "")} style={{ backgroundSize: `100% ${PX}px` }} onClick={(e) => e.target === e.currentTarget && addAt(d, e)}>
+              {offOn(ymd(d)).length > 0 && (
+                <span className="cal-coachoff" title={offOn(ymd(d)).map((a) => `${a.coach_name} absent`).join(", ")}>
+                  {offOn(ymd(d)).map((a) => (day ? a.coach_name : a.coach_name.split(" ")[0])).join(", ")}{day ? (offOn(ymd(d)).length > 1 ? " absents" : " absent") : ""}
+                </span>
+              )}
               {byDay[ymd(d)].map(({ cb, s, e, lane, count }) => (
                 <button key={cb.id} className={"cal-block p-" + cb.type} onClick={() => onOpen(cb)}
                   style={{ top: (s - minH) * PX, height: Math.max((e - s) * PX - 2, 18), left: `${(lane / count) * 100}%`, width: `${100 / count}%` }}
@@ -270,6 +279,8 @@ export function Planning({ me, sessions, events, progress, reload, go }) {
   const [edit, setEdit] = useState(null); // événement ouvert dans le formulaire ({} = nouveau)
   const [openId, setOpenId] = useState(null);
   const [more, setMore] = useState(false);
+  const [absences, setAbsences] = useState(() => peek("/me/coach-absences") ?? []); // absences de ses coachs
+  useEffect(() => { api("/me/coach-absences").then(setAbsences).catch(() => {}); }, []);
   const now = new Date();
   const upcoming = [
     ...sessions.upcoming.map((s) => ({ t: "s", start: s.start, s })),
@@ -312,7 +323,7 @@ export function Planning({ me, sessions, events, progress, reload, go }) {
         <button role="tab" aria-selected={mode === "semaine"} className={mode === "semaine" ? "on" : ""} onClick={() => setMode("semaine")}><Icon name="calendar" size={14} /> Semaine</button>
         <button role="tab" aria-selected={mode === "liste"} className={mode === "liste" ? "on" : ""} onClick={() => setMode("liste")}><Icon name="list" size={14} /> Liste{todo > 0 && <b className="navbadge inline">{todo}</b>}</button>
       </div>
-      {mode === "semaine" && <Week items={items} onAdd={setAdding} onOpen={(x) => (x.e ? setEdit(x.e) : setTraining(x.s))} />}
+      {mode === "semaine" && <Week items={items} absences={absences} onAdd={setAdding} onOpen={(x) => (x.e ? setEdit(x.e) : setTraining(x.s))} />}
       {mode === "liste" && <div className="seg" style={{ marginBottom: 12 }}>
         <button className={view === "up" ? "on" : ""} onClick={() => setView("up")}>À venir</button>
         <button className={view === "past" ? "on" : ""} onClick={() => setView("past")}>Passé{todo > 0 && <b className="navbadge inline">{todo}</b>}</button>

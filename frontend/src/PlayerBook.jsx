@@ -232,6 +232,11 @@ export function Book({ me, reload, go, coachParam }) {
   const [offers, setOffers] = useState(null);
   const [done, setDone] = useState(null);
   useEffect(() => { api("/me/coaches").then(setCoaches); api("/me/clubs").then(setClubs); }, []);
+  // jours où les coachs choisis sont tous absents ou complets: grisés, on ne peut pas les choisir
+  const daysUrl = "/me/days?coach_ids=" + coachIds.join(",");
+  const [blocked, setBlocked] = useState(() => peek(daysUrl)?.days ?? {});
+  useEffect(() => { api(daysUrl).then((r) => setBlocked(r.days)).catch(() => {}); }, [daysUrl]);
+  useEffect(() => { if (day && blocked[day]) setDay(null); }, [blocked, day]);
   useEffect(() => {
     if (!day) return;
     const q = new URLSearchParams({ day, kinds: kinds.join(","), individuel_min: durs.individuel.join(","), duo_min: durs.duo.join(","), groupe_min: durs.groupe.join(","), ...(coachIds.length && { coach_ids: coachIds.join(",") }), ...(places.length && { clubs: places.join("|") }), ...(period && { period }), ...(hour !== "" && { hour }) });
@@ -303,15 +308,24 @@ export function Book({ me, reload, go, coachParam }) {
       <div className="daystrip">
         {days.map((d) => {
           const k = ymd(d);
+          const off = blocked[k]; // « absent » ou « complet »
           return (
-            <button key={k} className={"daypill" + (day === k ? " on" : "")} aria-pressed={day === k} onClick={() => setDay(k)}>
+            <button key={k} className={"daypill" + (day === k ? " on" : "") + (off ? " " + off : "")} aria-pressed={day === k} disabled={!!off}
+              aria-label={off ? `${fmt(d, { weekday: "long", day: "numeric", month: "long" })} : ${off === "absent" ? "coach absent" : "complet"}` : undefined}
+              onClick={() => setDay(k)}>
               <span>{fmt(d, { weekday: "short" }).replace(".", "")}</span>
               <b>{fmt(d, { day: "numeric" })}</b>
-              <small>{fmt(d, { month: "short" }).replace(".", "")}</small>
+              <small>{off === "absent" ? "Absent" : off === "complet" ? "Complet" : fmt(d, { month: "short" }).replace(".", "")}</small>
             </button>
           );
         })}
       </div>
+      {Object.keys(blocked).some((k) => days.some((d) => ymd(d) === k)) && (
+        <div className="day-legend">
+          {Object.values(blocked).includes("complet") && <span><i className="daykey complet" />Complet : plus de créneau libre</span>}
+          {Object.values(blocked).includes("absent") && <span><i className="daykey absent" />Coach absent</span>}
+        </div>
+      )}
       <div className="chips" style={{ marginBottom: 8 }}>
         {/* Une heure précise remplace la période (matin, soir…): les deux ne se combinent pas */}
         {/* heure précise choisie: les périodes restent affichées mais aucune n'est sélectionnée; en choisir une retire l'heure */}

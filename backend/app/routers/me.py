@@ -1,7 +1,7 @@
 """Côté joueur: l'application simplifiée (solde de crédits, réservation, séances, propositions, progression).
 Le joueur peut réserver chez tous les coachs: ses fiches chez chaque coach sont reliées à son compte (services/accounts)."""
 import secrets
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -16,7 +16,7 @@ from ..services import booking as svc
 from ..services import group_booking, groups, isolation, marketplace
 from ..services import email_verification as verification
 from ..services.accounts import linked, row_for_coach
-from ..services.common import aware
+from ..services.common import TUNIS, aware
 from ..services.finance import credit_balance, net_balance
 from ..sms import get_sms_provider
 from ..sms.base import SmsProvider
@@ -480,6 +480,38 @@ def coaches(player: Player = Depends(current_player), db: Session = Depends(get_
     """Tous les coachs de l'application (les « miens » en premier)."""
     out = [marketplace.coach_summary(db, c, player) for c in isolation.visible_coaches(db, player)]
     return sorted(out, key=lambda c: not c["mine"])
+
+
+@router.get("/days")
+def days(coach_ids: str = "", player: Player = Depends(current_player), db: Session = Depends(get_db)):
+    """Jours où les coachs choisis (tous s'il n'y en a pas) n'ont plus rien à proposer: « absent » si tous sont
+    absents, sinon « complet » (chacun absent ou complet). Les jours encore possibles ne sont pas listés."""
+    ids = {int(x) for x in coach_ids.split(",") if x.strip().isdigit()}
+    chosen = [c for c in isolation.visible_coaches(db, player) if not ids or c.id in ids]
+    if not chosen:
+        return {"days": {}}
+    today = datetime.now(TUNIS).date()
+    span = [today + timedelta(days=i) for i in range(max(svc.horizon(c) for c in chosen) + 1)]
+    states = [svc.day_states(db, c, span) for c in chosen]
+    out = {}
+    for d in span:
+        st = [x.get(d) for x in states]
+        if all(st):
+            out[d.isoformat()] = "absent" if all(v == "absent" for v in st) else "complet"
+    return {"days": out}
+
+
+@router.get("/coach-absences")
+def coach_absences(player: Player = Depends(current_player), db: Session = Depends(get_db)):
+    """Absences des coachs du joueur (ceux chez qui il a une fiche), pour son planning."""
+    from ..models import TimeOff
+    ids = {p.coach_id for p in linked(db, player) if p.coach_id}
+    since = datetime.now(TUNIS).date() - timedelta(days=100)
+    out = []
+    for t in db.scalars(select(TimeOff).where(TimeOff.coach_id.in_(ids), TimeOff.end_date >= since).order_by(TimeOff.start_date)):
+        c = db.get(Coach, t.coach_id)
+        out.append({"coach_id": c.id, "coach_name": c.name, "start_date": t.start_date.isoformat(), "end_date": t.end_date.isoformat()})
+    return out
 
 
 @router.get("/coaches/{coach_id}")
