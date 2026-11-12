@@ -20,9 +20,34 @@ KINDS = ("individuel", "duo", "groupe")
 HORIZONS = (7, 14, 21, 30, 60, 90)  # limite de réservation à l'avance: 1, 2, 3 semaines, 1, 2, 3 mois
 
 
-def grid(coach: Coach) -> dict[str, dict[int, int]]:
+def grid(coach: Coach, vip: bool = False) -> dict[str, dict[int, int]]:
     """Durées proposées et prix par joueur de chaque formule: {"duo": {60: 40000, 90: 55000}, ...}.
-    Formule sans durée = pas proposée aux joueurs."""
+    Formule sans durée = pas proposée aux joueurs. vip: prix VIP du coach à la place, quand il en a fixé un."""
+    std = _std_grid(coach)
+    if vip and coach.vip_price_grid:
+        raw = json.loads(coach.vip_price_grid)
+        return {k: {m: int((raw.get(k) or {}).get(str(m)) or p) for m, p in std[k].items()} for k in KINDS}
+    return std
+
+
+def vip_grid(coach: Coach) -> dict[str, dict[int, int]]:
+    """Prix VIP fixés par le coach (seulement les durées où il en a mis un)."""
+    raw = json.loads(coach.vip_price_grid) if coach.vip_price_grid else {}
+    std = _std_grid(coach)
+    return {k: {m: int(v) for m, v in ((int(m), v) for m, v in (raw.get(k) or {}).items()) if m in std[k] and v} for k in KINDS}
+
+
+def is_vip(db: Session, coach: Coach, player) -> bool:
+    """Le joueur (une de ses fiches) est-il dans la liste VIP de ce coach ?"""
+    if player is None or not coach.vip_price_grid:
+        return False
+    if player.coach_id == coach.id:
+        return bool(player.vip)
+    from .accounts import linked
+    return any(p.vip for p in linked(db, player) if p.coach_id == coach.id)
+
+
+def _std_grid(coach: Coach) -> dict[str, dict[int, int]]:
     if coach.price_grid:
         raw = json.loads(coach.price_grid)
         return {k: {int(m): int(p) for m, p in (raw.get(k) or {}).items()} for k in KINDS}
@@ -49,11 +74,11 @@ def player_durations(chosen: dict | None) -> dict[str, list[int]]:
             for k, allowed in PLAYER_DURATIONS.items()}
 
 
-def base_price(coach: Coach, kind: str, minutes: int | None = None) -> int:
+def base_price(coach: Coach, kind: str, minutes: int | None = None, vip: bool = False) -> int:
     """Prix par joueur de la grille du coach pour cette formule et cette durée; une autre durée (séance du coach)
     au prorata du prix d'1 h (ou de la durée la plus proche)."""
     m = minutes or 60
-    g = grid(coach)[kind]
+    g = grid(coach, vip)[kind]
     if m in g:
         return g[m]
     if not g:  # formule pas proposée aux joueurs: prix de l'heure au prorata
@@ -65,10 +90,10 @@ def base_price(coach: Coach, kind: str, minutes: int | None = None) -> int:
 SESSION_DURATIONS = (60, 90)  # durées d'une séance créée par le coach
 
 
-def grid_price(coach: Coach, kind: str, minutes: int) -> int | None:
+def grid_price(coach: Coach, kind: str, minutes: int, vip: bool = False) -> int | None:
     """Prix par joueur que le coach a fixé dans Réglages › Formules pour cette formule et cette durée, tel quel
     (jamais au prorata); None = pas de prix réglé pour cette durée."""
-    return grid(coach).get(kind, {}).get(minutes)
+    return grid(coach, vip).get(kind, {}).get(minutes)
 
 
 def reduced(base: int, pct: int = 0, millimes: int = 0) -> int:
@@ -100,11 +125,11 @@ def promo_for(db: Session, coach: Coach, start: datetime, minutes: int) -> Promo
     return best
 
 
-def quote(db: Session, coach: Coach, kind: str, start: datetime, minutes: int | None = None) -> dict:
+def quote(db: Session, coach: Coach, kind: str, start: datetime, minutes: int | None = None, vip: bool = False) -> dict:
     """Prix par joueur d'une nouvelle séance de cette durée (prix de l'heure au prorata):
     la plus forte réduction entre heure creuse et promotion s'applique."""
     minutes = minutes or duration_for(coach, kind)
-    base = base_price(coach, kind, minutes)
+    base = base_price(coach, kind, minutes, vip)
     best = (0, 0, 0, None)  # (réduction en millimes, %, dinars, raison)
     for item, reason in ((happy_hour(db, coach, start), "happy_hour"), (promo_for(db, coach, start, minutes), "promo")):
         if item:

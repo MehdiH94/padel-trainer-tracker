@@ -33,10 +33,15 @@ class BookingError(Exception):
     pass
 
 
-def price_for(coach: Coach, kind: str, minutes: int | None = None) -> int:
-    """Prix par joueur de la formule, au prorata de la durée si elle n'est pas la durée préférée du coach."""
+def price_for(coach: Coach, kind: str, minutes: int | None = None, vip: bool = False) -> int:
+    """Prix par joueur de la formule et de la durée (prix VIP pour un joueur de la liste VIP du coach)."""
     from .pricing import base_price
-    return base_price(coach, kind, minutes)
+    return base_price(coach, kind, minutes, vip)
+
+
+def vip(db: Session, coach: Coach, player) -> bool:
+    from .pricing import is_vip
+    return is_vip(db, coach, player if isinstance(player, Player) or player is None else db.get(Player, player))
 
 
 def attendee_ids(s: TrainingSession) -> list[int]:
@@ -77,11 +82,13 @@ def join_minutes(db: Session, s: TrainingSession, target: int, opts) -> int:
     return max([m for n, m in pairs if n == target] or [s.duration_min])
 
 
-def join_price(coach: Coach, s: TrainingSession, target: int) -> int:
-    """Séance formée par les joueurs: prix de la formule visée; séance du coach: son prix."""
+def join_price(coach: Coach, s: TrainingSession, target: int, vip: bool = False) -> int:
+    """Séance formée par les joueurs: prix de la formule visée; séance du coach: son prix (VIP: jamais plus que son
+    prix VIP de la formule et de la durée)."""
     if groups.is_dynamic(s):
-        return price_for(coach, groups.kind_for_size(target), s.duration_min)
-    return s.price_millimes or price_for(coach, s.kind, s.duration_min)
+        return price_for(coach, groups.kind_for_size(target), s.duration_min, vip)
+    price = s.price_millimes or price_for(coach, s.kind, s.duration_min)
+    return min(price, price_for(coach, s.kind, s.duration_min, True)) if vip and s.price_mode == "par_joueur" else price
 
 
 # --- Créneaux libres ----------------------------------------------------
@@ -343,7 +350,8 @@ def request_join(db: Session, coach: Coach, player: Player, s: TrainingSession, 
     if not force_accept and not fits_session(db, player, s)[0]:
         raise BookingError("Votre classement n'est pas compatible avec les joueurs de cette séance")
     minutes = join_minutes(db, s, target, opts) if dynamic else s.duration_min
-    price = price_for(coach, groups.kind_for_size(target), minutes) if dynamic else join_price(coach, s, target)
+    v = vip(db, coach, player)
+    price = price_for(coach, groups.kind_for_size(target), minutes, v) if dynamic else join_price(coach, s, target, v)
     b = Booking(coach_id=coach.id, player_id=player.id, kind=groups.kind_for_size(target) if dynamic or kinds else s.kind,
                 start=s.start, duration_min=minutes, session_id=s.id, charged_millimes=0, price_millimes=price,
                 accepted_kinds=",".join(k for k in groups.ORDER if k in (kinds or [])), accepted_opts=groups.dump_opts(opts or []))
@@ -386,7 +394,7 @@ def request_new(db: Session, coach: Coach, player: Player, kind: str, start: dat
     if not forming and not partner and not groups.can_open(kind, start):  # partner: il rejoint la demande d'un autre joueur  # groupe monté par un joueur: il invite lui-même ses partenaires
         raise BookingError("Pour ouvrir une séance à deux ou en groupe, elle doit avoir lieu dans plus de 24 h (le temps de compléter le groupe)")
     length = max(m for k, m in opts if k == kind)  # durée jouée s'il reste à la taille minimale voulue
-    q = quote(db, coach, kind, start, length)  # prix de l'heure au prorata, heures creuses / promotion
+    q = quote(db, coach, kind, start, length, vip(db, coach, player))  # prix (VIP), heures creuses / promotion
     b = Booking(coach_id=coach.id, player_id=player.id, kind=kind, start=aware(start), duration_min=max(m for _, m in opts), charged_millimes=0,
                 accepted_kinds=",".join(accepted), accepted_opts=groups.dump_opts(opts), price_millimes=q["price_millimes"],
                 discount_pct=q["discount_pct"], discount_millimes=q["discount_millimes"])
@@ -486,7 +494,7 @@ def accept(db: Session, coach: Coach, b: Booking, sms: SmsProvider | None = None
         elif club and courts.overlapping(db, coach, b.start, b.duration_min):
             raise BookingError(courts.busy_message(db, courts.overlapping(db, coach, b.start, b.duration_min)[0]))
     if not b.price_millimes:
-        b.price_millimes = price_for(coach, b.kind, b.duration_min)
+        b.price_millimes = price_for(coach, b.kind, b.duration_min, vip(db, coach, b.player_id))
     _debit(db, b)
     s = TrainingSession(
         coach_id=coach.id, start=b.start, duration_min=b.duration_min, kind=b.kind, level=player.category,
@@ -669,7 +677,7 @@ def _reprice(db: Session, coach: Coach, s: TrainingSession, b: Booking) -> None:
     """Prix de la formule réellement jouée (taille de la séance), avec la remise obtenue à la réservation.
     Déjà débité: la différence est rendue ou débitée (« ajustement »)."""
     played = groups.played_minutes(s)  # seul: 1 h, même si le terrain reste gardé 1 h 30 pour un groupe
-    price = reduced(price_for(coach, s.kind, played), b.discount_pct, b.discount_millimes)
+    price = reduced(price_for(coach, s.kind, played, vip(db, coach, b.player_id)), b.discount_pct, b.discount_millimes)
     b.kind, b.duration_min = s.kind, played
     if price == b.price_millimes:
         return
@@ -707,7 +715,7 @@ def reconsider(db: Session, coach: Coach, b: Booking, kind: str) -> None:
         refresh(db, s)
     else:  # pas encore validée par le coach: formule de départ et prix mis à jour
         b.kind = groups.smallest(mine)
-        b.price_millimes = reduced(price_for(coach, b.kind, b.duration_min), b.discount_pct, b.discount_millimes)
+        b.price_millimes = reduced(price_for(coach, b.kind, b.duration_min, vip(db, coach, b.player_id)), b.discount_pct, b.discount_millimes)
 
 
 def settle_durations(db: Session, now: datetime | None = None) -> int:
@@ -969,7 +977,7 @@ def answer_proposal(db: Session, b: Booking, yes: bool, sms: SmsProvider | None 
         notify_coach(db, coach.id, f"{p.name} décline l'horaire proposé", f"{p.name} ne peut pas {quand(b.proposed_start, b.proposed_minutes)} (demande initiale : {old}).")
         return
     b.start, b.duration_min, b.status = b.proposed_start, b.proposed_minutes, "en_attente"
-    q = quote(db, coach, b.kind, b.start, b.duration_min)
+    q = quote(db, coach, b.kind, b.start, b.duration_min, vip(db, coach, b.player_id))
     b.price_millimes, b.discount_pct, b.discount_millimes = q["price_millimes"], q["discount_pct"], q["discount_millimes"]
     opts = groups.parse_opts(b.accepted_opts)
     if opts:  # nouvelle durée: celle proposée par le coach

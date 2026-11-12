@@ -126,7 +126,7 @@ export default function Players({ playerId, openPlayer, closePlayer, go }) {
         <div className="card row pl" key={p.id} onClick={() => openPlayer(p.id)}>
           <div className="row g10">
             <Avatar name={p.name} size={44} />
-            <div><b>{p.name}</b><div className="mut">{p.phone || "Pas de téléphone"}{p.has_account && <> · <Icon name="shield" size={13} /> compte actif{!p.email_verified && <span className="unverified"> · e-mail non vérifié</span>}</>}{p.signup_status === "a_valider" && <span className="unverified"> · inscription à confirmer</span>}{p.invite_path && <> · <Icon name="link" size={13} /> lien à envoyer</>}</div></div>
+            <div><b>{p.name}</b>{p.vip && <span className="vip-tag"><Icon name="star" size={11} /> VIP</span>}<div className="mut">{p.phone || "Pas de téléphone"}{p.has_account && <> · <Icon name="shield" size={13} /> compte actif{!p.email_verified && <span className="unverified"> · e-mail non vérifié</span>}</>}{p.signup_status === "a_valider" && <span className="unverified"> · inscription à confirmer</span>}{p.invite_path && <> · <Icon name="link" size={13} /> lien à envoyer</>}</div></div>
           </div>
           <div style={{ textAlign: "right" }}>
             <CategoryBadge category={p.category} gender={p.gender} />

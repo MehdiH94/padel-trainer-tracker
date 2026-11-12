@@ -29,6 +29,7 @@ Base.metadata.create_all(engine)
 
 # Petites migrations pour une base déjà en service: create_all n'ajoute pas les colonnes aux tables existantes.
 NEW_COLUMNS = [
+    ("coaches", "vip_price_grid", "TEXT"), ("players", "vip", "BOOLEAN DEFAULT 0"), ("attendances", "price_millimes", "INTEGER"),
     ("bookings", "cancelled_at", "DATETIME"), ("bookings", "group_id", "INTEGER"), ("bookings", "group_token", "VARCHAR(24)"),
     ("coaches", "avoid_gaps", "BOOLEAN DEFAULT 1"), ("coaches", "price_grid", "TEXT"), ("coaches", "booking_horizon_days", "INTEGER DEFAULT 14"),
     ("players", "contact_channel", "VARCHAR(10)"), ("sessions", "plan", "TEXT"), ("players", "account_id", "INTEGER"),

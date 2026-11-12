@@ -29,6 +29,9 @@ class Coach(Base):
     # Durées proposées aux joueurs et prix par joueur pour chaque formule et durée (JSON {"duo": {"60": 40000, "90": 55000}}),
     # pas forcément au prorata; None = prix de l'heure ci-dessus (seul 1 h, à deux et en groupe 1 h ou 1 h 30 au prorata)
     price_grid: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Prix VIP (même forme que price_grid, mêmes durées): pour les joueurs de la liste VIP du coach; durée sans prix
+    # VIP = prix standard
+    vip_price_grid: Mapped[str | None] = mapped_column(Text, nullable=True)
     # Les joueurs réservent au plus ce nombre de jours à l'avance (une semaine à 3 mois)
     booking_horizon_days: Mapped[int] = mapped_column(Integer, default=14)
     # Éviter les trous: aucun début proposé aux joueurs qui laisserait un bout de terrain (ou de disponibilité) de moins
@@ -76,6 +79,7 @@ class Player(Base):
     side: Mapped[str] = mapped_column(String(10), default="drive")
     goals: Mapped[str] = mapped_column(Text, default="")
     notes: Mapped[str] = mapped_column(Text, default="")
+    vip: Mapped[bool] = mapped_column(default=False)  # dans la liste VIP de ce coach (fiche du coach): prix VIP
     # Critères de l'araignée propres à ce joueur (liste JSON); None = ceux du coach
     criteria: Mapped[str | None] = mapped_column(Text, nullable=True)
     # Moyen choisi par le joueur pour les rappels automatiques: whatsapp / sms / email (None = pas encore choisi)
@@ -120,6 +124,7 @@ class Attendance(Base):
     accepted_kinds: Mapped[str] = mapped_column(String(40), default="")  # formules acceptées (séance formée par les joueurs, services/groups)
     refunded: Mapped[bool] = mapped_column(default=False)  # absent, remboursé par le coach: rien à payer
     accepted_opts: Mapped[str] = mapped_column(String(120), default="")  # formules et durées acceptées (« duo:60,duo:90 »)
+    price_millimes: Mapped[int | None] = mapped_column(Integer, nullable=True)  # prix propre à ce joueur (VIP) dans une séance du coach
 
 
 class Club(Base):

@@ -2702,3 +2702,36 @@ def test_player_sees_full_and_absent_days(client):
     # son planning montre l'absence de son coach
     absences = pc.get("/me/coach-absences").json()
     assert [(a["start_date"], a["coach_name"]) for a in absences] == [(d1.isoformat(), "Coach Test")]
+
+
+def test_vip_players_get_vip_prices(client):
+    """Liste VIP du coach: prix VIP par formule et durée (sinon prix standard), pour réserver et dans ses séances."""
+    open_week(client)
+    st = client.get("/booking/settings").json()
+    grid = {"individuel": {"60": 60000, "90": 80000}, "duo": {"60": 40000}, "groupe": {"90": 35000}}
+    vip = {"individuel": {"60": 45000}, "duo": {"60": 30000}, "groupe": {"90": 0}}  # groupe: pas de prix VIP = standard
+    r = client.put("/booking/settings", json={**st, "price_grid": grid, "vip_price_grid": vip})
+    assert r.status_code == 200
+    out = client.get("/booking/settings").json()
+    assert out["vip_price_grid"] == {"individuel": {"60": 45000}, "duo": {"60": 30000}, "groupe": {}}
+    a, ac = player_client(client, name="Amine VIP", phone="20111111")
+    b, bc = player_client(client, name="Bilel", phone="20222222")
+    assert client.put(f"/players/{a['id']}/vip", json={"vip": True}).json()["vip"] is True
+    assert [p["name"] for p in client.get("/players").json() if p["vip"]] == ["Amine VIP"]
+    assert client.get("/booking/settings").json()["vip_count"] == 1
+    # prix vus en réservant: VIP pour Amine, standard pour Bilel
+    day = (datetime.now(timezone(timedelta(hours=1))) + timedelta(days=3)).date().isoformat()
+    q = f"/me/offers?day={day}&kinds=individuel&individuel_min=60"
+    price = lambda c: {o["start"]: o for o in c.get(q).json()["slots_other"] + c.get(q).json()["slots_with_court"]}
+    pa, pb = price(ac), price(bc)
+    some = next(iter(pa))
+    assert pa[some]["price_millimes"] == 45000 and pb[some]["price_millimes"] == 60000
+    # séance créée par le coach: le VIP paie son prix VIP, l'autre le prix standard
+    s = client.post("/sessions", json={"start": f"{day}T18:00:00+01:00", "kind": "duo", "player_ids": [a["id"], b["id"]], "discount_millimes": 0}).json()[0]
+    assert s["price_millimes"] == 40000
+    client.patch(f"/sessions/{s['id']}", json={"status": "effectuee"})
+    dues = {p["player_id"]: p["due_millimes"] for p in next(x for x in client.get("/sessions").json() if x["id"] == s["id"])["payments"]}
+    assert dues == {a["id"]: 30000, b["id"]: 40000}
+    # retiré de la liste: prix standard
+    client.put(f"/players/{a['id']}/vip", json={"vip": False})
+    assert price(ac)[some]["price_millimes"] == 60000

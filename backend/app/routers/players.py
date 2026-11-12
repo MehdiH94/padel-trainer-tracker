@@ -76,6 +76,19 @@ def create_player(body: PlayerIn, coach: Coach = Depends(current_coach), db: Ses
     return player_out(p)
 
 
+class VipIn(BaseModel):
+    vip: bool
+
+
+@router.put("/{player_id}/vip", response_model=PlayerOut)
+def set_vip(player_id: int, body: VipIn, coach: Coach = Depends(current_coach), db: Session = Depends(get_db)):
+    """Ajoute le joueur à la liste VIP du coach (prix VIP) ou l'en retire. Vaut pour ses prochaines réservations."""
+    p = get_owned_player(db, coach, player_id)
+    p.vip = body.vip
+    _save(db)
+    return player_out(p, credit_balance(db, p.id))
+
+
 @router.put("/{player_id}", response_model=PlayerOut)
 def update_player(player_id: int, body: PlayerIn, coach: Coach = Depends(current_coach), db: Session = Depends(get_db)):
     p = get_owned_player(db, coach, player_id)

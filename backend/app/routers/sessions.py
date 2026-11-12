@@ -18,7 +18,7 @@ from ..services.accounts import has_account
 from ..services import groups, isolation
 from ..services import finance
 from ..services.finance import session_payments, share
-from ..services.pricing import SESSION_DURATIONS, grid_price
+from ..services.pricing import SESSION_DURATIONS, grid_price, is_vip
 from ..services.common import aware, dinars, quand
 from ..sms import get_sms_provider
 from ..sms.base import SmsProvider
@@ -128,9 +128,11 @@ def create_sessions(
     data.pop("court_cost_millimes", None)
     data.pop("invite_message", None)
     data.pop("invite_ids", None)
+    vip_price = None  # prix des joueurs VIP de la liste du coach (même réduction)
     if body.discount_millimes is not None or body.discount_pct is not None:
         # prix par joueur fixé dans Réglages › Formules pour cette formule et cette durée, tel quel (pas de prorata)
         grid = grid_price(coach, body.kind, body.duration_min)
+        vgrid = grid_price(coach, body.kind, body.duration_min, vip=True)
         if grid is None:
             label = {"individuel": "seul", "duo": "à deux", "groupe": "en groupe"}[body.kind]
             raise HTTPException(422, f"Vous n'avez pas fixé le prix d'une séance {label} de {'1 h 30' if body.duration_min == 90 else '1 h'} : "
@@ -139,10 +141,12 @@ def create_sessions(
             if body.discount_millimes < 0:
                 raise HTTPException(422, "Réduction invalide.")
             data["price_millimes"] = max(grid - body.discount_millimes, 0)
+            vip_price = max((vgrid or grid) - body.discount_millimes, 0)
         else:  # ancien fonctionnement: promotion en %
             if not 0 <= body.discount_pct <= 90:
                 raise HTTPException(422, "Promotion : entre 0 et 90 %.")
             data["price_millimes"] = round(grid * (100 - body.discount_pct) / 100)
+            vip_price = round((vgrid or grid) * (100 - body.discount_pct) / 100)
         data["price_mode"] = "par_joueur"
     if invite_ids:
         data["open"] = True  # les joueurs prévenus pourront accepter la proposition
@@ -167,7 +171,8 @@ def create_sessions(
         s = TrainingSession(
             coach_id=coach.id, start=body.start + timedelta(weeks=i), recurrence_id=rec, **data
         )
-        s.attendances = [Attendance(player_id=pid) for pid in body.player_ids]
+        s.attendances = [Attendance(player_id=pid, price_millimes=vip_price if vip_price is not None and vip_price < s.price_millimes
+                                    and is_vip(db, coach, db.get(Player, pid)) else None) for pid in body.player_ids]
         db.add(s)
         created.append(s)
     db.flush()
@@ -248,7 +253,12 @@ def add_player(session_id: int, body: AddPlayerIn, coach: Coach = Depends(curren
         raise HTTPException(409, "Ce joueur participe déjà à cette séance")
     if len(s.attendances) >= groups.capacity(s):
         raise HTTPException(409, "Cette séance est complète")
-    s.attendances.append(Attendance(player_id=body.player_id))
+    p = db.get(Player, body.player_id)
+    own = None
+    if s.price_mode == "par_joueur" and is_vip(db, coach, p):  # joueur VIP: jamais plus que son prix VIP
+        v = grid_price(coach, s.kind, s.duration_min, vip=True)
+        own = v if v is not None and v < s.price_millimes else None
+    s.attendances.append(Attendance(player_id=body.player_id, price_millimes=own))
     db.commit()
     cb = db.scalar(select(CourtBooking).where(CourtBooking.session_id == s.id))
     return to_out(s, cb.status if cb else None, session_payments(db, coach.id), db)

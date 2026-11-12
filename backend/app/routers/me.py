@@ -371,7 +371,7 @@ def proposals(player: Player = Depends(current_player), db: Session = Depends(ge
             continue
         out.append({
             "id": p.id, "session_id": s.id, "start": s.start, "duration_min": s.duration_min, "kind": s.kind, "club": s.club,
-            "price_millimes": s.price_millimes or svc.price_for(coach, s.kind), "partners": _partners(db, s, ids), "coach_name": coach.name,
+            "price_millimes": svc.join_price(coach, s, len(s.attendances) + 1, svc.vip(db, coach, p.player_id)), "partners": _partners(db, s, ids), "coach_name": coach.name,
             "spots_left": svc.spots_left(db, s),
         })
     return sorted(out, key=lambda x: aware(x["start"]))

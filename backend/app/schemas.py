@@ -82,6 +82,7 @@ class PlayerOut(PlayerIn):
     credits_millimes: int = 0
     invite_path: str | None = None  # lien d'inscription pré-rempli (joueur sans compte)
     signup_status: str | None = None  # inscription à confirmer par l'administrateur
+    vip: bool = False  # dans la liste VIP du coach (prix VIP)
 
 
 class SessionIn(BaseModel):

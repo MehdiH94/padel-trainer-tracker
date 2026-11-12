@@ -14,7 +14,7 @@ from . import courts
 from .accounts import linked
 from .isolation import visible_coaches
 from . import groups as grp
-from .booking import KIND_FR, _dur, attendee_ids, edges, fits_session, free_slots, horizon, join_minutes, join_price, join_target, pending_joins, price_for, spots_left
+from .booking import KIND_FR, _dur, vip as is_vip, attendee_ids, edges, fits_session, free_slots, horizon, join_minutes, join_price, join_target, pending_joins, price_for, spots_left
 from .common import TUNIS, aware
 from .pricing import coach_durations, duration_for, grid, player_durations, quote
 
@@ -48,7 +48,7 @@ def coach_summary(db: Session, coach: Coach, account: Player | None = None) -> d
     mine = account is not None and any(p.coach_id == coach.id for p in linked(db, account))
     return {
         "id": coach.id, "name": coach.name, "bio": coach.bio, "specialties": [s for s in coach.specialties.split(",") if s],
-        "clubs": coach_clubs(db, coach), "prices": {k: price_for(coach, k) for k in CAPACITY}, "mine": mine,
+        "clubs": coach_clubs(db, coach), "prices": {k: price_for(coach, k, None, is_vip(db, coach, account)) for k in CAPACITY}, "mine": mine,
         # formules, durées et prix proposés, et jusqu'où on peut réserver (jours)
         "grid": {k: {str(m): v for m, v in g.items()} for k, g in grid(coach).items()}, "horizon_days": horizon(coach),
     }
@@ -115,7 +115,7 @@ def open_requests(db: Session, c: Coach, account: Player, my_ids: set, day: date
         size = len(members) + 1
         fit = sorted((o for o in opts if size in grp.SIZES[o[0]]), key=lambda o: -o[1]) or sorted(opts, key=lambda o: -o[1])
         k, m = fit[0]
-        q = quote(db, c, k, root.start, m)
+        q = quote(db, c, k, root.start, m, is_vip(db, c, account))
         out.append({"type": "request", "booking_id": root.id, "coach": who, "start": root.start, "duration_min": m, "kind": k,
                     "kinds": sorted({x for x, _ in opts}, key=grp.ORDER.index), "price_millimes": q["price_millimes"],
                     "players": [{"name": p.name, "category": p.category} for p in players], "club": "",
@@ -146,6 +146,7 @@ def offers(db: Session, account: Player, day: date, kinds: list[str], coach_ids:
         if wanted_clubs and not any(in_clubs(n) for n in clubs):
             continue
         who = {"id": c.id, "name": c.name}
+        v = is_vip(db, c, account)  # prix VIP chez ce coach
         # 1. Séances à rejoindre: la taille de la séance après l'arrivée du joueur doit convenir à tous (services/groups).
         #    Jamais de groupe pour qui veut s'entraîner seul, jamais un duo pour qui cherche un groupe; on peut être le
         #    premier ou le deuxième d'un groupe s'il reste plus de 24 h pour le compléter. Les séances d'autres formules
@@ -177,7 +178,7 @@ def offers(db: Session, account: Player, day: date, kinds: list[str], coach_ids:
             groups.append({
                 "type": "group", "session_id": s.id, "coach": who, "start": s.start, "duration_min": minutes, "kind": grp.kind_for_size(target),
                 "club": s.club, "court": courts_state(db, s),
-                "price_millimes": price_for(c, grp.kind_for_size(target), minutes) if grp.is_dynamic(s) else join_price(c, s, target),
+                "price_millimes": price_for(c, grp.kind_for_size(target), minutes, v) if grp.is_dynamic(s) else join_price(c, s, target, v),
                 "spots_left": spots_left(db, s), "players": [{"name": p.name, "category": p.category, "gender": p.gender} for p in others],
                 "count": taken, "missing": max(0, target - taken - 1),  # joueurs qu'il manquera encore après lui
                 "other_duration": other_duration, "_gap": gap + (10 if other_duration else 0),
@@ -212,7 +213,7 @@ def offers(db: Session, account: Player, day: date, kinds: list[str], coach_ids:
             too_late.update(k for k, _ in opts if not group and not grp.can_open(k, start))
             if not group and not grp.can_open(opts[0][0], start):  # ouvrir un duo/groupe seul: seulement à plus de 24 h
                 continue
-            starts[start] = [quote(db, c, k, start, m) for k, m in opts]
+            starts[start] = [quote(db, c, k, start, m, v) for k, m in opts]
         # rien de proposé chez ce coach ce jour-là: on explique pourquoi (au lieu d'une liste vide)
         if not starts:
             label = lambda k, ms: f"{KIND_FR[k].lower()} {' ou '.join(_dur(m) for m in ms)}"  # noqa: E731

@@ -33,6 +33,15 @@ export default function Settings({ onBack, sub }) {
   const [sel, setSel] = useState(() => peek("/clubs/catalog")?.mine ?? []);
   const [newClubs, setNewClubs] = useState([]);
   const [nc, setNc] = useState({ name: "", phone: "" });
+  // Liste VIP: joueurs du coach marqués VIP (prix VIP), modifiée tout de suite
+  const [players, setPlayers] = useState(() => peek("/players") ?? []);
+  useEffect(() => { api("/players").then(setPlayers).catch(() => {}); }, []);
+  const vips = players.filter((p) => p.vip);
+  const others = players.filter((p) => !p.vip).sort((a, b) => a.name.localeCompare(b.name));
+  const setVip = (p, on) => api(`/players/${p.id}/vip`, { method: "PUT", body: { vip: on } })
+    .then((x) => { setPlayers((ps) => ps.map((y) => (y.id === x.id ? { ...y, vip: x.vip } : y))); setStatus({ state: "saved" }); setFlash("vip");
+      setTimeout(() => { setFlash((f) => (f === "vip" ? null : f)); setStatus((st) => (st.state === "saved" ? { state: "idle" } : st)); }, 2200); })
+    .catch((e) => setStatus({ state: "error", msg: e.message }));
   const loadClubs = () => api("/clubs/catalog").then((c) => { setCat(c); setSel(c.mine); setNewClubs([]); });
   useEffect(() => { loadClubs(); }, []);
   const toggleClub = (n) => { setSel(sel.includes(n) ? sel.filter((x) => x !== n) : [...sel, n]); changed("clubs"); };
@@ -161,6 +170,43 @@ export default function Settings({ onBack, sub }) {
             </div>
           );
         })}
+      </div>
+
+      <h2 id="vip">Prix VIP <Saved id="vip" /></h2>
+      <div className={card("vip")} data-sec="vip">
+        <div className="mut small-p" style={{ marginBottom: 8 }}>Un prix à part pour les joueurs de votre liste VIP, pour chaque formule et durée que vous proposez. Laissez vide : ils paient le prix standard.</div>
+        {Object.entries(KIND).map(([k, v]) => {
+          const std = s.price_grid?.[k] ?? {};
+          const g = s.vip_price_grid?.[k] ?? {};
+          if (!Object.keys(std).length) return null;
+          return (
+            <div className="formula grid" key={k}>
+              <span className="formula-name"><Icon name={v.icon} size={16} /> <b>{v.label}</b></span>
+              {["60", "90"].filter((m) => std[m] !== undefined).map((m) => (
+                <span key={m} className="inputunit"><em>{m === "60" ? "1 h" : "1 h 30"}</em>
+                  <MoneyInput label={`Prix VIP ${v.label} ${m === "60" ? "1 h" : "1 h 30"}`} value={g[m] ?? 0} placeholder={String(std[m] / 1000)}
+                    onChange={(x) => edit({ ...s, vip_price_grid: { ...s.vip_price_grid, [k]: { ...g, [m]: x } } })} /><em>TND</em></span>
+              ))}
+            </div>
+          );
+        })}
+        <div className="field" style={{ marginTop: 10 }}>
+          <span className="mut">Liste VIP ({vips.length})</span>
+          <div className="chips">
+            {vips.map((p) => (
+              <button type="button" key={p.id} className="chip small on" aria-label={`Retirer ${p.name} de la liste VIP`} onClick={() => setVip(p, false)}>
+                <Icon name="star" size={13} /> {p.name} <Icon name="x" size={12} />
+              </button>
+            ))}
+            {!vips.length && <span className="mut small-p">Aucun joueur VIP pour l'instant.</span>}
+          </div>
+          {others.length > 0 && (
+            <select aria-label="Ajouter un joueur VIP" value="" style={{ marginTop: 8 }} onChange={(e) => { const p = others.find((x) => x.id === +e.target.value); if (p) setVip(p, true); }}>
+              <option value="">+ Ajouter un joueur VIP…</option>
+              {others.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </select>
+          )}
+        </div>
       </div>
 
       <h2>Heures creuses <Saved id="heures" /></h2>

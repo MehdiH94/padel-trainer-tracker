@@ -12,7 +12,8 @@ def share(s: TrainingSession, index: int) -> int:
         n = len(s.attendances) or 1
         # prix total partagé; le reste de la division va aux premiers joueurs
         return s.price_millimes // n + (1 if index < s.price_millimes % n else 0)
-    return s.price_millimes
+    own = s.attendances[index].price_millimes  # joueur VIP dans une séance du coach
+    return own if own is not None else s.price_millimes
 
 
 def billed_by_player(sessions: list[TrainingSession]) -> dict[int, int]:

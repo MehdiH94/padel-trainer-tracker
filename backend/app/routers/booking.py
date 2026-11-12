@@ -56,6 +56,7 @@ class Settings(BaseModel):
     bio: str | None = None  # page publique du coach (None = inchangé)
     specialties: list[str] | None = None
     price_grid: dict[str, dict[str, int]] | None = None  # {"duo": {"60": 40000, "90": 55000}}: durées proposées et prix (None = inchangé)
+    vip_price_grid: dict[str, dict[str, int]] | None = None  # prix VIP, mêmes durées (0 ou absent = prix standard; None = inchangé)
     avoid_gaps: bool | None = None  # éviter les trous de moins d'1 h (None = inchangé)
     booking_horizon_days: int | None = None  # réservation au plus N jours à l'avance (7 à 90; None = inchangé)
 
@@ -68,6 +69,8 @@ def settings_out(db: Session, coach: Coach) -> dict:
         "availability": [{"weekday": r.weekday, "start_time": r.start_time, "end_time": r.end_time} for r in rows],
         "bio": coach.bio, "specialties": [x for x in coach.specialties.split(",") if x], "name": coach.name,
         "price_grid": {k: {str(m): v for m, v in g.items()} for k, g in pricing.grid(coach).items()},
+        "vip_price_grid": {k: {str(m): v for m, v in g.items()} for k, g in pricing.vip_grid(coach).items()},
+        "vip_count": db.scalar(select(func.count(Player.id)).where(Player.coach_id == coach.id, Player.vip.is_(True))),
         "booking_horizon_days": coach.booking_horizon_days or 14, "avoid_gaps": coach.avoid_gaps is not False,
         "duration_duo": duration_for(coach, "duo"), "duration_groupe": duration_for(coach, "groupe"), "booking_mode": coach.booking_mode,
         "happy_hours": [{"weekday": h.weekday, "start_time": h.start_time, "end_time": h.end_time, "discount_pct": h.discount_pct, "discount_millimes": h.discount_millimes}
@@ -124,6 +127,13 @@ def put_settings(body: Settings, coach: Coach = Depends(current_coach), db: Sess
         for k, x in g.items():  # prix de l'heure gardé à jour (ancien réglage, séances d'une autre durée)
             if x:
                 setattr(coach, "price_" + k, x[60] if 60 in x else round(x[min(x)] * 60 / min(x)))
+    if body.vip_price_grid is not None:  # prix VIP: seulement pour les durées proposées, sinon prix standard
+        std = pricing.grid(coach)
+        v = {k: {str(int(m)): int(p) for m, p in (body.vip_price_grid.get(k) or {}).items() if int(m) in std[k] and int(p or 0) > 0}
+             for k in pricing.KINDS}
+        if any(int(p or 0) < 0 for x in body.vip_price_grid.values() for p in (x or {}).values()):
+            raise HTTPException(422, "Prix VIP : montants positifs.")
+        coach.vip_price_grid = json.dumps(v) if any(v.values()) else None
     if body.avoid_gaps is not None:
         coach.avoid_gaps = body.avoid_gaps
     if body.booking_horizon_days is not None:

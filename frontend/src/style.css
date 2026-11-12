@@ -900,3 +900,6 @@ button.saved { background: var(--green); border-color: var(--green); color: #fff
 .cal-col.coach-off { background-image: repeating-linear-gradient(45deg, transparent 0 8px, color-mix(in srgb, var(--mut) 10%, transparent) 8px 10px); }
 .cal-coachoff { position: absolute; top: 2px; left: 2px; right: 2px; z-index: 1; font-size: 10px; line-height: 1.2; text-align: center; color: var(--mut);
   background: var(--soft); border-radius: 6px; padding: 2px 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; pointer-events: none; }
+/* Joueur de la liste VIP du coach */
+.vip-tag { display: inline-flex; align-items: center; gap: 3px; margin-left: 6px; padding: 1px 7px; border-radius: 99px; font-size: 11px; font-weight: 700;
+  vertical-align: middle; color: var(--brand); background: color-mix(in srgb, var(--brand) 12%, transparent); }
