@@ -49,6 +49,7 @@ def coach_summary(db: Session, coach: Coach, account: Player | None = None) -> d
     return {
         "id": coach.id, "name": coach.name, "bio": coach.bio, "specialties": [s for s in coach.specialties.split(",") if s],
         "clubs": coach_clubs(db, coach), "prices": {k: price_for(coach, k, None, is_vip(db, coach, account)) for k in CAPACITY}, "mine": mine,
+        "vip": is_vip(db, coach, account),  # le joueur est dans la liste VIP de ce coach (tarifs privilégiés)
         # formules, durées et prix proposés, et jusqu'où on peut réserver (jours)
         "grid": {k: {str(m): v for m, v in g.items()} for k, g in grid(coach).items()}, "horizon_days": horizon(coach),
     }

@@ -291,6 +291,10 @@ export function Book({ me, reload, go, coachParam }) {
           </button>
         ))}
       </div>
+      {(() => { // joueur de la liste VIP du coach choisi: mention discrète des tarifs privilégiés
+        const vipCoaches = coaches.filter((c) => c.vip && coachIds.includes(c.id));
+        return vipCoaches.length > 0 && <p className="vip-note"><Icon name="star" size={12} /> Tarifs privilégiés chez {vipCoaches.map((c) => c.name).join(", ")}, déjà appliqués à vos prix.</p>;
+      })()}
       {!showClubs && <button className="link" onClick={() => setShowClubs(true)}><Icon name="pin" size={14} /> {places.length ? places.join(", ") : "Tous les clubs"} <Icon name="chevD" size={14} /></button>}
       {showClubs && <div className="coach-chips" role="group" aria-label="Clubs">
         <button className={"chip small" + (places.length === 0 ? " on" : "")} aria-pressed={places.length === 0} onClick={() => setPlaces([])}>Tous</button>

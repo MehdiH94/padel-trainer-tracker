@@ -2724,6 +2724,7 @@ def test_vip_players_get_vip_prices(client):
     q = f"/me/offers?day={day}&kinds=individuel&individuel_min=60"
     price = lambda c: {o["start"]: o for o in c.get(q).json()["slots_other"] + c.get(q).json()["slots_with_court"]}
     pa, pb = price(ac), price(bc)
+    assert [c["vip"] for c in ac.get("/me/coaches").json()] == [True] and [c["vip"] for c in bc.get("/me/coaches").json()] == [False]
     some = next(iter(pa))
     assert pa[some]["price_millimes"] == 45000 and pb[some]["price_millimes"] == 60000
     # séance créée par le coach: le VIP paie son prix VIP, l'autre le prix standard
