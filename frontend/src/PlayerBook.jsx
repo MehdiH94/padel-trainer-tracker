@@ -32,9 +32,13 @@ function Price({ o, open }) {
       {opt.reduction_millimes > 0 && <span className="promo-tag">{opt.reason === "promo" ? "Promo" : "Heures creuses"} {reduction(opt)}</span>}
       <span>{!open && opts.length > 1 && <small className="mut">dès </small>}{tnd(opt.price_millimes)}</span>
       {opt.reduction_millimes > 0 && base > opt.price_millimes && <span className="old-price">{tnd(base)}</span>}
+      {o.vip && <VipPrice />}
     </span>
   );
 }
+
+// Joueur de la liste VIP du coach: ses prix sont déjà ses tarifs privilégiés (mention discrète sous le prix)
+const VipPrice = () => <small className="vip-price">tarif privilégié</small>;
 
 function CourtTag({ court }) {
   return court === "reserve"
@@ -139,7 +143,7 @@ function RequestOffer({ o, me, kinds, durs, onBooked }) {
     <div className="card join-req">
       <div className="row">
         <b className="join-time">{hhmm(o.start)} <span className="mut">· {dur(o.duration_min)} · {o.kinds.map((k) => HOW[k].toLowerCase()).join(" ou ")}</span></b>
-        <b>{tnd(o.price_millimes)}</b>
+        <span className="offer-price"><b>{tnd(o.price_millimes)}</b>{o.vip && <VipPrice />}</span>
       </div>
       <div className="row" style={{ marginTop: 6 }}>
         <span className="partners" style={{ margin: 0 }}>{o.players.map((p) => <span key={p.name} className="partner"><Avatar name={p.name} size={22} /> {p.name.split(" ")[0]} <CategoryBadge category={p.category} /></span>)}</span>
@@ -186,7 +190,7 @@ function SlotGroup({ items, me, kinds, durs, onBooked, openCoach }) {
           <small>{first.club || "Club à confirmer"}</small>
           <span><CourtTag court={first.court} />{promo && <span className="promo-tag">Réductions</span>}</span>
         </span>
-        <span className="offer-price"><span><small className="mut">dès </small>{tnd(cheapest)}</span></span>
+        <span className="offer-price"><span><small className="mut">dès </small>{tnd(cheapest)}</span>{first.vip && <VipPrice />}</span>
       </div>
       <div className="mut small-p" style={{ margin: "8px 0 4px" }}>Choisissez l'heure{items.some((o) => o.ideal) && items.some((o) => !o.ideal) ? " · ★ idéal" : ""}</div>
       <div className="chips" role="group" aria-label={`Heures avec ${first.coach.name}`}>
@@ -291,10 +295,6 @@ export function Book({ me, reload, go, coachParam }) {
           </button>
         ))}
       </div>
-      {(() => { // joueur de la liste VIP du coach choisi: mention discrète des tarifs privilégiés
-        const vipCoaches = coaches.filter((c) => c.vip && coachIds.includes(c.id));
-        return vipCoaches.length > 0 && <p className="vip-note"><Icon name="star" size={12} /> Tarifs privilégiés chez {vipCoaches.map((c) => c.name).join(", ")}, déjà appliqués à vos prix.</p>;
-      })()}
       {!showClubs && <button className="link" onClick={() => setShowClubs(true)}><Icon name="pin" size={14} /> {places.length ? places.join(", ") : "Tous les clubs"} <Icon name="chevD" size={14} /></button>}
       {showClubs && <div className="coach-chips" role="group" aria-label="Clubs">
         <button className={"chip small" + (places.length === 0 ? " on" : "")} aria-pressed={places.length === 0} onClick={() => setPlaces([])}>Tous</button>
@@ -434,7 +434,7 @@ export function CoachPage({ id, go, onBack }) {
       {c.specialties.length > 0 && (
         <><h2>Spécialités</h2><div className="chips">{c.specialties.map((t) => <span key={t} className="theme big-theme">{t}</span>)}</div></>
       )}
-      <h2>Tarifs par heure et par joueur</h2>
+      <h2>Tarifs par heure et par joueur{c.vip && <small className="vip-price inline">vos tarifs privilégiés</small>}</h2>
       <div className="grid three">
         {Object.entries(KIND).map(([k, v]) => <div key={k} className="kpi"><div className="mut small-p">{HOW[k]}</div><b className="big sm">{tnd(c.prices[k])}</b></div>)}
       </div>

@@ -116,8 +116,9 @@ def open_requests(db: Session, c: Coach, account: Player, my_ids: set, day: date
         size = len(members) + 1
         fit = sorted((o for o in opts if size in grp.SIZES[o[0]]), key=lambda o: -o[1]) or sorted(opts, key=lambda o: -o[1])
         k, m = fit[0]
-        q = quote(db, c, k, root.start, m, is_vip(db, c, account))
-        out.append({"type": "request", "booking_id": root.id, "coach": who, "start": root.start, "duration_min": m, "kind": k,
+        v = is_vip(db, c, account)
+        q = quote(db, c, k, root.start, m, v)
+        out.append({"type": "request", "booking_id": root.id, "coach": who, "start": root.start, "duration_min": m, "kind": k, "vip": v,
                     "kinds": sorted({x for x, _ in opts}, key=grp.ORDER.index), "price_millimes": q["price_millimes"],
                     "players": [{"name": p.name, "category": p.category} for p in players], "club": "",
                     "reduction_millimes": q["reduction_millimes"]})
@@ -177,7 +178,7 @@ def offers(db: Session, account: Player, day: date, kinds: list[str], coach_ids:
             # durée jouée s'il la rejoint: la plus longue que tous acceptent, lui compris (la plus stricte l'emporte)
             minutes = join_minutes(db, s, target, None if other_duration else opts) if grp.is_dynamic(s) else s.duration_min
             groups.append({
-                "type": "group", "session_id": s.id, "coach": who, "start": s.start, "duration_min": minutes, "kind": grp.kind_for_size(target),
+                "type": "group", "session_id": s.id, "coach": who, "start": s.start, "duration_min": minutes, "kind": grp.kind_for_size(target), "vip": v,
                 "club": s.club, "court": courts_state(db, s),
                 "price_millimes": price_for(c, grp.kind_for_size(target), minutes, v) if grp.is_dynamic(s) else join_price(c, s, target, v),
                 "spots_left": spots_left(db, s), "players": [{"name": p.name, "category": p.category, "gender": p.gender} for p in others],
@@ -231,7 +232,7 @@ def offers(db: Session, account: Player, day: date, kinds: list[str], coach_ids:
             first = options[0]
             requested = sum(1 for b in pending if aware(b.start) < start + timedelta(minutes=max(o["duration_min"] for o in options))
                             and start < aware(b.start) + timedelta(minutes=b.duration_min))  # autres demandes du même créneau
-            item = {"type": "slot", "coach": who, "start": start, "options": options, "kind": first["kind"], "requested": requested,
+            item = {"type": "slot", "coach": who, "start": start, "options": options, "kind": first["kind"], "requested": requested, "vip": v,
                     "duration_min": first["duration_min"], "price_millimes": first["price_millimes"],
                     "discount_pct": max(o["discount_pct"] for o in options), "reduction_millimes": max(o["reduction_millimes"] for o in options),
                     "reason": next((o["reason"] for o in options if o["reason"]), None),

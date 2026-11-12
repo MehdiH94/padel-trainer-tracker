@@ -2727,6 +2727,7 @@ def test_vip_players_get_vip_prices(client):
     assert [c["vip"] for c in ac.get("/me/coaches").json()] == [True] and [c["vip"] for c in bc.get("/me/coaches").json()] == [False]
     some = next(iter(pa))
     assert pa[some]["price_millimes"] == 45000 and pb[some]["price_millimes"] == 60000
+    assert pa[some]["vip"] is True and pb[some]["vip"] is False  # mention « tarif privilégié » sous le prix
     # séance créée par le coach: le VIP paie son prix VIP, l'autre le prix standard
     s = client.post("/sessions", json={"start": f"{day}T18:00:00+01:00", "kind": "duo", "player_ids": [a["id"], b["id"]], "discount_millimes": 0}).json()[0]
     assert s["price_millimes"] == 40000

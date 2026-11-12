@@ -903,6 +903,6 @@ button.saved { background: var(--green); border-color: var(--green); color: #fff
 /* Joueur de la liste VIP du coach */
 .vip-tag { display: inline-flex; align-items: center; gap: 3px; margin-left: 6px; padding: 1px 7px; border-radius: 99px; font-size: 11px; font-weight: 700;
   vertical-align: middle; color: var(--brand); background: color-mix(in srgb, var(--brand) 12%, transparent); }
-/* Réserver: le joueur est dans la liste VIP du coach choisi (mention discrète) */
-.vip-note { display: flex; align-items: center; gap: 5px; margin: 2px 0 6px; font-size: .78rem; color: var(--mut); }
-.vip-note svg { color: var(--brand); flex: none; }
+/* Réserver: prix du joueur de la liste VIP du coach (mention discrète sous le prix, sans icône) */
+.vip-price { display: block; font-size: .7rem; font-weight: 600; letter-spacing: .02em; color: var(--brand); text-transform: none; white-space: nowrap; }
+.vip-price.inline { display: inline; margin-left: 8px; font-family: inherit; }
