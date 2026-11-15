@@ -18,7 +18,7 @@ from ..services.accounts import has_account
 from ..services import groups, isolation
 from ..services import finance
 from ..services.finance import session_payments, share
-from ..services.pricing import SESSION_DURATIONS, grid_price, is_vip
+from ..services.pricing import MIN_PRICE, SESSION_DURATIONS, grid_price, is_vip
 from ..services.common import aware, dinars, quand
 from ..sms import get_sms_provider
 from ..sms.base import SmsProvider
@@ -148,6 +148,9 @@ def create_sessions(
             data["price_millimes"] = round(grid * (100 - body.discount_pct) / 100)
             vip_price = round((vgrid or grid) * (100 - body.discount_pct) / 100)
         data["price_mode"] = "par_joueur"
+    if "price_millimes" in data and data.get("price_mode") == "par_joueur" and (body.discount_millimes is not None or body.discount_pct is not None) \
+            and data["price_millimes"] < MIN_PRICE:
+        raise HTTPException(422, "Le prix d'une séance ne peut pas être inférieur à 20 TND : choisissez une réduction plus petite.")
     if invite_ids:
         data["open"] = True  # les joueurs prévenus pourront accepter la proposition
     if club:

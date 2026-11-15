@@ -402,6 +402,12 @@ export function Book({ me, reload, go, coachParam }) {
           )}
         </>
       )}
+      {/* ce que le joueur a déjà ce jour-là (séances, demandes, kiné…): ces heures ne lui sont pas proposées */}
+      {offers?.my_day?.length > 0 && (
+        <div className="my-day small-p">
+          <Icon name="clock" size={13} /> <span>Ce jour-là, vous avez déjà {offers.my_day.map((x) => `${x.label} de ${hhmm(x.start).replace(":", " h ")} à ${hhmm(x.end).replace(":", " h ")}`).join(", ")} : ces heures ne vous sont pas proposées.</span>
+        </div>
+      )}
       {offers && (offers.hints ?? []).length > 0 && !offers.slots_with_court.length && !offers.slots_other.length && (
         <div className="card note warn" role="note">{offers.hints.map((h) => <div key={h} className="small-p"><Icon name="clock" size={13} /> {h}</div>)}</div>
       )}

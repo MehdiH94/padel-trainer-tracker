@@ -906,3 +906,6 @@ button.saved { background: var(--green); border-color: var(--green); color: #fff
 /* Réserver: prix du joueur de la liste VIP du coach (mention discrète sous le prix, sans icône) */
 .vip-price { display: block; font-size: .7rem; font-weight: 600; letter-spacing: .02em; color: var(--brand); text-transform: none; white-space: nowrap; }
 .vip-price.inline { display: inline; margin-left: 8px; font-family: inherit; }
+/* Réserver: rappel de ce que le joueur a déjà ce jour-là */
+.my-day { display: flex; gap: 6px; align-items: flex-start; margin: 4px 0 10px; padding: 8px 10px; border-radius: 10px; background: var(--soft); color: var(--mut); }
+.my-day svg { flex: none; margin-top: 2px; }

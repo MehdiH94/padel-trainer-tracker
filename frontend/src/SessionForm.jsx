@@ -273,7 +273,7 @@ export default function SessionForm({ players, onDone, initial }) {
         <Field label="Réduction (facultatif)">
           <select value={f.discount_millimes} onChange={(e) => setF({ ...f, discount_millimes: +e.target.value })}>
             <option value={0}>Aucune réduction</option>
-            {OFFS.filter((v) => !base || v < base).map((v) => <option key={v} value={v}>−{dinars(v)} par joueur</option>)}
+            {OFFS.filter((v) => !base || base - v >= 20000).map((v) => <option key={v} value={v}>−{dinars(v)} par joueur</option>)}
           </select>
         </Field>
       </div>

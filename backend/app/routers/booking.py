@@ -119,8 +119,10 @@ def put_settings(body: Settings, coach: Coach = Depends(current_coach), db: Sess
         coach.price_grid = json.dumps({k: {str(m): round(prices[i] * m / 60) for m in g[k]} for i, k in enumerate(pricing.KINDS)})
     elif body.price_grid is not None and body.price_grid != before:
         g = {k: {int(m): int(v) for m, v in (body.price_grid.get(k) or {}).items()} for k in pricing.KINDS}
-        if any(m not in (60, 90) or v < 0 for x in g.values() for m, v in x.items()):
-            raise HTTPException(422, "Formules : durées de 1 h ou 1 h 30, prix positifs.")
+        if any(m not in (60, 90) for x in g.values() for m in x):
+            raise HTTPException(422, "Formules : durées de 1 h ou 1 h 30.")
+        if any(v < pricing.MIN_PRICE for x in g.values() for v in x.values()):
+            raise HTTPException(422, "Formules : le prix d'une séance ne peut pas être inférieur à 20 TND. Pour ne pas la proposer, décochez sa durée.")
         if not any(g.values()):
             raise HTTPException(422, "Formules : proposez au moins une formule et une durée à vos joueurs.")
         coach.price_grid = json.dumps({k: {str(m): v for m, v in x.items()} for k, x in g.items()})
@@ -131,8 +133,14 @@ def put_settings(body: Settings, coach: Coach = Depends(current_coach), db: Sess
         std = pricing.grid(coach)
         v = {k: {str(int(m)): int(p) for m, p in (body.vip_price_grid.get(k) or {}).items() if int(m) in std[k] and int(p or 0) > 0}
              for k in pricing.KINDS}
-        if any(int(p or 0) < 0 for x in body.vip_price_grid.values() for p in (x or {}).values()):
-            raise HTTPException(422, "Prix VIP : montants positifs.")
+        label = {"individuel": "seul", "duo": "à deux", "groupe": "en groupe"}
+        for k, x in v.items():
+            for m, p in x.items():
+                what = f"{label[k]} {'1 h 30' if m == '90' else '1 h'}"
+                if p < pricing.MIN_PRICE:
+                    raise HTTPException(422, f"Prix VIP {what} : au moins 20 TND (laissez vide pour le prix standard).")
+                if p > std[k][int(m)]:
+                    raise HTTPException(422, f"Prix VIP {what} : il ne peut pas être plus cher que le prix standard ({std[k][int(m)] // 1000} TND).")
         coach.vip_price_grid = json.dumps(v) if any(v.values()) else None
     if body.avoid_gaps is not None:
         coach.avoid_gaps = body.avoid_gaps

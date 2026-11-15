@@ -14,6 +14,15 @@ function problem(x) {
   if (x.happy_hours.some((h) => h.start_time >= h.end_time)) return "dans Heures creuses, la fin doit être après le début.";
   if (x.happy_hours.some((h) => !(h.discount_millimes > 0))) return "indiquez la réduction des heures creuses, en dinars.";
   if (!Object.values(x.price_grid ?? {}).some((g) => Object.keys(g).length)) return "proposez au moins une formule et une durée à vos joueurs.";
+  if (Object.values(x.price_grid ?? {}).some((g) => Object.values(g).some((v) => v < 20000))) return "le prix d'une séance ne peut pas être inférieur à 20 TND (décochez la durée pour ne pas la proposer).";
+  for (const [k, g] of Object.entries(x.vip_price_grid ?? {})) {
+    for (const [m, v] of Object.entries(g ?? {})) {
+      if (!v) continue; // vide: prix standard
+      if (v < 20000) return "un prix VIP ne peut pas être inférieur à 20 TND (laissez vide pour le prix standard).";
+      const std = x.price_grid?.[k]?.[m];
+      if (std !== undefined && v > std) return `un prix VIP ne peut pas être plus cher que le prix standard (${std / 1000} TND).`;
+    }
+  }
   return null;
 }
 

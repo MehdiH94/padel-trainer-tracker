@@ -44,6 +44,39 @@ def vip(db: Session, coach: Coach, player) -> bool:
     return is_vip(db, coach, player if isinstance(player, Player) or player is None else db.get(Player, player))
 
 
+def player_busy(db: Session, player: Player) -> list[tuple[datetime, datetime, str]]:
+    """Ce qui occupe déjà le joueur, chez tous ses coachs: séances où il est inscrit, demandes en cours, et son propre
+    planning (match, tournoi, kiné…). (début, fin, libellé)."""
+    from ..models import PlayerEvent
+    from .accounts import account_of, linked
+    ids = {p.id for p in linked(db, player)}
+    names = {c.id: c.name for c in db.scalars(select(Coach))}
+    out = []
+    for s in db.scalars(select(TrainingSession).join(Attendance, Attendance.session_id == TrainingSession.id)
+                        .where(Attendance.player_id.in_(ids), TrainingSession.status != "annulee")):
+        out.append((aware(s.start), aware(s.start) + timedelta(minutes=s.duration_min), f"une séance avec {names.get(s.coach_id, 'un coach')}"))
+    for b in db.scalars(select(Booking).where(Booking.player_id.in_(ids), Booking.session_id.is_(None),
+                                              Booking.status.in_(ACTIVE + ("en_formation",)))):
+        out.append((aware(b.start), aware(b.start) + timedelta(minutes=b.duration_min), f"une demande de séance avec {names.get(b.coach_id, 'un coach')}"))
+    EV = {"match": "un match", "tournoi": "un tournoi"}
+    for e in db.scalars(select(PlayerEvent).where(PlayerEvent.account_id == account_of(db, player).id)):
+        out.append((aware(e.start), aware(e.start) + timedelta(minutes=e.duration_min), f"« {e.title} »" if e.title else EV.get(e.kind, "autre chose")))
+    return out
+
+
+def player_clash(db: Session, player: Player, start: datetime, minutes: int, ignore_session: int | None = None) -> str | None:
+    """Message si le joueur a déjà quelque chose qui chevauche ce créneau (None = libre)."""
+    lo, hi = aware(start), aware(start) + timedelta(minutes=minutes)
+    skip = None
+    if ignore_session:
+        s = db.get(TrainingSession, ignore_session)
+        skip = (aware(s.start), aware(s.start) + timedelta(minutes=s.duration_min)) if s else None
+    for a, b, label in player_busy(db, player):
+        if a < hi and lo < b and (a, b) != skip:
+            return f"Vous avez déjà {label} {quand(a, int((b - a).total_seconds() // 60))} : impossible de réserver à ce moment-là."
+    return None
+
+
 def attendee_ids(s: TrainingSession) -> list[int]:
     return [a.player_id for a in s.attendances]
 
@@ -333,6 +366,9 @@ def request_join(db: Session, coach: Coach, player: Player, s: TrainingSession, 
         raise BookingError("Vous êtes déjà inscrit à cette séance")
     if spots_left(db, s) <= 0:
         raise BookingError("Cette séance est complète")
+    clash = player_clash(db, player, s.start, s.duration_min)  # déjà pris ailleurs (autre coach, kiné…)
+    if clash:
+        raise BookingError(clash)
     dynamic = groups.is_dynamic(s)
     if dynamic and not kinds:
         # invité par le coach (sans formule précisée): il accepte toutes les tailles que la séance permet encore,
@@ -376,6 +412,10 @@ def request_new(db: Session, coach: Coach, player: Player, kind: str, start: dat
     wanted = [k for k in groups.ORDER if k in (accepted_kinds or []) or k == kind]
     if aware(start).astimezone(TUNIS).date() > datetime.now(TUNIS).date() + timedelta(days=horizon(coach)):
         raise BookingError(f"{coach.name} ouvre ses réservations {horizon_label(horizon(coach))} à l'avance au plus : choisissez une date plus proche.")
+    shortest = min([m for m in (60, 90) if minutes in (None, m)] or [60])
+    clash = player_clash(db, player, start, shortest)  # le joueur est déjà pris (autre coach, kiné…)
+    if clash:
+        raise BookingError(clash)
     feasible = [m for m in (60, 90) if minutes in (None, m) and aware(start) in free_slots(db, coach, minutes=m)]
     # sans durées précisées (anciens appels): 1 h, ou la durée imposée
     every = {(k, m) for k, m in (groups.opts_of(wanted, durations, 60) if durations is not None else groups.opts_of(wanted, None, minutes or 60))

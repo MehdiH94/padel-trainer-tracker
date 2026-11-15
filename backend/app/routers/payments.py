@@ -41,6 +41,27 @@ def create_payment(body: PaymentIn, coach: Coach = Depends(current_coach), db: S
             settle(db, coach.id, [player.id])
             db.commit()
             return first or extra
+    if body.session_id is not None:
+        # Paiement pour une séance: au plus ce qui reste dû pour elle; le surplus devient des crédits (jamais perdu:
+        # un seul solde par coach, qui monte quand le joueur paie)
+        from ..models import CreditTx
+        from ..services.finance import session_payments, settle, share
+        s = db.get(TrainingSession, body.session_id)
+        i = [a.player_id for a in s.attendances].index(body.player_id)
+        due = max(share(s, i) - session_payments(db, coach.id).get((s.id, body.player_id), 0), 0) if s.status == "effectuee" else 0
+        excess = body.amount_millimes - due
+        if excess > 0:
+            first = None
+            if due > 0:
+                first = Payment(coach_id=coach.id, player_id=body.player_id, amount_millimes=due, method=body.method, kind="seance", session_id=s.id)
+                db.add(first)
+            extra = Payment(coach_id=coach.id, player_id=body.player_id, amount_millimes=excess, method=body.method, kind="credit")
+            db.add(extra)
+            db.add(CreditTx(coach_id=coach.id, player_id=body.player_id, amount_millimes=excess, reason="recharge"))
+            db.flush()
+            settle(db, coach.id, [body.player_id])
+            db.commit()
+            return first or extra
     p = Payment(coach_id=coach.id, **body.model_dump(exclude_none=True))
     db.add(p)
     db.commit()

@@ -26,7 +26,9 @@ def grid(coach: Coach, vip: bool = False) -> dict[str, dict[int, int]]:
     std = _std_grid(coach)
     if vip and coach.vip_price_grid:
         raw = json.loads(coach.vip_price_grid)
-        return {k: {m: int((raw.get(k) or {}).get(str(m)) or p) for m, p in std[k].items()} for k in KINDS}
+        # prix VIP pris seulement s'il est valable: au moins 20 TND et pas plus cher que le standard
+        ok = lambda v, p: v if v and MIN_PRICE <= int(v) <= p else p  # noqa: E731
+        return {k: {m: int(ok((raw.get(k) or {}).get(str(m)), p)) for m, p in std[k].items()} for k in KINDS}
     return std
 
 
@@ -88,6 +90,7 @@ def base_price(coach: Coach, kind: str, minutes: int | None = None, vip: bool = 
 
 
 SESSION_DURATIONS = (60, 90)  # durées d'une séance créée par le coach
+MIN_PRICE = 20000  # prix d'une séance (par joueur) jamais sous 20 TND, standard comme VIP: jamais « gratuit »
 
 
 def grid_price(coach: Coach, kind: str, minutes: int, vip: bool = False) -> int | None:

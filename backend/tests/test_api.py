@@ -711,9 +711,10 @@ def test_undo_completed_session_until_paid(client):
     assert client.get(f"/players/{p}/credits").json()["balance_millimes"] == 40000
     assert client.patch(f"/sessions/{s['id']}", json={"status": "annulee"}).json()["status"] == "annulee"  # pas eu lieu
     assert client.get(f"/players/{p}/credits").json()["balance_millimes"] == 100000  # crédits rendus
-    s2 = client.post("/sessions", json={"start": "2026-01-06T10:00:00Z", "player_ids": [p], "price_millimes": 60000}).json()[0]
+    q = mkplayer(client, name="Sans crédits")["id"]  # séance payée en argent (pas en crédits)
+    s2 = client.post("/sessions", json={"start": "2026-01-06T10:00:00Z", "player_ids": [q], "price_millimes": 60000}).json()[0]
     client.get("/sessions")
-    client.post("/payments", json={"player_id": p, "amount_millimes": 60000, "session_id": s2["id"], "method": "especes"})
+    client.post("/payments", json={"player_id": q, "amount_millimes": 60000, "session_id": s2["id"], "method": "especes"})
     assert client.patch(f"/sessions/{s2['id']}", json={"status": "annulee"}).status_code == 409  # déjà réglée
 
 
@@ -1746,7 +1747,9 @@ def test_slots_never_overlap_and_leave_no_unusable_gap(client):
     assert [x["ideal"] for x in sorted(first, key=lambda x: x["start"])] == [True, False, False, False, True]  # collés au bord
     r = pc.post("/me/book", json={"kind": "groupe", "start": eight.isoformat(), "kinds": ["groupe"], "minutes": 90})
     assert r.status_code == 201
-    assert "08:00" in hhmm(pc.get(f"/me/offers?day={day}&kinds=individuel").json()["slots_with_court"])  # demande pas encore traitée: le créneau reste proposé
+    other, oc = player_client(client, name="Autre", phone="20999999")
+    assert "08:00" in hhmm(oc.get(f"/me/offers?day={day}&kinds=individuel").json()["slots_with_court"])  # demande pas encore traitée: le créneau reste proposé (aux autres)
+    assert "08:00" not in hhmm(pc.get(f"/me/offers?day={day}&kinds=individuel").json()["slots_with_court"])  # pas à lui: il a déjà sa demande
     client.post(f"/booking/requests/{r.json()['id']}/accept", json={})
     after = pc.get(f"/me/offers?day={day}&kinds=individuel,duo,groupe").json()["slots_with_court"]
     assert hhmm(after)[0] == "09:30" and "09:00" not in hhmm(after)  # à la suite du groupe (8 h-9 h 30)
@@ -2737,3 +2740,78 @@ def test_vip_players_get_vip_prices(client):
     # retiré de la liste: prix standard
     client.put(f"/players/{a['id']}/vip", json={"vip": False})
     assert price(ac)[some]["price_millimes"] == 60000
+
+
+
+def test_one_balance_per_coach_goes_up_and_down(client):
+    """Un seul solde par coach: rouge = impayé, vert = crédits. Une séance le fait baisser, un versement ou un
+    remboursement le fait monter; jamais des crédits et un impayé en même temps."""
+    p = mkplayer(client)
+    bal = lambda: next(x for x in client.get("/players").json() if x["id"] == p["id"])  # noqa: E731
+    def net():
+        f = client.get("/finance").json()
+        unpaid = next((u["balance_millimes"] for u in f["unpaid"] if u["player_id"] == p["id"]), 0)
+        credit = next((c["balance_millimes"] for c in f["credits"] if c["player_id"] == p["id"]), 0)
+        assert not (unpaid and credit)  # jamais les deux
+        return unpaid or credit
+    def session(day):
+        s = client.post("/sessions", json={"start": f"2026-11-0{day}T08:00:00Z", "player_ids": [p["id"]], "price_millimes": 60000}).json()[0]
+        client.patch(f"/sessions/{s['id']}", json={"status": "effectuee"})
+        return s
+    session(2)
+    assert net() == -60000                       # séance faite, rien payé: impayé
+    client.post(f"/players/{p['id']}/credits", json={"amount_millimes": 100000})
+    assert net() == 40000                        # +100: la séance est réglée, il reste 40 de crédits
+    session(3)
+    assert net() == -20000                       # -60
+    client.post("/payments", json={"player_id": p["id"], "amount_millimes": 50000})
+    assert net() == 30000                        # +50
+    c = session(4)
+    assert net() == -30000                       # -60
+    client.post("/payments", json={"player_id": p["id"], "amount_millimes": 20000, "session_id": c["id"]})
+    assert net() == -10000                       # +20, même rattaché à une séance déjà réglée en crédits
+    client.post(f"/sessions/{c['id']}/refund/{p['id']}")
+    assert net() == 50000                        # absent remboursé: +60
+
+
+def test_player_cannot_be_in_two_places(client):
+    """Un joueur ne réserve pas sur un créneau où il est déjà pris: autre séance (chez n'importe quel coach), demande
+    en cours, ou « autre chose » de son planning (kiné…). Le coach bloque aussi ses propres « autre chose »."""
+    open_week(client)
+    p, pc = player_client(client)
+    client.post(f"/players/{p['id']}/credits", json={"amount_millimes": 500000})
+    tunis = timezone(timedelta(hours=1))
+    d = (datetime.now(tunis) + timedelta(days=4)).date()
+    at = lambda h, m=0: datetime(d.year, d.month, d.day, h, m, tzinfo=tunis).isoformat()  # noqa: E731
+    pc.post("/me/events", json={"kind": "autre", "title": "Kiné", "start": at(12), "duration_min": 60})
+    r = pc.post("/me/book", json={"kind": "individuel", "start": at(11, 30), "kinds": ["individuel"], "durations": {"individuel": [60]}})
+    assert r.status_code == 409 and "Kiné" in r.json()["detail"]
+    offers = pc.get(f"/me/offers?day={d}&kinds=individuel&individuel_min=60").json()
+    hours = {datetime.fromisoformat(o["start"]).astimezone(tunis).strftime("%H:%M") for o in offers["slots_other"] + offers["slots_with_court"]}
+    assert "12:00" not in hours and "11:30" not in hours and "13:00" in hours
+    assert [x["label"] for x in offers["my_day"]] == ["« Kiné »"]  # rappel affiché dans Réserver
+    # une séance à 9 h: plus rien à 9 h, même chez un autre coach
+    assert pc.post("/me/book", json={"kind": "individuel", "start": at(9), "kinds": ["individuel"], "durations": {"individuel": [60]}}).status_code == 201
+    r = pc.post("/me/book", json={"kind": "individuel", "start": at(9, 30), "kinds": ["individuel"], "durations": {"individuel": [60]}})
+    assert r.status_code == 409 and "déjà" in r.json()["detail"]
+    # « autre chose » du coach: aucun créneau proposé ni réservable à ce moment-là
+    client.post("/coach-events", json={"title": "Réunion", "start": at(16), "duration_min": 120})
+    r = pc.post("/me/book", json={"kind": "individuel", "start": at(16), "kinds": ["individuel"], "durations": {"individuel": [60]}})
+    assert r.status_code == 409
+
+
+def test_prices_never_under_20_and_vip_never_above_standard(client):
+    st = client.get("/booking/settings").json()
+    put = lambda **x: client.put("/booking/settings", json={**st, **x})  # noqa: E731
+    r = put(price_grid={"individuel": {"60": 0}, "duo": {"60": 40000}, "groupe": {}})
+    assert r.status_code == 422 and "20 TND" in r.json()["detail"]
+    assert put(price_grid={"individuel": {"60": 60000}, "duo": {"60": 40000}, "groupe": {}}).status_code == 200
+    st = client.get("/booking/settings").json()
+    r = put(vip_price_grid={"individuel": {"60": 5000}})
+    assert r.status_code == 422 and "20 TND" in r.json()["detail"]
+    r = put(vip_price_grid={"individuel": {"60": 70000}})
+    assert r.status_code == 422 and "plus cher" in r.json()["detail"]
+    assert put(vip_price_grid={"individuel": {"60": 50000}}).status_code == 200
+    p = mkplayer(client)
+    r = client.post("/sessions", json={"start": "2026-12-01T10:00:00Z", "kind": "duo", "player_ids": [p["id"]], "discount_millimes": 30000})
+    assert r.status_code == 422 and "20 TND" in r.json()["detail"]  # 40 - 30 = 10: trop bas

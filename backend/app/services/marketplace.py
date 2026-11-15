@@ -14,7 +14,7 @@ from . import courts
 from .accounts import linked
 from .isolation import visible_coaches
 from . import groups as grp
-from .booking import KIND_FR, _dur, vip as is_vip, attendee_ids, edges, fits_session, free_slots, horizon, join_minutes, join_price, join_target, pending_joins, price_for, spots_left
+from .booking import KIND_FR, _dur, vip as is_vip, player_busy, attendee_ids, edges, fits_session, free_slots, horizon, join_minutes, join_price, join_target, pending_joins, price_for, spots_left
 from .common import TUNIS, aware
 from .pricing import coach_durations, duration_for, grid, player_durations, quote
 
@@ -143,6 +143,11 @@ def offers(db: Session, account: Player, day: date, kinds: list[str], coach_ids:
     requests: list[dict] = []  # demandes d'autres joueurs à rejoindre
     hints: list[str] = []  # pourquoi rien n'est proposé chez un coach (durée pas proposée, terrains trop courts)
     too_late: set[str] = set()  # formules qu'on ne peut plus ouvrir seul ce jour-là (moins de 24 h)
+    # ce qui occupe déjà le joueur (tous coachs, son planning): ces créneaux ne lui sont pas proposés, et on le lui rappelle
+    busy = player_busy(db, account)
+    occupied = lambda st, m: any(a < aware(st) + timedelta(minutes=m) and aware(st) < b for a, b, _ in busy)  # noqa: E731
+    lo_day = datetime.combine(day, datetime.min.time(), TUNIS)
+    my_day = [{"label": label, "start": a, "end": b} for a, b, label in sorted(busy) if a < lo_day + timedelta(days=1) and lo_day < b]
     for c in filter(None, coaches):
         clubs = coach_clubs(db, c)
         if wanted_clubs and not any(in_clubs(n) for n in clubs):
@@ -157,6 +162,8 @@ def offers(db: Session, account: Player, day: date, kinds: list[str], coach_ids:
             if not _in_window(s.start, day, period) or aware(s.start) < now + timedelta(hours=2):
                 continue
             if my_ids & set(attendee_ids(s)) or spots_left(db, s) <= 0 or (wanted_clubs and not in_clubs(s.club)):
+                continue
+            if occupied(s.start, s.duration_min):  # le joueur a déjà quelque chose à ce moment-là
                 continue
             ok, gap = fits_session(db, account, s)
             if not ok:
@@ -207,6 +214,7 @@ def offers(db: Session, account: Player, day: date, kinds: list[str], coach_ids:
         for start, mins in feasible.items():
             # la séance garde la plus longue durée possible ici; les formules plus courtes acceptées (seul 1 h…)
             # restent possibles à l'intérieur: s'il reste seul, il joue 1 h
+            mins = {m for m in mins if not occupied(start, m)}  # durées qui ne tombent pas sur ce qu'il a déjà
             length = max((m for k in kinds for m in cdur[k] if m in mins), default=None)
             opts = [(k, m) for k in kinds for m in cdur[k] if length and m <= length]
             if not opts:
@@ -251,7 +259,8 @@ def offers(db: Session, account: Player, day: date, kinds: list[str], coach_ids:
     with_court.sort(key=lambda x: (-x["reduction_millimes"], closeness(x)))  # les réductions d'abord
     other.sort(key=closeness)
     return {"groups": groups[:10], "slots_with_court": with_court[:80], "slots_other": other[:120], "other_kinds": other_kinds, "hints": hints,
-            "requests": sorted(requests, key=closeness)[:10],
+            "requests": sorted((r for r in requests if not occupied(r["start"], r["duration_min"])), key=closeness)[:10],
+            "my_day": my_day,
             "too_late": [k for k in CAPACITY if k in too_late]}
 
 
