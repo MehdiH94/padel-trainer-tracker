@@ -6,7 +6,8 @@ import { CATEGORIES, catOption, PhoneTN, tnPhoneProblem } from "./ui.jsx";
 
 // Inscription publique (lien de la page d'administration, publicité…): le joueur crée son compte sans coach.
 // Il voit ensuite tous les coachs et en choisit un en réservant. Avec le lien d'un coach (/inscription/<jeton>,
-// le même pour tous ses joueurs): il devient son élève (coach favori). Dans les deux cas, l'administrateur confirme.
+// le même pour tous ses joueurs): il devient son élève (coach favori) et utilise l'appli tout de suite. Lien public:
+// il attend la confirmation de l'administrateur (prévenu dans les deux cas).
 export default function Signup({ coachToken }) {
   const [f, setF] = useState({ name: "", phone: "", email: "", password: "", gender: "M", category: "P100-", dominant_hand: "droitier", side: "drive", goals: "" });
   const [coach, setCoach] = useState(null);

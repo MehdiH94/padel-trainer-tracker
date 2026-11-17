@@ -2212,8 +2212,9 @@ def test_open_duration_shortened_by_the_strictest_and_same_slot_requests(client)
 
 
 def test_coach_signup_link_profile_and_goals(client):
-    """Lien d'inscription du coach (le même pour tous ses joueurs): le joueur devient son élève, coach favori,
-    après confirmation de l'administrateur; main forte, côté et objectifs demandés à l'inscription."""
+    """Lien d'inscription du coach (le même pour tous ses joueurs): le joueur devient son élève, coach favori, et
+    utilise l'appli tout de suite (l'administrateur est prévenu et vérifie après coup); main forte, côté et objectifs
+    demandés à l'inscription."""
     from fastapi.testclient import TestClient
     link = client.get("/auth/coach-link").json()["path"]
     assert link == client.get("/auth/coach-link").json()["path"] and link.startswith("/inscription/")
@@ -2222,7 +2223,9 @@ def test_coach_signup_link_profile_and_goals(client):
     body = {"name": "Nadia Club", "phone": "29 111 222", "email": "nadia@x.tn", "password": "secret1", "gender": "F", "category": "P100-",
             "dominant_hand": "gaucher", "side": "deux", "goals": "Progresser techniquement · Gagner un tableau P250", "coach_token": token}
     pc = login_as(TestClient(app), TestClient(app).post("/auth/signup", json=body).json()["token"])
-    assert pc.get("/auth/account").json()["signup_status"] == "a_valider"  # confirmation de l'administrateur, comme le lien public
+    acc = pc.get("/auth/account").json()
+    assert acc["signup_status"] == "a_valider" and acc["pending"] is False  # l'administrateur vérifie après coup, sans bloquer
+    assert pc.get("/me").status_code == 200
     mine = next(x for x in client.get("/players").json() if x["name"] == "Nadia Club")
     assert (mine["dominant_hand"], mine["side"], mine["goals"]) == ("gaucher", "deux", "Progresser techniquement · Gagner un tableau P250")
     assert TestClient(app).post("/auth/signup", json={**body, "email": "x1@x.tn", "coach_token": "faux"}).status_code == 404
