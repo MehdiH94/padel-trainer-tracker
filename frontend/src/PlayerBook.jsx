@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { api, peek, dayLabel, hhmm, tnd } from "./api.js";
 import Icon from "./Icon.jsx";
 import { Modal, toast, toastError } from "./feedback.jsx";
-import { RatingLine, ReviewList } from "./Public.jsx";
+import { CoachPhoto, CoachVideo, RatingLine, ReviewList } from "./Public.jsx";
 import { VerifyBanner } from "./VerifyEmail.jsx";
 import { Avatar, CategoryBadge, KIND, Loading, reduction } from "./ui.jsx";
 import { GroupStart } from "./PlayerGroup.jsx";
@@ -477,7 +477,7 @@ export function CoachPage({ id, go, onBack }) {
       <div className="hero coach-hero">
         <button className="small light" onClick={onBack}><Icon name="chevL" size={15} /> Retour</button>
         <div className="row g10" style={{ marginTop: 12 }}>
-          <Avatar name={c.name} size={64} />
+          <CoachPhoto c={c} size={64} />
           <div>
             <h1 style={{ margin: 0 }}>{c.name}</h1>
             <div className="hero-top" style={{ textTransform: "none" }}>{c.mine ? "Votre coach" : "Coach de padel"} · {c.stats.sessions_done} séance{c.stats.sessions_done > 1 ? "s" : ""} donnée{c.stats.sessions_done > 1 ? "s" : ""} · {c.stats.players} joueur{c.stats.players > 1 ? "s" : ""}</div>
@@ -488,6 +488,7 @@ export function CoachPage({ id, go, onBack }) {
       <button className="cta" onClick={() => go(`book/${c.id}`)}><Icon name="calendar" size={20} /> Réserver avec {c.name.split(" ")[0]} <Icon name="chevR" size={18} /></button>
 
       {c.bio && <div className="card"><div className="mut small-p">À propos</div><div style={{ whiteSpace: "pre-line" }}>{c.bio}</div></div>}
+      <CoachVideo c={c} />
       {c.specialties.length > 0 && (
         <><h2>Spécialités</h2><div className="chips">{c.specialties.map((t) => <span key={t} className="theme big-theme">{t}</span>)}</div></>
       )}

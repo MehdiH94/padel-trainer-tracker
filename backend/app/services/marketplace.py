@@ -50,6 +50,7 @@ def coach_summary(db: Session, coach: Coach, account: Player | None = None) -> d
         "id": coach.id, "name": coach.name, "bio": coach.bio, "specialties": [s for s in coach.specialties.split(",") if s],
         "clubs": coach_clubs(db, coach), "prices": {k: price_for(coach, k, None, is_vip(db, coach, account)) for k in CAPACITY}, "mine": mine,
         "vip": is_vip(db, coach, account),  # le joueur est dans la liste VIP de ce coach (tarifs privilégiés)
+        **_media(coach),
         **_rating(db, coach.id),
         # formules, durées et prix proposés, et jusqu'où on peut réserver (jours)
         "grid": {k: {str(m): v for m, v in g.items()} for k, g in grid(coach).items()}, "horizon_days": horizon(coach),
@@ -69,6 +70,11 @@ def coach_profile(db: Session, coach: Coach, account: Player) -> dict:
         "stats": {"sessions_done": done or 0, "players": players or 0},
         **_extras(db, coach, account),
     }
+
+
+def _media(coach: Coach) -> dict:
+    from ..routers.community import photo_url, youtube_id
+    return {"photo_url": photo_url(coach), "video_url": coach.video_url or "", "youtube_id": youtube_id(coach.video_url)}
 
 
 def _rating(db: Session, coach_id: int) -> dict:

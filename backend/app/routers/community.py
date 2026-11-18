@@ -3,7 +3,7 @@ abonnement aux notifications du téléphone."""
 import secrets
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from fastapi.security import HTTPAuthorizationCredentials
 from pydantic import BaseModel
 from sqlalchemy import func, select
@@ -92,16 +92,38 @@ def _public(c: Coach) -> bool:
     return not isolation.is_test_coach(c) and c.signup_status in (None, "validee") and priced
 
 
+VIDEO_HOSTS = ("youtube.com", "youtu.be", "instagram.com", "tiktok.com", "facebook.com", "fb.watch", "vimeo.com")
+
+
+def video_ok(url: str) -> bool:
+    """Lien de vidéo accepté: https, chez un des grands sites de vidéo."""
+    from urllib.parse import urlparse
+    try:
+        u = urlparse(url)
+    except ValueError:
+        return False
+    host = (u.hostname or "").lower().removeprefix("www.").removeprefix("m.")
+    return u.scheme == "https" and any(host == h or host.endswith("." + h) for h in VIDEO_HOSTS)
+
+
+def youtube_id(url: str) -> str | None:
+    """Identifiant d'une vidéo YouTube (lien youtu.be, watch?v=, shorts/), pour l'afficher dans la page."""
+    import re
+    m = re.search(r"(?:youtu\.be/|v=|/shorts/|/embed/)([A-Za-z0-9_-]{11})", url or "")
+    return m.group(1) if m else None
+
+
+def photo_url(c: Coach) -> str | None:
+    return f"/api/public/coaches/{c.id}/photo?v={len(c.photo) % 100000}" if c.photo else None
+
+
 def _public_card(db: Session, c: Coach) -> dict:
+    """Juste l'essentiel: photo, nom, club(s), note."""
     from ..services.marketplace import coach_clubs
-    from ..services.pricing import grid
     if not c.join_token:
         c.join_token = secrets.token_urlsafe(12)
-    g = grid(c)
-    cheapest = min((p for x in g.values() for p in x.values()), default=None)
-    return {"id": c.id, "name": c.name, "bio": c.bio, "specialties": [s for s in c.specialties.split(",") if s],
-            "clubs": coach_clubs(db, c), "from_millimes": cheapest, "join_path": f"/inscription/{c.join_token}",
-            "prices": {k: {str(m): v for m, v in x.items()} for k, x in g.items()}} | rating_of(db, c.id)
+    return {"id": c.id, "name": c.name, "clubs": coach_clubs(db, c), "photo_url": photo_url(c),
+            "join_path": f"/inscription/{c.join_token}"} | rating_of(db, c.id)
 
 
 @router.get("/public/coaches")
@@ -113,15 +135,25 @@ def public_coaches(db: Session = Depends(get_db)):
 
 @router.get("/public/coaches/{coach_id}")
 def public_coach(coach_id: int, db: Session = Depends(get_db)):
-    from ..models import Availability
+    """Page de présentation: photo, club, description, petite vidéo, avis."""
     c = db.get(Coach, coach_id)
     if not c or not _public(c):
         raise HTTPException(404, "Coach introuvable")
-    out = _public_card(db, c) | {"reviews": reviews_of(db, c.id),
-                                 "availability": [{"weekday": w.weekday, "start_time": w.start_time, "end_time": w.end_time}
-                                                  for w in db.scalars(select(Availability).where(Availability.coach_id == c.id).order_by(Availability.weekday, Availability.start_time))]}
+    out = _public_card(db, c) | {"bio": c.bio, "video_url": c.video_url or "", "youtube_id": youtube_id(c.video_url),
+                                 "reviews": reviews_of(db, c.id)}
     db.commit()
     return out
+
+
+@router.get("/public/coaches/{coach_id}/photo")
+def coach_photo(coach_id: int, db: Session = Depends(get_db)):
+    import base64
+    c = db.get(Coach, coach_id)
+    if not c or not c.photo or "," not in c.photo:
+        raise HTTPException(404, "Pas de photo")
+    head, data = c.photo.split(",", 1)
+    return Response(base64.b64decode(data), media_type=head.removeprefix("data:").removesuffix(";base64"),
+                    headers={"Cache-Control": "public, max-age=86400"})
 
 
 # --- Liste d'attente ------------------------------------------------------------

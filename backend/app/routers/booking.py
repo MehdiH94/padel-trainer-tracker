@@ -54,6 +54,8 @@ class Settings(BaseModel):
     happy_hours: list[HappyIn] | None = None  # None = inchangé
     name: str | None = None  # nom affiché aux joueurs (None = inchangé)
     bio: str | None = None  # page publique du coach (None = inchangé)
+    photo: str | None = None  # photo (data:image/jpeg;base64,…), "" = retirer, None = inchangé
+    video_url: str | None = None  # lien de la vidéo de présentation, "" = retirer
     specialties: list[str] | None = None
     price_grid: dict[str, dict[str, int]] | None = None  # {"duo": {"60": 40000, "90": 55000}}: durées proposées et prix (None = inchangé)
     vip_price_grid: dict[str, dict[str, int]] | None = None  # prix VIP, mêmes durées (0 ou absent = prix standard; None = inchangé)
@@ -67,7 +69,7 @@ def settings_out(db: Session, coach: Coach) -> dict:
         "coach_id": coach.id, "auto_confirm": coach.auto_confirm, "slot_minutes": coach.slot_minutes, "cancel_hours": coach.cancel_hours,
         "price_individuel": coach.price_individuel, "price_duo": coach.price_duo, "price_groupe": coach.price_groupe,
         "availability": [{"weekday": r.weekday, "start_time": r.start_time, "end_time": r.end_time} for r in rows],
-        "bio": coach.bio, "specialties": [x for x in coach.specialties.split(",") if x], "name": coach.name,
+        "bio": coach.bio, "photo": coach.photo, "video_url": coach.video_url or "", "specialties": [x for x in coach.specialties.split(",") if x], "name": coach.name,
         "price_grid": {k: {str(m): v for m, v in g.items()} for k, g in pricing.grid(coach).items()},
         "vip_price_grid": {k: {str(m): v for m, v in g.items()} for k, g in pricing.vip_grid(coach).items()},
         "vip_count": db.scalar(select(func.count(Player.id)).where(Player.coach_id == coach.id, Player.vip.is_(True))),
@@ -154,6 +156,17 @@ def put_settings(body: Settings, coach: Coach = Depends(current_coach), db: Sess
         coach.name = body.name.strip()[:120]
     if body.bio is not None:
         coach.bio = body.bio.strip()[:2000]
+    if body.photo is not None:
+        if body.photo and (not body.photo.startswith(("data:image/jpeg;base64,", "data:image/png;base64,", "data:image/webp;base64,"))
+                           or len(body.photo) > 600_000):
+            raise HTTPException(422, "Photo : une image JPEG, PNG ou WebP, pas trop lourde.")
+        coach.photo = body.photo or None
+    if body.video_url is not None:
+        from .community import video_ok
+        url = body.video_url.strip()
+        if url and not video_ok(url):
+            raise HTTPException(422, "Vidéo : collez un lien YouTube, Instagram, TikTok, Facebook ou Vimeo.")
+        coach.video_url = url[:300]
     if body.specialties is not None:
         coach.specialties = ",".join(t for t in body.specialties if t in WORK_THEMES)
     for old in db.scalars(select(Availability).where(Availability.coach_id == coach.id)):

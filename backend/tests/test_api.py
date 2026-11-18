@@ -2888,7 +2888,16 @@ def test_reviews_and_public_coach_directory(client):
     pub = TestClient(app).get("/public/coaches").json()
     assert [(c["name"], c["rating"]) for c in pub] == [("Coach Test", 4.0)] and pub[0]["join_path"].startswith("/inscription/")
     one = TestClient(app).get(f"/public/coaches/{coach_id}").json()
-    assert one["reviews"][0]["comment"] == "Très pédagogue"
+    assert one["reviews"][0]["comment"] == "Très pédagogue" and one["photo_url"] is None
+    # photo et petite vidéo de présentation (lien), réglées par le coach
+    st = client.get("/booking/settings").json()
+    png = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+    assert client.put("/booking/settings", json={**st, "video_url": "https://evil.example/v"}).status_code == 422
+    assert client.put("/booking/settings", json={**st, "photo": png, "video_url": "https://youtu.be/dQw4w9WgXcQ"}).status_code == 200
+    one = TestClient(app).get(f"/public/coaches/{coach_id}").json()
+    assert one["youtube_id"] == "dQw4w9WgXcQ" and one["photo_url"].startswith(f"/api/public/coaches/{coach_id}/photo")
+    img = TestClient(app).get(f"/public/coaches/{coach_id}/photo")
+    assert img.status_code == 200 and img.headers["content-type"] == "image/png"
 
 
 def test_waitlist_is_told_when_a_spot_frees(client):

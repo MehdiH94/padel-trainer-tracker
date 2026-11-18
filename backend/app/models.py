@@ -46,6 +46,8 @@ class Coach(Base):
     booking_mode: Mapped[str] = mapped_column(String(16), default="terrains")
     # Page publique vue par les joueurs
     bio: Mapped[str] = mapped_column(Text, default="")
+    photo: Mapped[str | None] = mapped_column(Text, nullable=True)  # photo de la page publique (data:image/jpeg;base64, réduite)
+    video_url: Mapped[str] = mapped_column(String(300), default="")  # petite vidéo de présentation (lien YouTube, Instagram…)
     specialties: Mapped[str] = mapped_column(String(255), default="")  # thèmes séparés par des virgules
     phone: Mapped[str] = mapped_column(String(20), default="")
     # Critères de l'araignée (liste JSON); None = critères standards (coups du padel)

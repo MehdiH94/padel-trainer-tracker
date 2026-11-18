@@ -1,11 +1,9 @@
 // Pages publiques (sans connexion): page d'accueil du site, annuaire des coachs, page d'un coach, nouveau mot de passe.
 import { useEffect, useState } from "react";
-import { api, tnd } from "./api.js";
+import { api } from "./api.js";
 import Icon from "./Icon.jsx";
 import { PageLinks } from "./Pages.jsx";
 
-const DAYS = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"];
-const HOW = { individuel: "Seul", duo: "À deux", groupe: "En groupe" };
 
 // Étoiles de la note (lecture): pleines jusqu'à la note arrondie
 export function Stars({ value, size = 14 }) {
@@ -52,13 +50,37 @@ function Shell({ children }) {
   );
 }
 
+// Photo du coach (ou ses initiales)
+export function CoachPhoto({ c, size = 64 }) {
+  const initials = c.name.split(" ").map((x) => x[0]).slice(0, 2).join("").toUpperCase();
+  return c.photo_url
+    ? <img className="coach-photo" src={c.photo_url} alt={`Photo de ${c.name}`} width={size} height={size} style={{ width: size, height: size }} />
+    : <span className="coach-photo initials" style={{ width: size, height: size, fontSize: size / 2.6 }} aria-hidden="true">{initials}</span>;
+}
+
+// Petite vidéo de présentation: YouTube dans la page, les autres sites en lien
+export function CoachVideo({ c }) {
+  if (!c.video_url) return null;
+  if (c.youtube_id) {
+    return (
+      <div className="coach-video">
+        <iframe src={`https://www.youtube-nocookie.com/embed/${c.youtube_id}`} title={`Présentation de ${c.name}`} loading="lazy"
+          allow="accelerometer; encrypted-media; gyroscope; picture-in-picture" allowFullScreen />
+      </div>
+    );
+  }
+  return <a className="btnlink sec" href={c.video_url} target="_blank" rel="noreferrer"><Icon name="arrowR" size={15} /> Voir sa vidéo de présentation</a>;
+}
+
 function CoachCard({ c }) {
   return (
     <a className="coach-card card" href={`/coachs/${c.id}`}>
-      <div className="row"><b>{c.name}</b>{c.from_millimes && <span className="mut small-p">dès {tnd(c.from_millimes)}</span>}</div>
-      <RatingLine rating={c.rating} count={c.reviews_count} />
-      {c.clubs.length > 0 && <div className="mut small-p"><Icon name="pin" size={12} /> {c.clubs.join(", ")}</div>}
-      {c.specialties.length > 0 && <div className="chips">{c.specialties.slice(0, 4).map((s) => <span key={s} className="theme">{s}</span>)}</div>}
+      <CoachPhoto c={c} size={56} />
+      <span className="coach-card-txt">
+        <b>{c.name}</b>
+        {c.clubs.length > 0 && <span className="mut small-p"><Icon name="pin" size={12} /> {c.clubs.join(", ")}</span>}
+        {c.reviews_count > 0 && <RatingLine rating={c.rating} count={c.reviews_count} />}
+      </span>
     </a>
   );
 }
@@ -128,27 +150,23 @@ export function CoachPublic({ id }) {
   useEffect(() => { api(`/public/coaches/${id}`).then(setC).catch((x) => setErr(x.message)); }, [id]);
   if (err) return <Shell><p className="err">{err}</p><a className="link" href="/coachs">Voir les coachs</a></Shell>;
   if (!c) return <Shell><div className="skel" style={{ height: 200 }} /></Shell>;
-  const days = DAYS.map((d, i) => [d, c.availability.filter((w) => w.weekday === i)]).filter(([, ws]) => ws.length);
   return (
     <Shell>
-      <h1>{c.name}</h1>
-      <RatingLine rating={c.rating} count={c.reviews_count} />
-      {c.clubs.length > 0 && <p className="mut"><Icon name="pin" size={14} /> {c.clubs.join(", ")}</p>}
+      <div className="coach-head">
+        <CoachPhoto c={c} size={96} />
+        <div>
+          <h1>{c.name}</h1>
+          {c.clubs.length > 0 && <p className="mut"><Icon name="pin" size={14} /> {c.clubs.join(", ")}</p>}
+          {c.reviews_count > 0 && <RatingLine rating={c.rating} count={c.reviews_count} />}
+        </div>
+      </div>
+      {c.bio && <p className="coach-bio">{c.bio}</p>}
+      <CoachVideo c={c} />
       <div className="land-cta">
-        <a className="btnlink big" href={c.join_path}>Réserver avec {c.name.split(" ")[0]} : créer mon compte</a>
+        <a className="btnlink big" href={c.join_path}>Réserver avec {c.name.split(" ")[0]}</a>
         <a className="link" href="/connexion">J'ai déjà un compte</a>
       </div>
-      {c.bio && <div className="card"><div className="mut small-p">À propos</div><div style={{ whiteSpace: "pre-line" }}>{c.bio}</div></div>}
-      {c.specialties.length > 0 && <><h2>Spécialités</h2><div className="chips">{c.specialties.map((t) => <span key={t} className="theme">{t}</span>)}</div></>}
-      <h2>Tarifs par joueur</h2>
-      <div className="card">
-        {Object.entries(c.prices).filter(([, x]) => Object.keys(x).length).map(([k, x]) => (
-          <div key={k} className="row fin-line"><span>{HOW[k]}</span><span>{Object.entries(x).map(([m, p]) => `${m === "90" ? "1 h 30" : "1 h"} : ${tnd(p)}`).join(" · ")}</span></div>
-        ))}
-      </div>
-      {days.length > 0 && (<><h2>Disponibilités</h2><div className="card">{days.map(([d, ws]) => <div key={d} className="row fin-line"><span>{d}</span><span>{ws.map((w) => `${w.start_time}-${w.end_time}`).join(" · ")}</span></div>)}</div></>)}
-      <h2>Avis des joueurs</h2>
-      <ReviewList reviews={c.reviews} />
+      {c.reviews.length > 0 && <><h2>Avis des joueurs</h2><ReviewList reviews={c.reviews} /></>}
     </Shell>
   );
 }

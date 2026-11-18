@@ -4,7 +4,24 @@ import Icon from "./Icon.jsx";
 import CriteriaEditor from "./CriteriaEditor.jsx";
 import { toastError } from "./feedback.jsx";
 import { ClockPicker, KIND, Loading, MoneyInput, PushToggle } from "./ui.jsx";
-import { RatingLine, ReviewList } from "./Public.jsx";
+import { CoachPhoto, RatingLine, ReviewList } from "./Public.jsx";
+
+// Photo de la page publique: réduite dans le téléphone (600 px, JPEG) avant l'envoi
+function readPhoto(file) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      const k = Math.min(1, 600 / Math.max(img.width, img.height));
+      const cv = document.createElement("canvas");
+      cv.width = Math.round(img.width * k); cv.height = Math.round(img.height * k);
+      cv.getContext("2d").drawImage(img, 0, 0, cv.width, cv.height);
+      resolve(cv.toDataURL("image/jpeg", 0.82));
+      URL.revokeObjectURL(img.src);
+    };
+    img.onerror = () => reject(new Error("Cette image ne s'ouvre pas : choisissez une photo JPEG ou PNG."));
+    img.src = URL.createObjectURL(file);
+  });
+}
 
 // Les avis des joueurs sur le coach, et le lien de sa page publique
 function MyReviews({ coachId }) {
@@ -30,6 +47,7 @@ function problem(x) {
   if (x.happy_hours.some((h) => h.start_time >= h.end_time)) return "dans Heures creuses, la fin doit être après le début.";
   if (x.happy_hours.some((h) => !(h.discount_millimes > 0))) return "indiquez la réduction des heures creuses, en dinars.";
   if (!Object.values(x.price_grid ?? {}).some((g) => Object.keys(g).length)) return "proposez au moins une formule et une durée à vos joueurs.";
+  if (x.video_url && !/^https:\/\/([a-z0-9-]+\.)*(youtube\.com|youtu\.be|instagram\.com|tiktok\.com|facebook\.com|fb\.watch|vimeo\.com)\//i.test(x.video_url.trim())) return "la vidéo doit être un lien YouTube, Instagram, TikTok, Facebook ou Vimeo.";
   if (Object.values(x.price_grid ?? {}).some((g) => Object.values(g).some((v) => v < 20000))) return "le prix d'une séance ne peut pas être inférieur à 20 TND (décochez la durée pour ne pas la proposer).";
   for (const [k, g] of Object.entries(x.vip_price_grid ?? {})) {
     for (const [m, v] of Object.entries(g ?? {})) {
@@ -135,9 +153,22 @@ export default function Settings({ onBack, sub }) {
       <h2 id="profil">Ma page publique <Saved id="profil" /></h2>
       <div className={card("profil")} data-sec="profil">
         <div className="mut small-p" style={{ marginBottom: 8 }}>Ce que les joueurs voient quand ils cherchent un coach.</div>
+        <div className="field"><span className="mut">Photo</span>
+          <div className="row" style={{ justifyContent: "flex-start", gap: 12 }}>
+            <CoachPhoto c={{ name: s.name || "Coach", photo_url: s.photo }} size={64} />
+            <label className="btnlink small sec" style={{ flex: "none", cursor: "pointer" }}>
+              {s.photo ? "Changer la photo" : "Ajouter une photo"}
+              <input type="file" accept="image/*" hidden onChange={(e) => e.target.files[0] && readPhoto(e.target.files[0]).then((photo) => edit({ ...s, photo })).catch(toastError)} />
+            </label>
+            {s.photo && <button type="button" className="link small-p" onClick={() => edit({ ...s, photo: "" })}>Retirer</button>}
+          </div>
+        </div>
         <label className="field"><span className="mut">Mon nom (affiché aux joueurs)</span><input value={s.name ?? ""} onChange={(e) => edit({ ...s, name: e.target.value })} /></label>
         <label className="field"><span className="mut">Présentation</span>
           <textarea className="msg" rows={4} value={s.bio} onChange={(e) => edit({ ...s, bio: e.target.value })} placeholder="Votre parcours, votre façon d'entraîner, les niveaux que vous accompagnez…" />
+        </label>
+        <label className="field"><span className="mut">Petite vidéo de présentation (lien YouTube, Instagram, TikTok…)</span>
+          <input inputMode="url" placeholder="https://youtu.be/…" value={s.video_url ?? ""} onChange={(e) => edit({ ...s, video_url: e.target.value })} />
         </label>
         <div className="field"><span className="mut">Spécialités</span>
           <div className="chips">
