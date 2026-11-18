@@ -504,15 +504,6 @@ export function CoachPage({ id, go, onBack }) {
         ))}
         <div className="mut small-p" style={{ marginTop: 8 }}>Durées : seul 1 h · à deux ou en groupe 1 h ou 1 h 30 · annulation jusqu'à 24 h avant (seul) ou 48 h avant (à deux, en groupe).</div>
       </div>
-      {c.packs?.length > 0 && (
-        <>
-          <h2>Packs de crédits</h2>
-          <div className="card">
-            {c.packs.map((p) => <div key={p.id} className="row avail"><span>{p.name}</span><span>{tnd(p.price_millimes)} <span className="mut">→ {tnd(p.credit_millimes)} de crédits</span></span></div>)}
-            <div className="mut small-p" style={{ marginTop: 6 }}>À régler directement à votre coach, qui ajoute les crédits.</div>
-          </div>
-        </>
-      )}
       <h2>Avis des joueurs</h2>
       {c.can_review && <ReviewForm coachId={c.id} mine={c.my_review} onSaved={() => api(`/me/coaches/${id}`).then(setC)} />}
       <ReviewList reviews={c.reviews} />

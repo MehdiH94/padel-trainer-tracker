@@ -77,12 +77,12 @@ def _rating(db: Session, coach_id: int) -> dict:
 
 
 def _extras(db: Session, coach: Coach, account: Player) -> dict:
-    """Avis, possibilité de laisser le sien, et packs de crédits du coach."""
+    """Avis, et possibilité de laisser le sien."""
     from ..models import Review
-    from ..routers.community import can_review, packs_of, reviews_of
+    from ..routers.community import can_review, reviews_of
     from .accounts import account_of
     mine = db.scalar(select(Review).where(Review.coach_id == coach.id, Review.account_id == account_of(db, account).id))
-    return {"reviews": reviews_of(db, coach.id), "can_review": can_review(db, account, coach.id), "packs": packs_of(db, coach.id),
+    return {"reviews": reviews_of(db, coach.id), "can_review": can_review(db, account, coach.id),
             "my_review": {"rating": mine.rating, "comment": mine.comment} if mine else None}
 
 

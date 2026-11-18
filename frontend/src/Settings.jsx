@@ -6,33 +6,6 @@ import { toastError } from "./feedback.jsx";
 import { ClockPicker, KIND, Loading, MoneyInput, PushToggle } from "./ui.jsx";
 import { RatingLine, ReviewList } from "./Public.jsx";
 
-// Packs de crédits que le coach propose (ex. « 10 séances » : payé 500 TND, 600 TND de crédits)
-function Packs() {
-  const [packs, setPacks] = useState(() => peek("/packs") ?? []);
-  const [f, setF] = useState({ name: "", price_millimes: 0, credit_millimes: 0 });
-  useEffect(() => { api("/packs").then(setPacks).catch(() => {}); }, []);
-  const add = () => api("/packs", { method: "POST", body: f }).then((x) => { setPacks(x); setF({ name: "", price_millimes: 0, credit_millimes: 0 }); }).catch(toastError);
-  const remove = (p) => api(`/packs/${p.id}`, { method: "DELETE" }).then(setPacks).catch(toastError);
-  return (
-    <div className="card">
-      <div className="mut small-p" style={{ marginBottom: 8 }}>Vos joueurs les voient sur votre page. Quand un joueur vous paie un pack, choisissez-le dans « Argent reçu » : ses crédits augmentent de la valeur du pack.</div>
-      {packs.map((p) => (
-        <div key={p.id} className="row fin-line">
-          <span><b>{p.name}</b> <span className="mut small-p">· payé {tnd(p.price_millimes)} → {tnd(p.credit_millimes)} de crédits</span></span>
-          <button className="small sec iconbtn" aria-label={`Retirer le pack ${p.name}`} onClick={() => remove(p)}><Icon name="trash" size={14} /></button>
-        </div>
-      ))}
-      {!packs.length && <div className="mut small-p">Aucun pack pour l'instant.</div>}
-      <div className="pack-new">
-        <input placeholder="Nom (ex. 10 séances)" aria-label="Nom du pack" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} />
-        <span className="inputunit"><em>Payé</em><MoneyInput label="Prix payé" value={f.price_millimes} onChange={(v) => setF({ ...f, price_millimes: v })} /><em>TND</em></span>
-        <span className="inputunit"><em>Crédits</em><MoneyInput label="Crédits ajoutés" value={f.credit_millimes} onChange={(v) => setF({ ...f, credit_millimes: v })} /><em>TND</em></span>
-        <button type="button" className="small sec" onClick={add} disabled={!f.name.trim()}><Icon name="plus" size={14} /> Ajouter</button>
-      </div>
-    </div>
-  );
-}
-
 // Les avis des joueurs sur le coach, et le lien de sa page publique
 function MyReviews({ coachId }) {
   const [r, setR] = useState(null);
@@ -228,9 +201,6 @@ export default function Settings({ onBack, sub }) {
           );
         })}
       </div>
-
-      <h2 id="packs">Packs de crédits</h2>
-      <Packs />
 
       <h2 id="vip">Prix VIP <Saved id="vip" /></h2>
       <div className={card("vip")} data-sec="vip">

@@ -145,7 +145,6 @@ export function CoachPublic({ id }) {
         {Object.entries(c.prices).filter(([, x]) => Object.keys(x).length).map(([k, x]) => (
           <div key={k} className="row fin-line"><span>{HOW[k]}</span><span>{Object.entries(x).map(([m, p]) => `${m === "90" ? "1 h 30" : "1 h"} : ${tnd(p)}`).join(" · ")}</span></div>
         ))}
-        {c.packs.length > 0 && <div className="mut small-p" style={{ marginTop: 8 }}>Packs : {c.packs.map((p) => `${p.name} (${tnd(p.price_millimes)} → ${tnd(p.credit_millimes)} de crédits)`).join(" · ")}</div>}
       </div>
       {days.length > 0 && (<><h2>Disponibilités</h2><div className="card">{days.map(([d, ws]) => <div key={d} className="row fin-line"><span>{d}</span><span>{ws.map((w) => `${w.start_time}-${w.end_time}`).join(" · ")}</span></div>)}</div></>)}
       <h2>Avis des joueurs</h2>

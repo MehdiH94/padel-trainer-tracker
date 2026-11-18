@@ -40,19 +40,16 @@ const label = (key, group) => {
 
 // « X m'a donné de l'argent »: devient des crédits chez ce coach, qui règlent d'abord ce qu'il doit
 function PaymentForm({ players, initial, onClose, onDone }) {
-  const [f, setF] = useState({ player_id: initial?.player_id ?? "", amount: initial?.amount ?? 0, method: "especes", pack: "" });
+  const [f, setF] = useState({ player_id: initial?.player_id ?? "", amount: initial?.amount ?? 0, method: "especes" });
   const [busy, setBusy] = useState(false);
-  const [packs, setPacks] = useState([]); // packs du coach: le joueur paie le prix, ses crédits augmentent de leur valeur
-  useEffect(() => { api("/packs").then(setPacks).catch(() => {}); }, []);
-  const pack = packs.find((x) => x.id === +f.pack);
   const p = players.find((x) => x.id === +f.player_id);
   const save = async (e) => {
     e.preventDefault();
-    if (!f.player_id || (!f.amount && !pack)) return toastError(new Error("Choisissez le joueur et le montant reçu."));
+    if (!f.player_id || !f.amount) return toastError(new Error("Choisissez le joueur et le montant reçu."));
     setBusy(true);
     try {
-      await api(`/players/${f.player_id}/credits`, { method: "POST", body: pack ? { pack_id: pack.id, method: f.method } : { amount_millimes: f.amount, method: f.method } });
-      toast(pack ? `${pack.name} : ${tnd(pack.credit_millimes)} de crédits pour ${p?.name.split(" ")[0] ?? "ce joueur"}` : `${tnd(f.amount)} reçus de ${p?.name.split(" ")[0] ?? "ce joueur"}`);
+      await api(`/players/${f.player_id}/credits`, { method: "POST", body: { amount_millimes: f.amount, method: f.method } });
+      toast(`${tnd(f.amount)} reçus de ${p?.name.split(" ")[0] ?? "ce joueur"}`);
       onDone();
     } catch (x) {
       toastError(x);
@@ -70,16 +67,8 @@ function PaymentForm({ players, initial, onClose, onDone }) {
             {players.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
           </select>
         </label>
-        {packs.length > 0 && (
-          <label className="field"><span className="mut">Pack (facultatif)</span>
-            <select value={f.pack} onChange={(e) => { const x = packs.find((y) => y.id === +e.target.value); setF({ ...f, pack: e.target.value, amount: x ? x.price_millimes : f.amount }); }}>
-              <option value="">Montant libre</option>
-              {packs.map((x) => <option key={x.id} value={x.id}>{x.name} : {tnd(x.price_millimes)} → {tnd(x.credit_millimes)} de crédits</option>)}
-            </select>
-          </label>
-        )}
         <div className="grid">
-          <label className="field"><span className="mut">Montant (TND)</span><MoneyInput label="Montant reçu (TND)" value={f.amount} onChange={(v) => setF({ ...f, amount: v, pack: "" })} /></label>
+          <label className="field"><span className="mut">Montant (TND)</span><MoneyInput label="Montant reçu (TND)" value={f.amount} onChange={(v) => setF({ ...f, amount: v })} /></label>
           <label className="field"><span className="mut">Moyen</span>
             <select value={f.method} onChange={(e) => setF({ ...f, method: e.target.value })}><option value="especes">Espèces</option><option value="virement">Virement</option></select>
           </label>

@@ -2914,17 +2914,6 @@ def test_waitlist_is_told_when_a_spot_frees(client):
     assert any("place" in (n.get("title") or "").lower() for n in items)
 
 
-def test_coach_packs(client):
-    p = mkplayer(client)
-    assert client.post("/packs", json={"name": "10 séances", "price_millimes": 500000, "credit_millimes": 400000}).status_code == 422
-    packs = client.post("/packs", json={"name": "10 séances", "price_millimes": 500000, "credit_millimes": 600000}).json()
-    assert [x["name"] for x in packs] == ["10 séances"]
-    r = client.post(f"/players/{p['id']}/credits", json={"pack_id": packs[0]["id"]}).json()
-    assert r["balance_millimes"] == 600000
-    assert sum(x["amount_millimes"] for x in client.get("/payments").json()) == 500000  # argent reçu: le prix du pack
-    assert client.delete(f"/packs/{packs[0]['id']}").json() == []
-
-
 def test_push_subscription(client):
     p, pc = player_client(client)
     key = TestClient(app).get("/push/key").json()["key"]

@@ -1,4 +1,4 @@
-"""Avis sur les coachs, annuaire public des coachs, liste d'attente des séances complètes, packs de crédits,
+"""Avis sur les coachs, annuaire public des coachs, liste d'attente des séances complètes,
 abonnement aux notifications du téléphone."""
 import secrets
 from datetime import datetime, timezone
@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 
 from ..auth import _decode, bearer, current_coach, current_player
 from ..db import get_db
-from ..models import Attendance, Coach, Pack, Player, PushSubscription, Review, TrainingSession, Waitlist
+from ..models import Attendance, Coach, Player, PushSubscription, Review, TrainingSession, Waitlist
 from ..services import isolation, push
 from ..services.accounts import account_of, linked
 from ..services.common import aware
@@ -117,7 +117,7 @@ def public_coach(coach_id: int, db: Session = Depends(get_db)):
     c = db.get(Coach, coach_id)
     if not c or not _public(c):
         raise HTTPException(404, "Coach introuvable")
-    out = _public_card(db, c) | {"reviews": reviews_of(db, c.id), "packs": packs_of(db, c.id),
+    out = _public_card(db, c) | {"reviews": reviews_of(db, c.id),
                                  "availability": [{"weekday": w.weekday, "start_time": w.start_time, "end_time": w.end_time}
                                                   for w in db.scalars(select(Availability).where(Availability.coach_id == c.id).order_by(Availability.weekday, Availability.start_time))]}
     db.commit()
@@ -147,46 +147,6 @@ def leave_waitlist(session_id: int, player: Player = Depends(current_player), db
         db.delete(w)
     db.commit()
     return {"waitlisted": False}
-
-
-# --- Packs de crédits du coach ----------------------------------------------------
-
-def packs_of(db: Session, coach_id: int) -> list[dict]:
-    return [{"id": p.id, "name": p.name, "price_millimes": p.price_millimes, "credit_millimes": p.credit_millimes}
-            for p in db.scalars(select(Pack).where(Pack.coach_id == coach_id, Pack.active.is_(True)).order_by(Pack.price_millimes))]
-
-
-class PackIn(BaseModel):
-    name: str
-    price_millimes: int
-    credit_millimes: int
-
-
-@router.get("/packs")
-def list_packs(coach: Coach = Depends(current_coach), db: Session = Depends(get_db)):
-    return packs_of(db, coach.id)
-
-
-@router.post("/packs", status_code=201)
-def add_pack(body: PackIn, coach: Coach = Depends(current_coach), db: Session = Depends(get_db)):
-    if not body.name.strip():
-        raise HTTPException(422, "Donnez un nom au pack (ex. 10 séances).")
-    if body.price_millimes < 20000 or body.credit_millimes < body.price_millimes:
-        raise HTTPException(422, "Pack : au moins 20 TND, et des crédits au moins égaux au prix payé.")
-    p = Pack(coach_id=coach.id, name=body.name.strip()[:80], price_millimes=body.price_millimes, credit_millimes=body.credit_millimes)
-    db.add(p)
-    db.commit()
-    return packs_of(db, coach.id)
-
-
-@router.delete("/packs/{pack_id}")
-def remove_pack(pack_id: int, coach: Coach = Depends(current_coach), db: Session = Depends(get_db)):
-    p = db.get(Pack, pack_id)
-    if not p or p.coach_id != coach.id:
-        raise HTTPException(404, "Pack introuvable")
-    p.active = False  # gardé pour l'historique
-    db.commit()
-    return packs_of(db, coach.id)
 
 
 # --- Notifications du téléphone -------------------------------------------------

@@ -46,7 +46,7 @@ Liste à cocher, mise à jour par Claude. Rien ici ne demande de coder : ce sont
 | Suppression de son compte par le joueur | fait (sandbox) |
 | Notifications du téléphone (Android, iPhone avec l'appli sur l'écran d'accueil) | fait (sandbox) |
 | Liste d'attente des séances complètes | fait (sandbox) |
-| Packs de crédits du coach (ex. 10 séances) | fait (sandbox) |
+| Packs de crédits du coach | retiré |
 | Paiement en ligne | abandonné : tout est gratuit, les joueurs paient leur coach directement |
 | Rappels par WhatsApp | en attente (voir point 5) |
 | Version en arabe | à faire (gros travail de traduction : à planifier) |

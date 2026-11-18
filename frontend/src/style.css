@@ -963,8 +963,6 @@ button.saved { background: var(--green); border-color: var(--green); color: #fff
 .land-point { display: grid; gap: 4px; }
 .land-point .icon { color: var(--brand); }
 .land-help { display: grid; gap: 4px; margin-top: 18px; }
-.pack-new { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 10px; }
-.pack-new input[aria-label="Nom du pack"] { flex: 1 1 160px; margin: 0; }
 .danger-txt { color: var(--red); }
 .warn-card { border-color: var(--red); }
 .page-top .btnlink { flex: none; padding: 8px 14px; min-height: 38px; }

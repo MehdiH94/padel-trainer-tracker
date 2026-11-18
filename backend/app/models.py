@@ -439,18 +439,6 @@ class Waitlist(Base):
     notified_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
 
 
-class Pack(Base):
-    """Pack de crédits proposé par le coach (ex. « 10 séances »: payé 500 TND, 600 TND de crédits)."""
-
-    __tablename__ = "packs"
-    id: Mapped[int] = mapped_column(primary_key=True)
-    coach_id: Mapped[int] = mapped_column(ForeignKey("coaches.id"), index=True)
-    name: Mapped[str] = mapped_column(String(80))
-    price_millimes: Mapped[int] = mapped_column(Integer)  # ce que le joueur paie
-    credit_millimes: Mapped[int] = mapped_column(Integer)  # ce qui est ajouté à ses crédits
-    active: Mapped[bool] = mapped_column(default=True)
-
-
 class PushSubscription(Base):
     """Abonnement aux notifications du téléphone (Web Push) d'un joueur ou d'un coach, pour un appareil."""
 
