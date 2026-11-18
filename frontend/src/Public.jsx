@@ -131,11 +131,11 @@ export function Coaches() {
   const [coaches, setCoaches] = useState(null);
   const [q, setQ] = useState("");
   useEffect(() => { api("/public/coaches").then(setCoaches).catch(() => setCoaches([])); }, []);
-  const shown = (coaches ?? []).filter((c) => `${c.name} ${c.clubs.join(" ")} ${c.specialties.join(" ")}`.toLowerCase().includes(q.toLowerCase()));
+  const shown = (coaches ?? []).filter((c) => `${c.name} ${c.clubs.join(" ")}`.toLowerCase().includes(q.toLowerCase()));
   return (
     <Shell>
       <h1>Nos coachs</h1>
-      <div className="searchbox"><Icon name="search" size={16} /><input placeholder="Nom, club, spécialité…" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Rechercher un coach" /></div>
+      <div className="searchbox"><Icon name="search" size={16} /><input placeholder="Nom ou club…" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Rechercher un coach" /></div>
       {coaches === null && <div className="skel" style={{ height: 160 }} />}
       {coaches && !shown.length && <p className="mut">Aucun coach trouvé.</p>}
       <div className="coach-grid">{shown.map((c) => <CoachCard key={c.id} c={c} />)}</div>
