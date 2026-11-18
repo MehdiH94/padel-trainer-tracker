@@ -204,6 +204,8 @@ class SubIn(BaseModel):
 @router.post("/push/subscribe")
 def subscribe(body: SubIn, creds: HTTPAuthorizationCredentials | None = Depends(bearer), db: Session = Depends(get_db)):
     data = _decode(creds)
+    if not push.allowed_endpoint(body.endpoint):
+        raise HTTPException(422, "Adresse de notification non reconnue.")
     sub = db.scalar(select(PushSubscription).where(PushSubscription.endpoint == body.endpoint)) or PushSubscription(endpoint=body.endpoint)
     sub.p256dh, sub.auth = body.keys.get("p256dh", ""), body.keys.get("auth", "")
     if data.get("role") == "coach":

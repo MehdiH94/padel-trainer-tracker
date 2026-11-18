@@ -15,6 +15,19 @@ from ..models import AppSetting, PushSubscription
 
 log = logging.getLogger(__name__)
 CONTACT = "mailto:noreply@padel-boost.net"
+# Services de notification des navigateurs: le serveur ne contacte jamais une autre adresse
+PUSH_HOSTS = ("fcm.googleapis.com", "android.googleapis.com", "updates.push.services.mozilla.com")
+PUSH_SUFFIXES = (".push.apple.com", ".notify.windows.com")
+
+
+def allowed_endpoint(endpoint: str) -> bool:
+    from urllib.parse import urlparse
+    try:
+        u = urlparse(endpoint)
+    except ValueError:
+        return False
+    host = (u.hostname or "").lower().rstrip(".")
+    return u.scheme == "https" and (host in PUSH_HOSTS or any(host.endswith(s) for s in PUSH_SUFFIXES))
 
 
 def keys(db: Session) -> tuple[str, str]:
@@ -41,7 +54,7 @@ def send(db: Session, title: str, body: str, url: str = "/", player_ids=None, co
         q = q.where(PushSubscription.coach_id == coach_id)
     else:
         q = q.where(PushSubscription.player_id.in_(list(player_ids or [])))
-    subs = [(s.endpoint, s.p256dh, s.auth) for s in db.scalars(q)]
+    subs = [(s.endpoint, s.p256dh, s.auth) for s in db.scalars(q) if allowed_endpoint(s.endpoint)]
     if not subs or os.getenv("PUSH_DISABLED") == "1":
         return 0
     pem, _ = keys(db)

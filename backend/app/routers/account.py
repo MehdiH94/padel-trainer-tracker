@@ -21,7 +21,20 @@ RESET_VALID = timedelta(hours=1)
 
 class ForgotIn(BaseModel):
     email: str
-    base: str = ""  # adresse du site (lien du message)
+    base: str = ""  # ignoré: le lien est toujours construit depuis l'adresse du serveur, jamais celle du navigateur
+
+
+def site_url(request: Request) -> str:
+    """Adresse du site pour les liens sensibles: APP_URL du serveur, sinon l'hôte de la requête (Caddy ne laisse
+    passer que les domaines du site). Jamais une adresse fournie par le navigateur: un lien de réinitialisation qui
+    pointerait ailleurs livrerait le jeton à un tiers."""
+    import os
+    app_url = os.getenv("APP_URL", "").strip().rstrip("/")
+    if app_url:
+        return app_url
+    host = request.headers.get("host", "").strip()
+    scheme = request.headers.get("x-forwarded-proto", request.url.scheme)
+    return f"{scheme}://{host}" if host else ""
 
 
 def _account(db: Session, email: str):
@@ -39,8 +52,7 @@ def forgot(body: ForgotIn, request: Request, db: Session = Depends(get_db)):
     now = datetime.now(timezone.utc)
     if user and not (user.reset_sent_at and now - aware(user.reset_sent_at) < timedelta(minutes=1)):
         user.reset_token, user.reset_sent_at = secrets.token_urlsafe(24), now
-        import os
-        link = f"{(body.base or os.getenv('APP_URL', '')).rstrip('/')}/reinitialiser/{user.reset_token}"
+        link = f"{site_url(request)}/reinitialiser/{user.reset_token}"
         send_email(user.email, "Nouveau mot de passe — Padel Boost", letter(
             user.name, "Vous avez demandé à changer votre mot de passe. Ouvrez ce lien pour en choisir un nouveau (valable 1 heure) :",
             link, "Si vous n'avez rien demandé, ignorez ce message : votre mot de passe ne change pas."))

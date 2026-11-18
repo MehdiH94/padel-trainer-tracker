@@ -45,7 +45,8 @@ def send_link(db: Session, p: Player | Coach, base: str = "") -> None:
         return
     p.email_token = secrets.token_urlsafe(24)
     p.email_token_sent_at = datetime.now(timezone.utc)
-    link = f"{(base or APP_URL).rstrip('/')}/verify/{p.email_token}"
+    # adresse du serveur (APP_URL) en priorité: jamais un lien vers un site choisi par le navigateur
+    link = f"{(os.getenv('APP_URL') or base or APP_URL).rstrip('/')}/verify/{p.email_token}"
     if isinstance(p, Coach):
         intro = ("Bienvenue sur Padel Boost !",
                  "Pour activer votre espace coach, confirmez votre adresse e-mail en ouvrant ce lien :", link,

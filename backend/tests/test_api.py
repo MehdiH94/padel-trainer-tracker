@@ -2846,8 +2846,9 @@ def test_forgot_password_then_reset(client):
     p, pc = player_client(client)
     email = f"p{p['id']}@x.tn"
     assert TestClient(app).post("/auth/password/forgot", json={"email": "inconnu@x.tn"}).json() == {"ok": True}  # rien de révélé
-    TestClient(app).post("/auth/password/forgot", json={"email": email.upper(), "base": "https://padel.tn"})
+    TestClient(app).post("/auth/password/forgot", json={"email": email.upper(), "base": "https://pirate.example"})
     link = next(body for to, subj, body in reversed(OUTBOX) if to == email and "mot de passe" in subj.lower())
+    assert "pirate.example" not in link  # jamais l'adresse envoyée par le navigateur
     token = link.split("/reinitialiser/")[1].split()[0]
     assert TestClient(app).post("/auth/password/reset", json={"token": "faux", "password": "nouveau1"}).status_code == 400
     assert TestClient(app).post("/auth/password/reset", json={"token": token, "password": "nouveau1"}).json() == {"ok": True}
@@ -2871,6 +2872,8 @@ def test_player_deletes_own_account(client):
 
 
 def test_reviews_and_public_coach_directory(client):
+    assert TestClient(app).get("/public/coaches").json() == []  # pas encore de tarif: pas dans l'annuaire
+    open_week(client)  # tarifs réglés
     p, pc = player_client(client, name="Sami Ben Ali")
     coach_id = pc.get("/me/coaches").json()[0]["id"]
     assert pc.put(f"/me/coaches/{coach_id}/review", json={"rating": 5, "comment": "Top"}).status_code == 403  # pas encore de séance
@@ -2926,7 +2929,9 @@ def test_push_subscription(client):
     p, pc = player_client(client)
     key = TestClient(app).get("/push/key").json()["key"]
     assert len(key) > 80
-    sub = {"endpoint": "https://push.example/abc", "keys": {"p256dh": "x", "auth": "y"}}
+    sub = {"endpoint": "https://fcm.googleapis.com/fcm/send/abc", "keys": {"p256dh": "x", "auth": "y"}}
     assert pc.post("/push/subscribe", json=sub).json() == {"ok": True}
-    assert client.post("/push/subscribe", json={**sub, "endpoint": "https://push.example/coach"}).json() == {"ok": True}
-    assert TestClient(app).post("/push/unsubscribe", json={"endpoint": "https://push.example/abc"}).json() == {"ok": True}
+    assert client.post("/push/subscribe", json={**sub, "endpoint": "https://web.push.apple.com/coach"}).json() == {"ok": True}
+    for bad in ("http://fcm.googleapis.com/x", "https://169.254.169.254/latest", "https://fcm.googleapis.com.evil.tn/x", "https://evilpush.apple.com/x"):
+        assert pc.post("/push/subscribe", json={**sub, "endpoint": bad}).status_code == 422  # jamais un autre serveur
+    assert TestClient(app).post("/push/unsubscribe", json={"endpoint": sub["endpoint"]}).json() == {"ok": True}
