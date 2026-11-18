@@ -49,7 +49,7 @@ export default function Signup({ coachToken }) {
         <TermsCheck checked={f.accept_terms} onChange={(v) => setF({ ...f, accept_terms: v })} trap={f.website} onTrap={(v) => setF({ ...f, website: v })} />
         {error && <div className="err" role="alert">{error}</div>}
         <button style={{ width: "100%", marginTop: 8 }} disabled={busy || !!badEmail || !!tnPhoneProblem(f.phone) || !f.accept_terms}>{busy ? "Création…" : "Créer mon compte"}</button>
-        <a className="link center" href="/" style={{ display: "block", marginTop: 10 }}>J'ai déjà un compte</a>
+        <a className="link center" href="/connexion" style={{ display: "block", marginTop: 10 }}>J'ai déjà un compte</a>
         <PageLinks />
       </form>
     </div>

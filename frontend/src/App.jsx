@@ -21,11 +21,13 @@ import { guideHidden, loadGuide, newlyDone } from "./guide.js";
 import { useRoute } from "./router.js";
 import { Avatar, CategoryBadge, OfflineBar, PhoneTN, tnPhoneProblem } from "./ui.jsx";
 import { Faq, Help, PageLinks, Terms, TermsCheck } from "./Pages.jsx";
+import { CoachPublic, Coaches, Landing, ResetPassword } from "./Public.jsx";
 
 function Login() {
   const [f, setF] = useState({ email: "", password: "", name: "", phone: "", accept_terms: false, website: "" });
   const [remember, setRemember] = useState(localStorage.getItem("remember") !== "0"); // coché par défaut
-  const [mode, setMode] = useState("login");
+  const [mode, setMode] = useState(location.hash === "#coach" ? "register" : "login"); // /connexion#coach: créer un espace coach
+  const [sent, setSent] = useState(false); // « mot de passe oublié »: lien envoyé
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
@@ -33,6 +35,12 @@ function Login() {
     e.preventDefault();
     setBusy(true);
     try {
+      if (mode === "forgot") {
+        await api("/auth/password/forgot", { method: "POST", body: { email: f.email, base: location.origin } });
+        setSent(true);
+        setBusy(false);
+        return;
+      }
       setSession(await api("/auth/" + mode, { method: "POST", body: { ...f, base: location.origin } }), remember);
       location.reload();
     } catch (x) {
@@ -45,21 +53,23 @@ function Login() {
       <form className="login card" onSubmit={submit}>
         <img className="logo" src="/logo.svg" alt="" width="54" height="54" />
         <h1>Padel Boost</h1>
-        <p className="mut">{mode === "login" ? "Connectez-vous à votre espace" : "Créez votre espace coach"}</p>
+        <p className="mut">{mode === "login" ? "Connectez-vous à votre espace" : mode === "forgot" ? "Recevez par e-mail un lien pour choisir un nouveau mot de passe." : "Créez votre espace coach"}</p>
+        {mode === "forgot" && sent && <div className="note ok" role="status"><Icon name="mail" size={14} /> Si un compte existe avec cette adresse, un e-mail vient de partir (regardez aussi dans les spams).</div>}
         {mode === "register" && <label className="field"><span className="mut">Votre nom de coach</span><input value={f.name} onChange={set("name")} autoComplete="name" required /></label>}
         {mode === "register" && <PhoneTN value={f.phone} onChange={(v) => setF({ ...f, phone: v })} />}
         <label className="field"><span className="mut">E-mail</span><input type="email" value={f.email} onChange={set("email")} autoComplete="email" required /></label>
-        <label className="field"><span className="mut">Mot de passe</span><input type="password" value={f.password} onChange={set("password")} autoComplete={mode === "login" ? "current-password" : "new-password"} required /></label>
-        <label className="check" style={{ margin: "4px 0 10px" }}>
+        {mode !== "forgot" && <label className="field"><span className="mut">Mot de passe</span><input type="password" value={f.password} onChange={set("password")} autoComplete={mode === "login" ? "current-password" : "new-password"} required /></label>}
+        {mode !== "forgot" && <label className="check" style={{ margin: "4px 0 10px" }}>
           <input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} /> Rester connecté sur cet appareil
-        </label>
+        </label>}
         {err && <div className="err" role="alert">{err}</div>}
         {mode === "register" && <TermsCheck checked={f.accept_terms} onChange={(v) => setF({ ...f, accept_terms: v })} trap={f.website} onTrap={(v) => setF({ ...f, website: v })} />}
         {mode === "register" && <p className="mut small-p">Vous confirmerez votre adresse e-mail, puis un administrateur validera votre compte avant que vous puissiez commencer.</p>}
-        <button style={{ width: "100%" }} disabled={busy || (mode === "register" && (!!tnPhoneProblem(f.phone) || !f.accept_terms))}>{busy ? "Connexion…" : mode === "login" ? "Se connecter" : "Créer mon compte coach"}</button>
+        <button style={{ width: "100%" }} disabled={busy || (mode === "register" && (!!tnPhoneProblem(f.phone) || !f.accept_terms))}>{busy ? "Envoi…" : mode === "login" ? "Se connecter" : mode === "forgot" ? "Recevoir un lien" : "Créer mon compte coach"}</button>
         <button type="button" className="link center" style={{ marginTop: 10 }} onClick={() => { setMode(mode === "login" ? "register" : "login"); setErr(""); }}>
-          {mode === "login" ? "Vous êtes coach ? Créer un compte" : "J'ai déjà un compte"}
+          {mode === "login" ? "Vous êtes coach ? Créer un compte" : mode === "forgot" ? "Retour à la connexion" : "J'ai déjà un compte"}
         </button>
+        {mode === "login" && <button type="button" className="link center" style={{ display: "block", marginTop: 6 }} onClick={() => { setMode("forgot"); setErr(""); setSent(false); }}>Mot de passe oublié ?</button>}
         {mode === "login" && <a className="link center" href="/inscription" style={{ display: "block", marginTop: 6 }}>Joueur ? Créer mon compte</a>}
         <PageLinks />
       </form>
@@ -279,14 +289,18 @@ function Account() {
 
 export default function App() {
   let page;
-  if (location.pathname.startsWith("/conditions")) page = <Terms />; // pages publiques: conditions, FAQ, aide et démos
+  const path = location.pathname;
+  if (path.startsWith("/reinitialiser/")) page = <ResetPassword token={path.split("/")[2]} />; // nouveau mot de passe
+  else if (path.startsWith("/coachs/")) page = <CoachPublic id={path.split("/")[2]} />; // page publique d'un coach
+  else if (path.startsWith("/coachs")) page = <Coaches />;
+  else if (path.startsWith("/conditions")) page = <Terms />; // pages publiques: conditions, FAQ, aide et démos
   else if (location.pathname.startsWith("/faq")) page = <Faq />;
   else if (location.pathname.startsWith("/aide")) page = <Help />;
   else if (location.pathname.startsWith("/invite/")) page = <Invite token={location.pathname.split("/")[2]} />;
   else if (location.pathname.startsWith("/inscription")) page = <Signup coachToken={location.pathname.split("/")[2] || null} />; // /inscription/<jeton> = lien d'un coach
   else if (location.pathname.startsWith("/remplacer/")) page = <Replace token={location.pathname.split("/")[2]} />;
   else if (location.pathname.startsWith("/verify/")) page = <VerifyEmail token={location.pathname.split("/")[2]} />;
-  else if (!getToken()) page = <Login />;
+  else if (!getToken()) page = path.startsWith("/connexion") ? <Login /> : <Landing />; // visiteur: page d'accueil du site
   else page = <Account />;
   return <>{actingAs() && getToken() && <AdminBar />}{page}<FeedbackHost /></>;
 }

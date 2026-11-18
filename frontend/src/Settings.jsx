@@ -2,7 +2,50 @@ import { useEffect, useRef, useState } from "react";
 import { api, peek, tnd } from "./api.js";
 import Icon from "./Icon.jsx";
 import CriteriaEditor from "./CriteriaEditor.jsx";
-import { ClockPicker, KIND, Loading, MoneyInput } from "./ui.jsx";
+import { toastError } from "./feedback.jsx";
+import { ClockPicker, KIND, Loading, MoneyInput, PushToggle } from "./ui.jsx";
+import { RatingLine, ReviewList } from "./Public.jsx";
+
+// Packs de crédits que le coach propose (ex. « 10 séances » : payé 500 TND, 600 TND de crédits)
+function Packs() {
+  const [packs, setPacks] = useState(() => peek("/packs") ?? []);
+  const [f, setF] = useState({ name: "", price_millimes: 0, credit_millimes: 0 });
+  useEffect(() => { api("/packs").then(setPacks).catch(() => {}); }, []);
+  const add = () => api("/packs", { method: "POST", body: f }).then((x) => { setPacks(x); setF({ name: "", price_millimes: 0, credit_millimes: 0 }); }).catch(toastError);
+  const remove = (p) => api(`/packs/${p.id}`, { method: "DELETE" }).then(setPacks).catch(toastError);
+  return (
+    <div className="card">
+      <div className="mut small-p" style={{ marginBottom: 8 }}>Vos joueurs les voient sur votre page. Quand un joueur vous paie un pack, choisissez-le dans « Argent reçu » : ses crédits augmentent de la valeur du pack.</div>
+      {packs.map((p) => (
+        <div key={p.id} className="row fin-line">
+          <span><b>{p.name}</b> <span className="mut small-p">· payé {tnd(p.price_millimes)} → {tnd(p.credit_millimes)} de crédits</span></span>
+          <button className="small sec iconbtn" aria-label={`Retirer le pack ${p.name}`} onClick={() => remove(p)}><Icon name="trash" size={14} /></button>
+        </div>
+      ))}
+      {!packs.length && <div className="mut small-p">Aucun pack pour l'instant.</div>}
+      <div className="pack-new">
+        <input placeholder="Nom (ex. 10 séances)" aria-label="Nom du pack" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} />
+        <span className="inputunit"><em>Payé</em><MoneyInput label="Prix payé" value={f.price_millimes} onChange={(v) => setF({ ...f, price_millimes: v })} /><em>TND</em></span>
+        <span className="inputunit"><em>Crédits</em><MoneyInput label="Crédits ajoutés" value={f.credit_millimes} onChange={(v) => setF({ ...f, credit_millimes: v })} /><em>TND</em></span>
+        <button type="button" className="small sec" onClick={add} disabled={!f.name.trim()}><Icon name="plus" size={14} /> Ajouter</button>
+      </div>
+    </div>
+  );
+}
+
+// Les avis des joueurs sur le coach, et le lien de sa page publique
+function MyReviews({ coachId }) {
+  const [r, setR] = useState(null);
+  useEffect(() => { api("/coach/reviews").then(setR).catch(() => {}); }, []);
+  const link = `${location.origin}/coachs/${coachId}`;
+  return (
+    <div className="card">
+      <div className="row"><b>Vos avis</b>{r && <RatingLine rating={r.rating} count={r.reviews_count} />}</div>
+      <div className="mut small-p" style={{ margin: "6px 0" }}>Votre page publique, à partager (Instagram, WhatsApp) : <a href={link} target="_blank" rel="noreferrer">{link.replace(/^https?:\/\//, "")}</a></div>
+      {r && <ReviewList reviews={r.reviews.slice(0, 5)} />}
+    </div>
+  );
+}
 
 const DAYS = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"];
 const HORIZONS = [[7, "1 semaine"], [14, "2 semaines"], [21, "3 semaines"], [30, "1 mois"], [60, "2 mois"], [90, "3 mois"]];
@@ -133,6 +176,11 @@ export default function Settings({ onBack, sub }) {
         </div>
       </div>
 
+      <MyReviews coachId={s.coach_id} />
+
+      <h2 id="notifications">Notifications</h2>
+      <div className="card"><PushToggle /></div>
+
       <h2 id="clubs">Mes clubs <Saved id="clubs" /></h2>
       <div className={card("clubs")} data-sec="clubs">
         <div className="mut small-p" style={{ marginBottom: 8 }}>Les clubs où vous entraînez : les joueurs vous trouvent en filtrant par club, et vos terrains y sont réservés.</div>
@@ -180,6 +228,9 @@ export default function Settings({ onBack, sub }) {
           );
         })}
       </div>
+
+      <h2 id="packs">Packs de crédits</h2>
+      <Packs />
 
       <h2 id="vip">Prix VIP <Saved id="vip" /></h2>
       <div className={card("vip")} data-sec="vip">

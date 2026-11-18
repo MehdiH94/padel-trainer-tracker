@@ -9,7 +9,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from ..constants import CAPACITY, compatible
-from ..models import Attendance, Availability, Booking, Club, Coach, CourtBooking, HappyHour, Player, TrainingSession
+from ..models import Attendance, Availability, Booking, Club, Coach, CourtBooking, HappyHour, Player, TrainingSession, Waitlist
 from . import courts
 from .accounts import linked
 from .isolation import visible_coaches
@@ -50,6 +50,7 @@ def coach_summary(db: Session, coach: Coach, account: Player | None = None) -> d
         "id": coach.id, "name": coach.name, "bio": coach.bio, "specialties": [s for s in coach.specialties.split(",") if s],
         "clubs": coach_clubs(db, coach), "prices": {k: price_for(coach, k, None, is_vip(db, coach, account)) for k in CAPACITY}, "mine": mine,
         "vip": is_vip(db, coach, account),  # le joueur est dans la liste VIP de ce coach (tarifs privilégiés)
+        **_rating(db, coach.id),
         # formules, durées et prix proposés, et jusqu'où on peut réserver (jours)
         "grid": {k: {str(m): v for m, v in g.items()} for k, g in grid(coach).items()}, "horizon_days": horizon(coach),
     }
@@ -66,7 +67,23 @@ def coach_profile(db: Session, coach: Coach, account: Player) -> dict:
                         for h in db.scalars(select(HappyHour).where(HappyHour.coach_id == coach.id).order_by(HappyHour.weekday, HappyHour.start_time))],
         "availability": [{"weekday": w.weekday, "start_time": w.start_time, "end_time": w.end_time} for w in windows],
         "stats": {"sessions_done": done or 0, "players": players or 0},
+        **_extras(db, coach, account),
     }
+
+
+def _rating(db: Session, coach_id: int) -> dict:
+    from ..routers.community import rating_of
+    return rating_of(db, coach_id)
+
+
+def _extras(db: Session, coach: Coach, account: Player) -> dict:
+    """Avis, possibilité de laisser le sien, et packs de crédits du coach."""
+    from ..models import Review
+    from ..routers.community import can_review, packs_of, reviews_of
+    from .accounts import account_of
+    mine = db.scalar(select(Review).where(Review.coach_id == coach.id, Review.account_id == account_of(db, account).id))
+    return {"reviews": reviews_of(db, coach.id), "can_review": can_review(db, account, coach.id), "packs": packs_of(db, coach.id),
+            "my_review": {"rating": mine.rating, "comment": mine.comment} if mine else None}
 
 
 def _in_window(start: datetime, day: date, period: str | None) -> bool:
@@ -141,6 +158,7 @@ def offers(db: Session, account: Player, day: date, kinds: list[str], coach_ids:
     groups, with_court, other = [], [], []
     other_kinds: dict[str, int] = {}  # séances ouvertes ce jour-là d'une formule que le joueur n'a pas choisie
     requests: list[dict] = []  # demandes d'autres joueurs à rejoindre
+    full: list[dict] = []  # séances complètes de sa formule: liste d'attente
     hints: list[str] = []  # pourquoi rien n'est proposé chez un coach (durée pas proposée, terrains trop courts)
     too_late: set[str] = set()  # formules qu'on ne peut plus ouvrir seul ce jour-là (moins de 24 h)
     # ce qui occupe déjà le joueur (tous coachs, son planning): ces créneaux ne lui sont pas proposés, et on le lui rappelle
@@ -154,6 +172,17 @@ def offers(db: Session, account: Player, day: date, kinds: list[str], coach_ids:
             continue
         who = {"id": c.id, "name": c.name}
         v = is_vip(db, c, account)  # prix VIP chez ce coach
+        # 0. Séances complètes de sa formule (une séance pleine se ferme d'elle-même): liste d'attente
+        for s in db.scalars(select(TrainingSession).where(TrainingSession.coach_id == c.id, TrainingSession.status == "prevue",
+                                                          TrainingSession.kind != "individuel")):
+            if (not _in_window(s.start, day, period) or aware(s.start) < now + timedelta(hours=2) or my_ids & set(attendee_ids(s))
+                    or spots_left(db, s) > 0 or s.kind not in kinds or (wanted_clubs and not in_clubs(s.club))):
+                continue
+            if fits_session(db, account, s)[0] and not occupied(s.start, s.duration_min):
+                others = [db.get(Player, i) for i in attendee_ids(s)]
+                full.append({"type": "full", "session_id": s.id, "coach": who, "start": s.start, "duration_min": s.duration_min,
+                             "kind": s.kind, "club": s.club, "players": [{"name": p.name, "category": p.category, "gender": p.gender} for p in others],
+                             "waitlisted": bool(db.scalar(select(Waitlist.id).where(Waitlist.session_id == s.id, Waitlist.player_id.in_(my_ids))))})
         # 1. Séances à rejoindre: la taille de la séance après l'arrivée du joueur doit convenir à tous (services/groups).
         #    Jamais de groupe pour qui veut s'entraîner seul, jamais un duo pour qui cherche un groupe; on peut être le
         #    premier ou le deuxième d'un groupe s'il reste plus de 24 h pour le compléter. Les séances d'autres formules
@@ -261,6 +290,7 @@ def offers(db: Session, account: Player, day: date, kinds: list[str], coach_ids:
     return {"groups": groups[:10], "slots_with_court": with_court[:80], "slots_other": other[:120], "other_kinds": other_kinds, "hints": hints,
             "requests": sorted((r for r in requests if not occupied(r["start"], r["duration_min"])), key=closeness)[:10],
             "my_day": my_day,
+            "full": sorted(full, key=closeness)[:10],
             "too_late": [k for k in CAPACITY if k in too_late]}
 
 

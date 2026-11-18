@@ -164,3 +164,28 @@ export function useContactCheck(email, phone, exclude) {
 
 // Format d'e-mail (vérifié pendant la saisie, avant l'envoi): message en clair, ou null si correct
 export const emailProblem = (v) => (v && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v.trim()) ? "Adresse e-mail invalide : elle doit être de la forme nom@exemple.com." : null);
+
+// --- Notifications du téléphone (Web Push): Android (Chrome), iPhone avec l'appli ajoutée à l'écran d'accueil (iOS 16.4+)
+const b64ToBytes = (s) => { const p = "=".repeat((4 - (s.length % 4)) % 4); const raw = atob((s + p).replace(/-/g, "+").replace(/_/g, "/")); return Uint8Array.from(raw, (c) => c.charCodeAt(0)); };
+export const isIos = () => /iphone|ipad|ipod/i.test(navigator.userAgent);
+export const isStandalone = () => window.matchMedia?.("(display-mode: standalone)").matches || navigator.standalone === true;
+export async function pushState() {
+  if (!("serviceWorker" in navigator) || !("PushManager" in window) || !("Notification" in window)) return isIos() && !isStandalone() ? "ios-install" : "unsupported";
+  if (Notification.permission === "denied") return "denied";
+  const reg = await navigator.serviceWorker.getRegistration();
+  const sub = reg && (await reg.pushManager.getSubscription());
+  return sub ? "on" : "off";
+}
+export async function enablePush() {
+  const perm = await Notification.requestPermission();
+  if (perm !== "granted") throw new Error("Notifications refusées : autorisez-les dans les réglages du téléphone.");
+  const reg = await navigator.serviceWorker.ready;
+  const { key } = await api("/push/key");
+  const sub = (await reg.pushManager.getSubscription()) || (await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToBytes(key) }));
+  await api("/push/subscribe", { method: "POST", body: sub.toJSON() });
+}
+export async function disablePush() {
+  const reg = await navigator.serviceWorker.getRegistration();
+  const sub = reg && (await reg.pushManager.getSubscription());
+  if (sub) { await api("/push/unsubscribe", { method: "POST", body: { endpoint: sub.endpoint } }).catch(() => {}); await sub.unsubscribe(); }
+}

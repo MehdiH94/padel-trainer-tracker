@@ -116,18 +116,26 @@ def invite(player_id: int, coach: Coach = Depends(current_coach), db: Session = 
 
 
 class CreditIn(BaseModel):
-    amount_millimes: int
+    amount_millimes: int = 0
     method: str = "especes"
+    pack_id: int | None = None  # pack du coach: le joueur paie son prix, ses crédits augmentent de sa valeur
 
 
 @router.post("/{player_id}/credits", status_code=201)
 def recharge(player_id: int, body: CreditIn, coach: Coach = Depends(current_coach), db: Session = Depends(get_db)):
     """Le joueur paie à l'avance: l'argent encaissé devient des crédits utilisables pour réserver."""
     p = get_owned_player(db, coach, player_id)
+    credit = body.amount_millimes
+    if body.pack_id is not None:
+        from ..models import Pack
+        pack = db.get(Pack, body.pack_id)
+        if not pack or pack.coach_id != coach.id or not pack.active:
+            raise HTTPException(404, "Pack introuvable")
+        body.amount_millimes, credit = pack.price_millimes, pack.credit_millimes
     if body.amount_millimes <= 0 or body.method not in ("especes", "virement"):
         raise HTTPException(422, "Montant invalide : indiquez un montant supérieur à 0, payé en espèces ou par virement.")
     db.add(Payment(coach_id=coach.id, player_id=p.id, amount_millimes=body.amount_millimes, method=body.method, kind="credit"))
-    db.add(CreditTx(coach_id=coach.id, player_id=p.id, amount_millimes=body.amount_millimes, reason="recharge"))
+    db.add(CreditTx(coach_id=coach.id, player_id=p.id, amount_millimes=credit, reason="recharge"))
     db.flush()
     settle(db, coach.id, [p.id])  # la recharge règle d'abord les séances effectuées encore dues
     from ..services.booking import notify  # reçu envoyé au joueur
@@ -137,7 +145,8 @@ def recharge(player_id: int, body: CreditIn, coach: Coach = Depends(current_coac
     amount = lambda m: f"{m / 1000:.3f} TND".replace(".", ",")  # noqa: E731
     notify(db, [p], "Recharge de crédits", lambda x: letter(
         x.name, f"{coach.name} a enregistré une recharge de crédits sur votre compte.",
-        [("Montant", amount(body.amount_millimes)), ("Nouveau solde" if net >= 0 else "Reste à régler", amount(abs(net)))],
+        [("Montant", amount(body.amount_millimes)), *([("Crédits ajoutés", amount(credit))] if credit != body.amount_millimes else []),
+         ("Nouveau solde" if net >= 0 else "Reste à régler", amount(abs(net)))],
         "Vos crédits servent à payer vos séances chez ce coach.", sign=coach.name))
     db.commit()
     return {"balance_millimes": credit_balance(db, p.id)}

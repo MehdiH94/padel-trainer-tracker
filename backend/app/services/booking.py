@@ -629,6 +629,8 @@ def app_notify(db: Session, p: Player, title: str, body: str, kind: str = "messa
     acc = account_of(db, p)
     if acc.password_hash:
         db.add(Notification(account_id=acc.id, coach_id=p.coach_id, kind=kind, title=title[:160], body=short_text(body)[:2000], **refs))
+        from . import push  # et sur son téléphone, s'il a activé les notifications
+        push.send(db, title, short_text(body), "/", player_ids=[acc.id])
 
 
 def notify(db: Session, players: list[Player], subject: str, body_for, kind: str = "message", **refs) -> int:
@@ -660,6 +662,12 @@ def notify_coach(db: Session, coach_id: int, subject: str, *blocks) -> None:
     try:
         send_email(coach.email, subject, letter(coach.name, *blocks))
     except Exception:  # un envoi raté ne bloque jamais l'action
+        pass
+    try:  # et sur son téléphone, s'il a activé les notifications
+        from . import push
+        first = next((b for b in blocks if isinstance(b, str)), "")
+        push.send(db, subject, first, "/", coach_id=coach_id)
+    except Exception:
         pass
 
 
@@ -862,6 +870,29 @@ def ensure_booking(db: Session, s: TrainingSession, player_id: int) -> Booking:
     return b
 
 
+def notify_waitlist(db: Session, s: TrainingSession | None) -> int:
+    """Une place s'est libérée dans cette séance: les joueurs en liste d'attente sont prévenus (e-mail, appli,
+    téléphone); le premier qui réserve la prend."""
+    from ..models import Waitlist
+    if not s or s.status != "prevue" or aware(s.start) <= datetime.now(timezone.utc):
+        return 0
+    db.flush()
+    if spots_left(db, s) <= 0:
+        return 0
+    rows = list(db.scalars(select(Waitlist).where(Waitlist.session_id == s.id)))
+    if not rows:
+        return 0
+    coach = db.get(Coach, s.coach_id)
+    players = [db.get(Player, w.player_id) for w in rows]
+    sent = notify(db, [p for p in players if p], "Une place s'est libérée", lambda p: letter(
+        p.name, "Une place vient de se libérer dans une séance que vous attendiez :", _details(s, coach),
+        "Ouvrez l'application pour la réserver : la première personne qui réserve prend la place.", sign=coach.name), "place")
+    now = datetime.now(timezone.utc)
+    for w in rows:
+        w.notified_at = now
+    return sent
+
+
 def cancel_booking(db: Session, coach: Coach, b: Booking) -> bool:
     """Annulation par le joueur, dans les délais: les crédits sont remboursés. Retourne True (remboursé)."""
     if b.status not in ACTIVE:
@@ -876,6 +907,8 @@ def cancel_booking(db: Session, coach: Coach, b: Booking) -> bool:
     if not was_pending:
         _release(db, b)
     _refund(db, b)
+    if not was_pending and b.session_id:  # une place se libère: la liste d'attente est prévenue
+        notify_waitlist(db, db.get(TrainingSession, b.session_id))
     t = aware(b.start).astimezone(TUNIS)
     who = db.get(Player, b.player_id).name
     notify_coach(db, b.coach_id, f"{who} a annulé", f"{who} a annulé {'sa demande pour ' if was_pending else ''}cette séance :",

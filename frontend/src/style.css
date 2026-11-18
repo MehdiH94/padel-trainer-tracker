@@ -936,3 +936,34 @@ button.saved { background: var(--green); border-color: var(--green); color: #fff
 /* champ piège anti-robots: hors écran, jamais vu ni rempli par une personne */
 .trap { position: absolute !important; left: -10000px !important; width: 1px; height: 1px; opacity: 0; }
 .topbtns a.topbtn { display: inline-flex; align-items: center; justify-content: center; background: #0f172a55; color: #fff; padding: 7px 9px; min-height: 38px; min-width: 38px; border-radius: 99px; backdrop-filter: blur(6px); box-sizing: border-box; }
+
+/* Avis (étoiles), annuaire et page publique des coachs, page d'accueil du site */
+.stars { display: inline-flex; gap: 1px; vertical-align: middle; color: var(--line); }
+.stars .icon.on { color: #f59e0b; fill: #f59e0b; }
+.stars.pick { gap: 4px; margin: 6px 0; }
+.stars.pick button { background: none; box-shadow: none; padding: 2px; color: var(--line); min-height: 0; }
+.stars.pick button.on { color: #f59e0b; }
+.stars.pick button.on .icon { fill: #f59e0b; }
+.rating-line { display: inline-flex; align-items: center; gap: 5px; font-size: .88rem; }
+.reviews { display: grid; gap: 8px; }
+.review { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; }
+.review p { margin: 4px 0; }
+.review-form textarea { margin-top: 4px; }
+.coach-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 240px), 1fr)); gap: 10px; }
+.coach-card { display: grid; gap: 6px; color: var(--txt); text-decoration: none; }
+.coach-card:hover { border-color: var(--brand); }
+.hero-land { text-align: center; display: grid; justify-items: center; gap: 10px; padding: 18px 0 10px; }
+.hero-land img { border-radius: 16px; }
+.hero-land h1 { margin: 0; text-wrap: balance; }
+.hero-land p { margin: 0; color: var(--mut); max-width: 52ch; }
+.land-cta { display: grid; gap: 8px; width: 100%; max-width: 420px; margin: 8px auto; }
+.btnlink.big { display: block; text-align: center; padding: 14px 16px; font-size: 1rem; font-weight: 700; }
+.btnlink.big:not(.sec) { background: var(--brand); color: var(--on-brand, #fff); }
+.land-points { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 200px), 1fr)); gap: 10px; margin: 18px 0; }
+.land-point { display: grid; gap: 4px; }
+.land-point .icon { color: var(--brand); }
+.land-help { display: grid; gap: 4px; margin-top: 18px; }
+.pack-new { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 10px; }
+.pack-new input[aria-label="Nom du pack"] { flex: 1 1 160px; margin: 0; }
+.danger-txt { color: var(--red); }
+.warn-card { border-color: var(--red); }

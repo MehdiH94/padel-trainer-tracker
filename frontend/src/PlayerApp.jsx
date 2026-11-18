@@ -9,7 +9,7 @@ import { Credits, Progression } from "./PlayerProgress.jsx";
 import { DateBlock, KindPill, statusText, TZ } from "./PlayerShared.jsx";
 import { VerifyBanner } from "./VerifyEmail.jsx";
 import { useRoute } from "./router.js";
-import { Avatar, CategoryBadge, InstallCard, Loading, OfflineBar, reduction } from "./ui.jsx";
+import { Avatar, CategoryBadge, InstallCard, Loading, OfflineBar, PushToggle, reduction } from "./ui.jsx";
 
 // ---------------------------------------------------------------- Accueil
 // Promotion d'un coach: ouvre la réservation sur ce coach et ce jour
@@ -51,6 +51,41 @@ function ProposalCard({ s, reload }) {
 // Notifications de l'appli: messages des coachs (promotions, places libres, invitations, horaires proposés)
 // et suivi des réservations. Ouvrir la liste les marque comme lues.
 const NOTIF_ICON = { promo: "sparkles", place: "pin", invitation: "users", invitation_groupe: "users", contre_proposition: "clock", message: "bell" };
+// Mon compte: notifications du téléphone, aide, suppression du compte (données effacées, historique anonyme chez les coachs)
+function AccountSheet({ me, onClose }) {
+  const [del, setDel] = useState(false);
+  const [pw, setPw] = useState("");
+  const [busy, setBusy] = useState(false);
+  const remove = async () => {
+    setBusy(true);
+    try {
+      await api("/me/account/delete", { method: "POST", body: { password: pw } });
+      setToken(null);
+      location.href = "/";
+    } catch (x) { toastError(x); setBusy(false); }
+  };
+  return (
+    <Modal onClose={onClose} label="Mon compte">
+      <div className="row"><b className="sheet-title">Mon compte</b><button className="small sec iconbtn" aria-label="Fermer" onClick={onClose}><Icon name="x" size={15} /></button></div>
+      <p className="mut small-p">{me?.name}{me?.email ? ` · ${me.email}` : ""}</p>
+      <div className="card"><PushToggle /></div>
+      <div className="actions" style={{ marginTop: 8 }}>
+        <a className="btnlink small sec" href="/aide">Aide et démos</a><a className="btnlink small sec" href="/faq">Questions fréquentes</a><a className="btnlink small sec" href="/conditions">Conditions</a>
+      </div>
+      {!del ? (
+        <button className="link danger-txt" style={{ marginTop: 14 }} onClick={() => setDel(true)}>Supprimer mon compte</button>
+      ) : (
+        <div className="card warn-card" style={{ marginTop: 12 }}>
+          <b>Supprimer mon compte</b>
+          <p className="small-p">Vos informations (nom, e-mail, téléphone, objectifs, planning, avis) sont effacées et vous ne pourrez plus vous connecter. L'historique de vos séances reste chez vos coachs, de façon anonyme. Annulez d'abord vos séances à venir.</p>
+          <label className="field"><span className="mut">Votre mot de passe, pour confirmer</span><input type="password" value={pw} onChange={(e) => setPw(e.target.value)} autoComplete="current-password" /></label>
+          <div className="actions"><button className="sec" onClick={() => setDel(false)}>Annuler</button><button className="danger" disabled={!pw || busy} onClick={remove}>Supprimer définitivement</button></div>
+        </div>
+      )}
+    </Modal>
+  );
+}
+
 function Notifications({ data, go, reload, onClose }) {
   useEffect(() => { if (data.unread) api("/me/notifications/read", { method: "POST" }).catch(() => {}); }, []);
   const book = (n) => {
@@ -215,7 +250,8 @@ export default function PlayerApp() {
   const [[tab0 = "home", sub], setTab] = useRoute("home");
   const tab = tab0 === "mine" ? "planning" : tab0; // ancien lien « Mes séances »
   const [data, setData] = useState(null);
-  const [bell, setBell] = useState(false); // liste des notifications ouverte
+  const [bell, setBell] = useState(false);
+  const [account, setAccount] = useState(false); // « Mon compte » // liste des notifications ouverte
   const last = useRef(null); // séances du chargement précédent: pour annoncer une validation du coach
   const load = () =>
     Promise.all([api("/me"), api("/me/sessions"), api("/me/progress"), api("/me/credits"), api("/me/proposals"), api("/me/promotions").catch(() => []), api("/me/events").catch(() => []),
@@ -256,9 +292,10 @@ export default function PlayerApp() {
         <button className="bell" onClick={() => setBell(true)} title="Notifications" aria-label={`Notifications${data.notifs.unread ? ` (${data.notifs.unread} non lues)` : ""}`}>
           <Icon name="bell" size={17} />{data.notifs.unread > 0 && <b className="navbadge">{data.notifs.unread}</b>}
         </button>
-        <a className="topbtn" href="/aide" title="Aide et démos" aria-label="Aide et démos"><Icon name="help" size={17} /></a>
+        <button onClick={() => setAccount(true)} title="Mon compte" aria-label="Mon compte"><Icon name="user" size={17} /></button>
         <button onClick={() => { setToken(null); location.reload(); }} title="Se déconnecter" aria-label="Se déconnecter"><Icon name="logout" size={17} /></button>
       </div>
+      {account && <AccountSheet me={data.me} onClose={() => setAccount(false)} />}
       {bell && <Notifications data={data.notifs} go={setTab} reload={load} onClose={() => { setBell(false); load(); }} />}
     </>
   );

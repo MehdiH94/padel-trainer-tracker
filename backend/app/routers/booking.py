@@ -64,7 +64,7 @@ class Settings(BaseModel):
 def settings_out(db: Session, coach: Coach) -> dict:
     rows = db.scalars(select(Availability).where(Availability.coach_id == coach.id).order_by(Availability.weekday, Availability.start_time))
     return {
-        "auto_confirm": coach.auto_confirm, "slot_minutes": coach.slot_minutes, "cancel_hours": coach.cancel_hours,
+        "coach_id": coach.id, "auto_confirm": coach.auto_confirm, "slot_minutes": coach.slot_minutes, "cancel_hours": coach.cancel_hours,
         "price_individuel": coach.price_individuel, "price_duo": coach.price_duo, "price_groupe": coach.price_groupe,
         "availability": [{"weekday": r.weekday, "start_time": r.start_time, "end_time": r.end_time} for r in rows],
         "bio": coach.bio, "specialties": [x for x in coach.specialties.split(",") if x], "name": coach.name,

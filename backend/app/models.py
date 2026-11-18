@@ -32,6 +32,8 @@ class Coach(Base):
     # Prix VIP (même forme que price_grid, mêmes durées): pour les joueurs de la liste VIP du coach; durée sans prix
     # VIP = prix standard
     vip_price_grid: Mapped[str | None] = mapped_column(Text, nullable=True)
+    reset_token: Mapped[str | None] = mapped_column(String(48), nullable=True)  # « mot de passe oublié » (1 h)
+    reset_sent_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
     terms_accepted_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)  # conditions d'utilisation acceptées
     # Les joueurs réservent au plus ce nombre de jours à l'avance (une semaine à 3 mois)
     booking_horizon_days: Mapped[int] = mapped_column(Integer, default=14)
@@ -81,6 +83,8 @@ class Player(Base):
     goals: Mapped[str] = mapped_column(Text, default="")
     notes: Mapped[str] = mapped_column(Text, default="")
     vip: Mapped[bool] = mapped_column(default=False)  # dans la liste VIP de ce coach (fiche du coach): prix VIP
+    reset_token: Mapped[str | None] = mapped_column(String(48), nullable=True)  # « mot de passe oublié » (1 h)
+    reset_sent_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
     terms_accepted_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)  # conditions d'utilisation acceptées
     # Critères de l'araignée propres à ce joueur (liste JSON); None = ceux du coach
     criteria: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -405,3 +409,64 @@ class CourtExpense(Base):
     duration_min: Mapped[int] = mapped_column(Integer, default=60)
     amount_millimes: Mapped[int] = mapped_column(Integer, default=0)
     series_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+
+
+class Review(Base):
+    """Avis d'un joueur sur un coach (une note de 1 à 5 et un commentaire), après au moins une séance effectuée chez lui.
+    Un avis par joueur et par coach, modifiable."""
+
+    __tablename__ = "reviews"
+    __table_args__ = (UniqueConstraint("coach_id", "account_id"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    coach_id: Mapped[int] = mapped_column(ForeignKey("coaches.id"), index=True)
+    account_id: Mapped[int] = mapped_column(ForeignKey("players.id"), index=True)  # fiche compte du joueur
+    rating: Mapped[int] = mapped_column(Integer)
+    comment: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+
+
+class Waitlist(Base):
+    """Joueur qui attend une place dans une séance complète: prévenu (e-mail, appli, notification) dès qu'une place
+    se libère; le premier qui réserve la prend."""
+
+    __tablename__ = "waitlist"
+    __table_args__ = (UniqueConstraint("session_id", "player_id"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    session_id: Mapped[int] = mapped_column(ForeignKey("sessions.id"), index=True)
+    player_id: Mapped[int] = mapped_column(ForeignKey("players.id"), index=True)  # fiche chez ce coach
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+    notified_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+
+
+class Pack(Base):
+    """Pack de crédits proposé par le coach (ex. « 10 séances »: payé 500 TND, 600 TND de crédits)."""
+
+    __tablename__ = "packs"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    coach_id: Mapped[int] = mapped_column(ForeignKey("coaches.id"), index=True)
+    name: Mapped[str] = mapped_column(String(80))
+    price_millimes: Mapped[int] = mapped_column(Integer)  # ce que le joueur paie
+    credit_millimes: Mapped[int] = mapped_column(Integer)  # ce qui est ajouté à ses crédits
+    active: Mapped[bool] = mapped_column(default=True)
+
+
+class PushSubscription(Base):
+    """Abonnement aux notifications du téléphone (Web Push) d'un joueur ou d'un coach, pour un appareil."""
+
+    __tablename__ = "push_subscriptions"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    player_id: Mapped[int | None] = mapped_column(ForeignKey("players.id"), nullable=True, index=True)  # fiche compte
+    coach_id: Mapped[int | None] = mapped_column(ForeignKey("coaches.id"), nullable=True, index=True)
+    endpoint: Mapped[str] = mapped_column(Text, unique=True)
+    p256dh: Mapped[str] = mapped_column(String(200))
+    auth: Mapped[str] = mapped_column(String(100))
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+
+
+class AppSetting(Base):
+    """Réglage interne de l'application (ex. clés VAPID des notifications, créées une fois au premier besoin)."""
+
+    __tablename__ = "app_settings"
+    key: Mapped[str] = mapped_column(String(60), primary_key=True)
+    value: Mapped[str] = mapped_column(Text)

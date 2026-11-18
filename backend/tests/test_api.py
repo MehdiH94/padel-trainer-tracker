@@ -1,5 +1,6 @@
 import os
 os.environ.setdefault("ANTIBOT", "0")  # limites anti-robots coupées pendant les tests (testées à part)
+os.environ.setdefault("PUSH_DISABLED", "1")  # pas d'envoi réel de notifications pendant les tests
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -2837,3 +2838,95 @@ def test_signup_needs_terms_and_stops_bots(client, monkeypatch):
     codes = [anon.post("/auth/signup", json={**body, "accept_terms": True, "email": f"r{i}@x.tn", "phone": f"20 555 6{i:02d}"}).status_code for i in range(6)]
     assert codes[:5] == [200] * 5 and codes[5] == 429
     antibot._hits.clear()
+
+
+
+def test_forgot_password_then_reset(client):
+    from app.notify import OUTBOX
+    p, pc = player_client(client)
+    email = f"p{p['id']}@x.tn"
+    assert TestClient(app).post("/auth/password/forgot", json={"email": "inconnu@x.tn"}).json() == {"ok": True}  # rien de révélé
+    TestClient(app).post("/auth/password/forgot", json={"email": email.upper(), "base": "https://padel.tn"})
+    link = next(body for to, subj, body in reversed(OUTBOX) if to == email and "mot de passe" in subj.lower())
+    token = link.split("/reinitialiser/")[1].split()[0]
+    assert TestClient(app).post("/auth/password/reset", json={"token": "faux", "password": "nouveau1"}).status_code == 400
+    assert TestClient(app).post("/auth/password/reset", json={"token": token, "password": "nouveau1"}).json() == {"ok": True}
+    assert TestClient(app).post("/auth/login", json={"email": email, "password": "nouveau1"}).status_code == 200
+    assert TestClient(app).post("/auth/password/reset", json={"token": token, "password": "autre12"}).status_code == 400  # lien utilisé
+
+
+def test_player_deletes_own_account(client):
+    open_week(client)
+    p, pc = player_client(client)
+    client.post(f"/players/{p['id']}/credits", json={"amount_millimes": 100000})
+    slot = pc.get("/me/slots").json()[0]
+    b = pc.post("/me/book", json={"kind": "individuel", "start": slot}).json()
+    assert pc.post("/me/account/delete", json={"password": "mauvais"}).status_code == 403
+    assert pc.post("/me/account/delete", json={"password": "secret1"}).status_code == 409  # séance à venir
+    pc.post(f"/me/bookings/{b['id']}/cancel")
+    assert pc.post("/me/account/delete", json={"password": "secret1"}).status_code == 200
+    assert TestClient(app).post("/auth/login", json={"email": f"p{p['id']}@x.tn", "password": "secret1"}).status_code == 401
+    mine = next(x for x in client.get("/players").json() if x["id"] == p["id"])
+    assert (mine["name"], mine["phone"], mine["email"]) == ("Joueur supprimé", "", None)
+
+
+def test_reviews_and_public_coach_directory(client):
+    p, pc = player_client(client, name="Sami Ben Ali")
+    coach_id = pc.get("/me/coaches").json()[0]["id"]
+    assert pc.put(f"/me/coaches/{coach_id}/review", json={"rating": 5, "comment": "Top"}).status_code == 403  # pas encore de séance
+    s = client.post("/sessions", json={"start": "2026-11-02T08:00:00Z", "player_ids": [p["id"]], "price_millimes": 60000}).json()[0]
+    client.patch(f"/sessions/{s['id']}", json={"status": "effectuee"})
+    assert pc.put(f"/me/coaches/{coach_id}/review", json={"rating": 6}).status_code == 422
+    r = pc.put(f"/me/coaches/{coach_id}/review", json={"rating": 4, "comment": "Très pédagogue"}).json()
+    assert (r["rating"], r["reviews_count"]) == (4.0, 1)
+    page = pc.get(f"/me/coaches/{coach_id}").json()
+    assert page["reviews"][0]["author"] == "Sami A." and page["my_review"]["rating"] == 4 and page["rating"] == 4.0
+    assert client.get("/coach/reviews").json()["reviews_count"] == 1
+    pub = TestClient(app).get("/public/coaches").json()
+    assert [(c["name"], c["rating"]) for c in pub] == [("Coach Test", 4.0)] and pub[0]["join_path"].startswith("/inscription/")
+    one = TestClient(app).get(f"/public/coaches/{coach_id}").json()
+    assert one["reviews"][0]["comment"] == "Très pédagogue"
+
+
+def test_waitlist_is_told_when_a_spot_frees(client):
+    open_week(client)
+    a, ac = player_client(client, name="Amine", phone="20111111")
+    b, bc = player_client(client, name="Bilel", phone="20222222")
+    c, cc = player_client(client, name="Chedi", phone="20333333")
+    for x in (a, b, c):
+        client.post(f"/players/{x['id']}/credits", json={"amount_millimes": 200000})
+    slot = next(x for x in ac.get("/me/slots").json() if datetime.fromisoformat(x) - datetime.now(timezone.utc) > timedelta(days=4))
+    bk = ac.post("/me/book", json={"kind": "duo", "start": slot, "kinds": ["duo"], "durations": {"duo": [60]}}).json()
+    client.post(f"/booking/requests/{bk['id']}/accept", json={})
+    sid = client.get("/sessions").json()[-1]["id"]
+    assert cc.post("/me/book", json={"kind": "duo", "start": slot, "session_id": sid, "kinds": ["duo"], "durations": {"duo": [60]}}).status_code == 201  # séance à deux complète
+    day = datetime.fromisoformat(slot).astimezone(timezone(timedelta(hours=1))).date()
+    full = bc.get(f"/me/offers?day={day}&kinds=duo&duo_min=60").json()["full"]
+    assert len(full) == 1 and full[0]["waitlisted"] is False
+    assert bc.post(f"/me/sessions/{full[0]['session_id']}/waitlist").json() == {"waitlisted": True}
+    assert bc.get(f"/me/offers?day={day}&kinds=duo&duo_min=60").json()["full"][0]["waitlisted"] is True
+    ac.post(f"/me/bookings/{bk['id']}/cancel")
+    notes = bc.get("/me/notifications").json()
+    items = notes["items"] if isinstance(notes, dict) else notes
+    assert any("place" in (n.get("title") or "").lower() for n in items)
+
+
+def test_coach_packs(client):
+    p = mkplayer(client)
+    assert client.post("/packs", json={"name": "10 séances", "price_millimes": 500000, "credit_millimes": 400000}).status_code == 422
+    packs = client.post("/packs", json={"name": "10 séances", "price_millimes": 500000, "credit_millimes": 600000}).json()
+    assert [x["name"] for x in packs] == ["10 séances"]
+    r = client.post(f"/players/{p['id']}/credits", json={"pack_id": packs[0]["id"]}).json()
+    assert r["balance_millimes"] == 600000
+    assert sum(x["amount_millimes"] for x in client.get("/payments").json()) == 500000  # argent reçu: le prix du pack
+    assert client.delete(f"/packs/{packs[0]['id']}").json() == []
+
+
+def test_push_subscription(client):
+    p, pc = player_client(client)
+    key = TestClient(app).get("/push/key").json()["key"]
+    assert len(key) > 80
+    sub = {"endpoint": "https://push.example/abc", "keys": {"p256dh": "x", "auth": "y"}}
+    assert pc.post("/push/subscribe", json=sub).json() == {"ok": True}
+    assert client.post("/push/subscribe", json={**sub, "endpoint": "https://push.example/coach"}).json() == {"ok": True}
+    assert TestClient(app).post("/push/unsubscribe", json={"endpoint": "https://push.example/abc"}).json() == {"ok": True}

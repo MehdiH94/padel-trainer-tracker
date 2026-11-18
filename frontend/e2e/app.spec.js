@@ -13,7 +13,7 @@ const test = base.extend({
 });
 
 async function login(page, email, password = "demo1234") {
-  await page.goto("/");
+  await page.goto("/connexion");
   await page.locator("input[type=email]").fill(email);
   await page.locator("input[type=password]").fill(password);
   await page.getByRole("button", { name: "Se connecter" }).click();
@@ -176,13 +176,13 @@ test("rester connecté: coché, on retrouve son espace en rouvrant l'appli; déc
   await page.getByRole("button", { name: "Se connecter" }).click();
   await expect(page.getByRole("heading", { name: "Bonjour coach" })).toBeVisible();
   const other = await context.newPage();
-  await other.goto("/");
+  await other.goto("/connexion");
   await expect(other.getByRole("button", { name: "Se connecter" })).toBeVisible();
   await other.close();
 });
 
 test("inscription par le lien public: compte sans coach, qui choisit ensuite son coach", async ({ page, browser }) => {
-  await page.goto("/");
+  await page.goto("/connexion");
   await page.getByRole("link", { name: "Joueur ? Créer mon compte" }).click();
   await expect(page.getByRole("heading", { name: "Créer mon compte" })).toBeVisible();
   await page.getByLabel("Nom complet").fill("Yasmine Public");
@@ -212,7 +212,7 @@ test("inscription par le lien public: compte sans coach, qui choisit ensuite son
 });
 
 test("nouveau coach: confirmé par l'administrateur, puis le guide « Bien démarrer » mène à chaque réglage", async ({ page, browser }) => {
-  await page.goto("/");
+  await page.goto("/connexion");
   await page.getByRole("button", { name: "Vous êtes coach ? Créer un compte" }).click();
   await page.getByLabel("Votre nom de coach").fill("Coach Nouveau");
   await page.getByLabel("Téléphone").fill("55 444 333");

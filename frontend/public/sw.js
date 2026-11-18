@@ -41,3 +41,20 @@ self.addEventListener("fetch", (e) => {
     e.respondWith(networkFirst(req, SHELL, "/"));
   }
 });
+
+// Notifications du téléphone (envoyées par le serveur): affichées, et un toucher ouvre l'application
+self.addEventListener("push", (e) => {
+  let d = {};
+  try { d = e.data ? e.data.json() : {}; } catch { d = { body: e.data?.text() }; }
+  e.waitUntil(self.registration.showNotification(d.title || "Padel Boost", {
+    body: d.body || "", icon: "/icon-192.png", badge: "/icon-192.png", data: { url: d.url || "/" },
+  }));
+});
+self.addEventListener("notificationclick", (e) => {
+  e.notification.close();
+  const url = e.notification.data?.url || "/";
+  e.waitUntil(self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((list) => {
+    const open = list.find((c) => new URL(c.url).origin === location.origin);
+    return open ? open.focus() : self.clients.openWindow(url);
+  }));
+});

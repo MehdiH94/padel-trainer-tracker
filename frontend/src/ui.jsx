@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import Icon from "./Icon.jsx";
 import { Modal, toastError } from "./feedback.jsx";
-import { api } from "./api.js";
+import { api, disablePush, enablePush, pushState } from "./api.js";
 
 const COLORS = ["#2563eb", "#7c3aed", "#0891b2", "#db2777", "#ea580c", "#0d9488", "#4f46e5", "#be123c"];
 
@@ -493,6 +493,28 @@ export function PhoneTN({ value, onChange, label = "Téléphone (numéro tunisie
           onChange={(e) => onChange(e.target.value)} onBlur={() => setSeen(true)} required aria-invalid={!!show} aria-label={label} />
       </span>
       {show ? <small className="err" role="alert">{problem}</small> : <small className="mut">Seuls les numéros tunisiens sont acceptés.</small>}
+    </label>
+  );
+}
+
+// Bouton « Notifications sur ce téléphone » (joueur et coach)
+export function PushToggle() {
+  const [state, setState] = useState("…");
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { pushState().then(setState).catch(() => setState("unsupported")); }, []);
+  const flip = async () => {
+    setBusy(true);
+    try { if (state === "on") await disablePush(); else await enablePush(); setState(await pushState()); }
+    catch (x) { toastError(x); }
+    setBusy(false);
+  };
+  if (state === "ios-install") return <p className="mut small-p"><Icon name="bell" size={13} /> Sur iPhone, ajoutez d'abord l'application à l'écran d'accueil (Safari › Partager › Sur l'écran d'accueil), puis ouvrez-la depuis l'icône pour activer les notifications.</p>;
+  if (state === "unsupported") return <p className="mut small-p"><Icon name="bell" size={13} /> Ce navigateur ne reçoit pas les notifications : vous recevez tout par e-mail.</p>;
+  if (state === "denied") return <p className="mut small-p"><Icon name="bell" size={13} /> Notifications bloquées : autorisez-les pour Padel Boost dans les réglages du téléphone.</p>;
+  return (
+    <label className="check" style={{ margin: 0 }}>
+      <input type="checkbox" checked={state === "on"} disabled={busy || state === "…"} onChange={flip} />
+      <span><b>Notifications sur ce téléphone</b><span className="mut small-p" style={{ display: "block" }}>Confirmations, places libérées, rappels : en plus de l'e-mail.</span></span>
     </label>
   );
 }

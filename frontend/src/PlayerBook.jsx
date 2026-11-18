@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { api, peek, dayLabel, hhmm, tnd } from "./api.js";
 import Icon from "./Icon.jsx";
 import { Modal, toast, toastError } from "./feedback.jsx";
+import { RatingLine, ReviewList } from "./Public.jsx";
 import { VerifyBanner } from "./VerifyEmail.jsx";
 import { Avatar, CategoryBadge, KIND, Loading, reduction } from "./ui.jsx";
 import { GroupStart } from "./PlayerGroup.jsx";
@@ -34,6 +35,28 @@ function Price({ o, open }) {
       {opt.reduction_millimes > 0 && base > opt.price_millimes && <span className="old-price">{tnd(base)}</span>}
       {o.vip && <VipPrice />}
     </span>
+  );
+}
+
+// Séance complète: le joueur demande à être prévenu si une place se libère
+function FullOffer({ o }) {
+  const [on, setOn] = useState(o.waitlisted);
+  const flip = () => api(`/me/sessions/${o.session_id}/waitlist`, { method: on ? "DELETE" : "POST" })
+    .then((r) => { setOn(r.waitlisted); toast(r.waitlisted ? "Vous serez prévenu si une place se libère" : "Retiré de la liste d'attente"); }).catch(toastError);
+  return (
+    <div className="card join-req">
+      <div className="row">
+        <b className="join-time">{hhmm(o.start)} <span className="mut">· {dur(o.duration_min)} · {HOW[o.kind]?.toLowerCase()}</span></b>
+        <span className="court-badge idle">Complet</span>
+      </div>
+      <div className="row" style={{ marginTop: 6 }}>
+        <span className="partners" style={{ margin: 0 }}>{o.players.map((p) => <span key={p.name} className="partner"><Avatar name={p.name} size={22} /> {p.name.split(" ")[0]} <CategoryBadge category={p.category} /></span>)}</span>
+        <small className="mut">{o.coach.name}</small>
+      </div>
+      <button className={"small" + (on ? " sec" : "")} style={{ width: "100%", marginTop: 10 }} onClick={flip}>
+        <Icon name={on ? "check" : "bell"} size={14} /> {on ? "Prévenu si une place se libère · retirer" : "M'avertir si une place se libère"}
+      </button>
+    </div>
   );
 }
 
@@ -304,6 +327,7 @@ export function Book({ me, reload, go, coachParam }) {
           </button>
         ))}
       </div>}
+      <a className="link" href="/coachs"><Icon name="users" size={14} /> Voir tous les coachs et leurs avis</a>
       <button className="link" onClick={() => setEditFav(true)}><Icon name="star" size={14} /> {fav.coach_ids.length || fav.clubs.length ? "Modifier mes favoris" : "Choisir mes coachs et clubs favoris"}</button>
       {editFav && <Favorites fav={fav} coaches={coaches} clubs={clubs} onClose={() => setEditFav(false)}
         onSaved={(f) => { setEditFav(false); setCoachIds(f.coach_ids); setPlaces(f.clubs); reload(); }} />}
@@ -390,6 +414,12 @@ export function Book({ me, reload, go, coachParam }) {
           {list(offers.groups)}
         </>
       )}
+      {offers && !solo && (offers.full ?? []).length > 0 && (
+        <>
+          <h2 className="accent-h"><Icon name="clock" size={16} /> Séances complètes <small className="mut">liste d'attente</small></h2>
+          {offers.full.map((o) => <FullOffer key={o.session_id} o={o} />)}
+        </>
+      )}
       {offers && (
         <>
           {offers.slots_with_court.length > 0 && <h2 className="accent-h"><Icon name="pin" size={16} /> Créneaux libres</h2>}
@@ -417,6 +447,26 @@ export function Book({ me, reload, go, coachParam }) {
 }
 
 // Page d'un coach, vue par le joueur
+// Le joueur note son coach (après au moins une séance), et peut modifier son avis
+function ReviewForm({ coachId, mine, onSaved }) {
+  const [r, setR] = useState(mine?.rating ?? 0);
+  const [txt, setTxt] = useState(mine?.comment ?? "");
+  const [open, setOpen] = useState(!mine);
+  const save = () => api(`/me/coaches/${coachId}/review`, { method: "PUT", body: { rating: r, comment: txt } })
+    .then(() => { toast("Merci pour votre avis"); setOpen(false); onSaved(); }).catch(toastError);
+  if (!open) return <button className="link small-p" onClick={() => setOpen(true)}>Modifier mon avis</button>;
+  return (
+    <div className="card review-form">
+      <b className="small-p">{mine ? "Votre avis" : "Donnez votre avis"}</b>
+      <div className="stars pick" role="radiogroup" aria-label="Votre note">
+        {[1, 2, 3, 4, 5].map((i) => <button key={i} type="button" role="radio" aria-checked={r === i} aria-label={`${i} sur 5`} className={i <= r ? "on" : ""} onClick={() => setR(i)}><Icon name="star" size={24} /></button>)}
+      </div>
+      <textarea className="msg" rows={2} maxLength={1000} placeholder="Ce que vous avez aimé (facultatif)" value={txt} onChange={(e) => setTxt(e.target.value)} />
+      <div className="actions"><button className="small" disabled={!r} onClick={save}>Publier</button></div>
+    </div>
+  );
+}
+
 export function CoachPage({ id, go, onBack }) {
   const [c, setC] = useState(null);
   useEffect(() => { api(`/me/coaches/${id}`).then(setC).catch(toastError); }, [id]);
@@ -431,6 +481,7 @@ export function CoachPage({ id, go, onBack }) {
           <div>
             <h1 style={{ margin: 0 }}>{c.name}</h1>
             <div className="hero-top" style={{ textTransform: "none" }}>{c.mine ? "Votre coach" : "Coach de padel"} · {c.stats.sessions_done} séance{c.stats.sessions_done > 1 ? "s" : ""} donnée{c.stats.sessions_done > 1 ? "s" : ""} · {c.stats.players} joueur{c.stats.players > 1 ? "s" : ""}</div>
+            <div style={{ marginTop: 4 }}><RatingLine rating={c.rating} count={c.reviews_count} /></div>
           </div>
         </div>
       </div>
@@ -453,6 +504,18 @@ export function CoachPage({ id, go, onBack }) {
         ))}
         <div className="mut small-p" style={{ marginTop: 8 }}>Durées : seul 1 h · à deux ou en groupe 1 h ou 1 h 30 · annulation jusqu'à 24 h avant (seul) ou 48 h avant (à deux, en groupe).</div>
       </div>
+      {c.packs?.length > 0 && (
+        <>
+          <h2>Packs de crédits</h2>
+          <div className="card">
+            {c.packs.map((p) => <div key={p.id} className="row avail"><span>{p.name}</span><span>{tnd(p.price_millimes)} <span className="mut">→ {tnd(p.credit_millimes)} de crédits</span></span></div>)}
+            <div className="mut small-p" style={{ marginTop: 6 }}>À régler directement à votre coach, qui ajoute les crédits.</div>
+          </div>
+        </>
+      )}
+      <h2>Avis des joueurs</h2>
+      {c.can_review && <ReviewForm coachId={c.id} mine={c.my_review} onSaved={() => api(`/me/coaches/${id}`).then(setC)} />}
+      <ReviewList reviews={c.reviews} />
       {c.happy_hours.length > 0 && (
         <>
           <h2>Heures creuses</h2>
