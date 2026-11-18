@@ -86,7 +86,10 @@ def my_reviews(coach: Coach = Depends(current_coach), db: Session = Depends(get_
 # --- Annuaire public des coachs (sans connexion) ---------------------------------
 
 def _public(c: Coach) -> bool:
-    return not isolation.is_test_coach(c) and c.signup_status in (None, "validee")
+    """Coach listé publiquement: réel, confirmé, et avec au moins un tarif réglé (20 TND ou plus)."""
+    from ..services.pricing import MIN_PRICE, grid
+    priced = any(p >= MIN_PRICE for x in grid(c).values() for p in x.values())
+    return not isolation.is_test_coach(c) and c.signup_status in (None, "validee") and priced
 
 
 def _public_card(db: Session, c: Coach) -> dict:

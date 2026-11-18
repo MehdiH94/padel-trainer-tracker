@@ -967,3 +967,4 @@ button.saved { background: var(--green); border-color: var(--green); color: #fff
 .pack-new input[aria-label="Nom du pack"] { flex: 1 1 160px; margin: 0; }
 .danger-txt { color: var(--red); }
 .warn-card { border-color: var(--red); }
+.page-top .btnlink { flex: none; padding: 8px 14px; min-height: 38px; }
