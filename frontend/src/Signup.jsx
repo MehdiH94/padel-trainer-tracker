@@ -3,13 +3,14 @@ import { api, emailProblem, setSession } from "./api.js";
 import Icon from "./Icon.jsx";
 import { ProfileQuestions } from "./PlayerSetup.jsx";
 import { CATEGORIES, catOption, PhoneTN, tnPhoneProblem } from "./ui.jsx";
+import { PageLinks, TermsCheck } from "./Pages.jsx";
 
 // Inscription publique (lien de la page d'administration, publicité…): le joueur crée son compte sans coach.
 // Il voit ensuite tous les coachs et en choisit un en réservant. Avec le lien d'un coach (/inscription/<jeton>,
 // le même pour tous ses joueurs): il devient son élève (coach favori) et utilise l'appli tout de suite. Lien public:
 // il attend la confirmation de l'administrateur (prévenu dans les deux cas).
 export default function Signup({ coachToken }) {
-  const [f, setF] = useState({ name: "", phone: "", email: "", password: "", gender: "M", category: "P100-", dominant_hand: "droitier", side: "drive", goals: "" });
+  const [f, setF] = useState({ name: "", phone: "", email: "", password: "", gender: "M", category: "P100-", dominant_hand: "droitier", side: "drive", goals: "", accept_terms: false, website: "" });
   const [coach, setCoach] = useState(null);
   useEffect(() => { if (coachToken) api(`/auth/join/${coachToken}`).then(setCoach).catch((x) => setError(x.message)); }, [coachToken]);
   const [error, setError] = useState("");
@@ -45,9 +46,11 @@ export default function Signup({ coachToken }) {
         {badEmail && <div className="err" role="alert">{badEmail}</div>}
         <label className="field"><span className="mut">Mot de passe (6 caractères minimum)</span><input type="password" autoComplete="new-password" value={f.password} onChange={set("password")} required minLength={6} /></label>
         <p className="mut small-p" style={{ margin: "6px 0 0" }}><Icon name="bell" size={13} /> Rappels de séance et confirmations envoyés par e-mail.</p>
+        <TermsCheck checked={f.accept_terms} onChange={(v) => setF({ ...f, accept_terms: v })} trap={f.website} onTrap={(v) => setF({ ...f, website: v })} />
         {error && <div className="err" role="alert">{error}</div>}
-        <button style={{ width: "100%", marginTop: 8 }} disabled={busy || !!badEmail || !!tnPhoneProblem(f.phone)}>{busy ? "Création…" : "Créer mon compte"}</button>
+        <button style={{ width: "100%", marginTop: 8 }} disabled={busy || !!badEmail || !!tnPhoneProblem(f.phone) || !f.accept_terms}>{busy ? "Création…" : "Créer mon compte"}</button>
         <a className="link center" href="/" style={{ display: "block", marginTop: 10 }}>J'ai déjà un compte</a>
+        <PageLinks />
       </form>
     </div>
   );

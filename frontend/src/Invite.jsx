@@ -2,13 +2,14 @@ import { useEffect, useState } from "react";
 import { api, setSession } from "./api.js";
 import Icon from "./Icon.jsx";
 import { CATEGORIES, catOption, PhoneTN, tnPhoneProblem } from "./ui.jsx";
+import { PageLinks, TermsCheck } from "./Pages.jsx";
 import { ProfileQuestions } from "./PlayerSetup.jsx";
 
 // Page ouverte depuis le lien d'invitation: le joueur crée son compte.
 export default function Invite({ token }) {
   const [info, setInfo] = useState(null);
   const [error, setError] = useState("");
-  const [f, setF] = useState({ email: "", password: "", contact_channel: "email", name: "", phone: "", gender: "M", category: "P100-", dominant_hand: "droitier", side: "drive", goals: "" });
+  const [f, setF] = useState({ email: "", password: "", contact_channel: "email", name: "", phone: "", gender: "M", category: "P100-", dominant_hand: "droitier", side: "drive", goals: "", accept_terms: false, website: "" });
   useEffect(() => {
     api(`/auth/invite/${token}`).then((i) => { setInfo(i); setF((x) => ({ ...x, email: i.email ?? "", name: i.player_name, phone: (i.phone ?? "").replace(/^\+216/, ""), gender: i.gender ?? "M", category: i.category ?? "P100-", dominant_hand: i.dominant_hand ?? "droitier", side: i.side ?? "drive", goals: i.goals ?? "" })); }).catch(() => setError("Ce lien d'invitation n'est plus valide."));
   }, [token]);
@@ -45,7 +46,9 @@ export default function Invite({ token }) {
         <label className="field"><span className="mut">Mot de passe (6 caractères minimum)</span><input type="password" autoComplete="new-password" value={f.password} onChange={(e) => setF({ ...f, password: e.target.value })} required minLength={6} /></label>
 <p className="mut small-p" style={{ margin: "6px 0 0" }}><Icon name="bell" size={13} /> Rappels de séance (24 h et 2 h avant) et confirmations envoyés par e-mail.</p>
         {error && <div className="err" role="alert">{error}</div>}
-        <button style={{ width: "100%" }} disabled={!!tnPhoneProblem(f.phone)}>Créer mon compte</button>
+        <TermsCheck checked={f.accept_terms} onChange={(v) => setF({ ...f, accept_terms: v })} trap={f.website} onTrap={(v) => setF({ ...f, website: v })} />
+        <button style={{ width: "100%" }} disabled={!!tnPhoneProblem(f.phone) || !f.accept_terms}>Créer mon compte</button>
+        <PageLinks />
       </form>
     </div>
   );

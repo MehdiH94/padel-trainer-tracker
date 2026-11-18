@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -16,7 +16,7 @@ from ..constants import CATEGORIES
 from ..schemas import CHANNELS, Creds
 from ..services import email_verification as verification
 from ..errors import check_fields
-from ..services import signups
+from ..services import antibot, signups
 from ..services.accounts import contact_conflicts
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -32,13 +32,18 @@ class RegisterIn(BaseModel):
     name: str = ""
     phone: str = ""
     base: str = ""  # adresse de l'application (lien de vérification)
+    accept_terms: bool = False  # conditions d'utilisation acceptées (obligatoire)
+    website: str = ""  # champ piège anti-robots (invisible, doit rester vide)
 
 
 @router.post("/register")
-def register(c: RegisterIn, db: Session = Depends(get_db)):
+def register(c: RegisterIn, request: Request, db: Session = Depends(get_db)):
     """Création d'un compte coach. Dès que l'application a un administrateur, le nouveau coach vérifie son e-mail
     puis attend qu'un administrateur confirme son compte (rien n'est possible avant)."""
     from ..schemas import normalize_tn_phone
+    antibot.honeypot(c.website)
+    antibot.limit(request, "inscription", 5, 3600)
+    antibot.require_terms(c.accept_terms)
     email = c.email.strip().lower()
     check_fields(name=c.name or email, email=email, password=c.password)
     if db.scalar(select(Coach).where(Coach.email == email)) or db.scalar(select(Player).where(Player.email == email, Player.password_hash.is_not(None))):
@@ -49,7 +54,8 @@ def register(c: RegisterIn, db: Session = Depends(get_db)):
         phone = normalize_tn_phone(c.phone)
     except ValueError as e:
         raise HTTPException(422, str(e))
-    coach = Coach(email=email, password_hash=hash_password(c.password), name=c.name.strip() or email, phone=phone)
+    coach = Coach(email=email, password_hash=hash_password(c.password), name=c.name.strip() or email, phone=phone,
+                  terms_accepted_at=datetime.now(timezone.utc))
     db.add(coach)
     db.flush()
     if signups.review_coaches(db) and email not in signups.admin_emails():
@@ -109,7 +115,8 @@ def refresh(creds: HTTPAuthorizationCredentials | None = Depends(bearer), db: Se
 
 
 @router.post("/login")
-def login(c: Creds, db: Session = Depends(get_db)):
+def login(c: Creds, request: Request, db: Session = Depends(get_db)):
+    antibot.limit(request, "connexion", 20, 600)  # au plus 20 essais en 10 min par appareil
     """Connexion commune: le rôle (coach ou joueur) est déduit du compte."""
     email = c.email.strip().lower()
     coach = db.scalar(select(Coach).where(Coach.email == email))
@@ -134,6 +141,8 @@ class InviteAccept(BaseModel):
     dominant_hand: str | None = None  # droitier / gaucher
     side: str | None = None  # drive / revers / deux
     goals: str | None = None  # objectifs choisis à l'inscription (affichés sur sa fiche)
+    accept_terms: bool = False  # conditions d'utilisation acceptées (obligatoire)
+    website: str = ""  # champ piège anti-robots
 
 
 HANDS, SIDES = ("droitier", "gaucher"), ("drive", "revers", "deux")
@@ -163,8 +172,11 @@ def invite_info(token: str, db: Session = Depends(get_db)):
 
 
 @router.post("/invite/{token}")
-def invite_accept(token: str, body: InviteAccept, db: Session = Depends(get_db)):
+def invite_accept(token: str, body: InviteAccept, request: Request, db: Session = Depends(get_db)):
     """Le joueur crée son compte depuis le lien d'invitation envoyé par le coach."""
+    antibot.honeypot(body.website)
+    antibot.limit(request, "inscription", 5, 3600)
+    antibot.require_terms(body.accept_terms)
     p = _by_token(db, token)
     email = body.email.strip().lower()
     check_fields(email=email, password=body.password)
@@ -188,6 +200,7 @@ def invite_accept(token: str, body: InviteAccept, db: Session = Depends(get_db))
     _profile(p, body.dominant_hand, body.side, body.goals)
     p.fav_coaches = str(p.coach_id)  # son coach: favori d'office (choisi d'office dans Réserver)
     p.email, p.password_hash, p.invite_token = email, hash_password(body.password), None
+    p.terms_accepted_at = datetime.now(timezone.utc)
     p.contact_channel = body.contact_channel or p.contact_channel or "email"  # version bêta: tout par e-mail
     verification.send_link(db, p, body.base)  # DP-002: lien de vérification de l'adresse
     signups.submitted(db, p, body.base)  # l'administrateur confirme le niveau et l'absence de doublon
@@ -207,6 +220,8 @@ class SignupIn(BaseModel):
     side: str = "drive"
     goals: str = ""
     coach_token: str | None = None  # lien d'inscription d'un coach: le joueur devient son élève
+    accept_terms: bool = False  # conditions d'utilisation acceptées (obligatoire)
+    website: str = ""  # champ piège anti-robots
 
 
 @router.get("/coach-link")
@@ -228,10 +243,13 @@ def join_info(token: str, db: Session = Depends(get_db)):
 
 
 @router.post("/signup")
-def public_signup(body: SignupIn, db: Session = Depends(get_db)):
+def public_signup(body: SignupIn, request: Request, db: Session = Depends(get_db)):
     """Inscription par le lien public (publicité, page de l'administrateur): compte sans coach.
-    Le joueur voit tous les coachs et en choisit un en réservant; l'administrateur confirme l'inscription."""
+    Le joueur voit tous les coachs et en choisit un en réservant; l'administrateur est prévenu et vérifie après coup."""
     from ..schemas import normalize_tn_phone
+    antibot.honeypot(body.website)
+    antibot.limit(request, "inscription", 5, 3600)
+    antibot.require_terms(body.accept_terms)
     email = body.email.strip().lower()
     check_fields(name=body.name, email=email, password=body.password)
     try:
@@ -252,7 +270,8 @@ def public_signup(body: SignupIn, db: Session = Depends(get_db)):
         if contact_conflicts(db, coach.id, None, phone)["phone"]:
             raise HTTPException(409, "Ce numéro est déjà celui d'un élève de ce coach : demandez-lui votre lien personnel.")
     p = Player(coach_id=coach.id if coach else None, name=body.name.strip(), phone=phone, email=email, password_hash=hash_password(body.password),
-               gender=body.gender, category=body.category, contact_channel="email", fav_coaches=str(coach.id) if coach else "", open_signup=True)
+               gender=body.gender, category=body.category, contact_channel="email", fav_coaches=str(coach.id) if coach else "", open_signup=True,
+               terms_accepted_at=datetime.now(timezone.utc))
     _profile(p, body.dominant_hand, body.side, body.goals)
     db.add(p)
     db.flush()

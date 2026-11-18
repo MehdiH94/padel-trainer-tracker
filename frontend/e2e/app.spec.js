@@ -110,6 +110,7 @@ test("le coach ajoute un élève, qui s'inscrit avec le lien pré-rempli", async
   await expect(player.getByLabel("Nom complet")).toHaveValue("Lina Test"); // fiche pré-remplie par le coach
   await player.getByLabel("Votre e-mail").fill("lina.test@demo.tn");
   await player.getByLabel(/Mot de passe/).fill("secret1");
+  await player.getByLabel(/J'accepte les/).check(); // conditions d'utilisation
   await player.getByRole("button", { name: "Créer mon compte" }).click();
   await expect(player.getByRole("heading", { name: /^Salut / })).toBeVisible();
   await player.close();
@@ -190,12 +191,12 @@ test("inscription par le lien public: compte sans coach, qui choisit ensuite son
   await expect(page.getByText(/forme nom@exemple.com/)).toBeVisible(); // e-mail mal formé, signalé pendant la saisie
   await page.getByLabel("Votre e-mail").fill("yasmine.public@demo.tn");
   await page.getByLabel(/Mot de passe/).fill("secret1");
+  await page.getByLabel(/J'accepte les/).check();
   await page.getByRole("button", { name: "Créer mon compte" }).click();
-  // rien n'est possible avant la confirmation de l'administrateur
-  await expect(page.getByText("Confirmation par un administrateur")).toBeVisible();
-  await expect(page.getByText("Choisissez votre coach")).toHaveCount(0);
+  // plus d'attente: l'application s'ouvre tout de suite (l'administrateur vérifie après coup)
+  await expect(page.getByText("Choisissez votre coach")).toBeVisible();
 
-  // l'administrateur voit l'inscription (sans coach) et le lien public à partager, puis la confirme
+  // l'administrateur voit l'inscription (sans coach) et le lien public à partager, et la confirme après coup
   const admin = await (await browser.newContext()).newPage();
   await login(admin, "demo@padel.tn");
   await admin.getByRole("button", { name: /Administration/ }).click();
@@ -206,8 +207,6 @@ test("inscription par le lien public: compte sans coach, qui choisit ensuite son
   await expect(admin.getByText(/Inscription de Yasmine Public confirmée/)).toBeVisible();
   await admin.close();
 
-  await page.getByRole("button", { name: "Vérifier maintenant" }).click();
-  await expect(page.getByText("Choisissez votre coach")).toBeVisible();
   await page.getByRole("button", { name: "Réserver", exact: true }).click();
   await expect(page.getByRole("group", { name: "Coachs" })).toContainText("Coach Démo"); // tous les coachs sont proposés
 });
@@ -219,6 +218,7 @@ test("nouveau coach: confirmé par l'administrateur, puis le guide « Bien déma
   await page.getByLabel("Téléphone").fill("55 444 333");
   await page.locator("input[type=email]").fill("nouveau.coach@demo.tn");
   await page.locator("input[type=password]").fill("secret1");
+  await page.getByLabel(/J'accepte les/).check();
   await page.getByRole("button", { name: "Créer mon compte coach" }).click();
   // en attente: un administrateur doit confirmer le compte
   await expect(page.getByText("Un administrateur va vérifier et confirmer votre compte", { exact: false })).toBeVisible();
@@ -640,13 +640,14 @@ test("lien d'inscription du coach: le joueur choisit main, côté et objectifs, 
   await p.getByLabel("Tableau visé").selectOption("P250");
   await p.getByLabel("Votre e-mail").fill("olfa.lien@demo.tn");
   await p.getByLabel(/Mot de passe/).fill("secret1");
+  await p.getByLabel(/J'accepte les/).check();
   await p.getByRole("button", { name: "Créer mon compte" }).click();
-  await expect(p.getByText(/administrateur/).first()).toBeVisible(); // en attente de confirmation
+  await expect(p.getByRole("heading", { name: /^Salut / })).toBeVisible(); // plus d'attente de l'administrateur
   await p.close();
   await page.reload();
   await page.getByText("Olfa Lien").first().click();
   await expect(page.getByText("Gagner un tableau P250")).toBeVisible();
-  await expect(page.getByText(/gaucher · les deux côtés/)).toBeVisible();
+  await expect(page.getByText(/gaucher · joue des deux côtés/)).toBeVisible();
 });
 
 test("le coach propose un autre horaire: le joueur est notifié dans l'appli et accepte", async ({ page, browser, request }) => {

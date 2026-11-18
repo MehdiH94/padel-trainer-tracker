@@ -32,6 +32,7 @@ class Coach(Base):
     # Prix VIP (même forme que price_grid, mêmes durées): pour les joueurs de la liste VIP du coach; durée sans prix
     # VIP = prix standard
     vip_price_grid: Mapped[str | None] = mapped_column(Text, nullable=True)
+    terms_accepted_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)  # conditions d'utilisation acceptées
     # Les joueurs réservent au plus ce nombre de jours à l'avance (une semaine à 3 mois)
     booking_horizon_days: Mapped[int] = mapped_column(Integer, default=14)
     # Éviter les trous: aucun début proposé aux joueurs qui laisserait un bout de terrain (ou de disponibilité) de moins
@@ -80,6 +81,7 @@ class Player(Base):
     goals: Mapped[str] = mapped_column(Text, default="")
     notes: Mapped[str] = mapped_column(Text, default="")
     vip: Mapped[bool] = mapped_column(default=False)  # dans la liste VIP de ce coach (fiche du coach): prix VIP
+    terms_accepted_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)  # conditions d'utilisation acceptées
     # Critères de l'araignée propres à ce joueur (liste JSON); None = ceux du coach
     criteria: Mapped[str | None] = mapped_column(Text, nullable=True)
     # Moyen choisi par le joueur pour les rappels automatiques: whatsapp / sms / email (None = pas encore choisi)

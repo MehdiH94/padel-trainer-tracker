@@ -50,6 +50,7 @@ NEW_COLUMNS = [
     ("attendances", "accepted_opts", "VARCHAR(120) DEFAULT ''"), ("coaches", "join_token", "VARCHAR(32)"), ("players", "open_signup", "BOOLEAN DEFAULT 0"),
     ("bookings", "proposed_start", "TIMESTAMP"), ("bookings", "proposed_minutes", "INTEGER"),
     ("coaches", "vip_price_grid", "TEXT"), ("players", "vip", "BOOLEAN DEFAULT 0"), ("attendances", "price_millimes", "INTEGER"),
+    ("coaches", "terms_accepted_at", "TIMESTAMP"), ("players", "terms_accepted_at", "TIMESTAMP"),
 ]
 def _ddl(ddl: str) -> str:
     """Types écrits pour SQLite, traduits pour PostgreSQL (sandbox et prod de l'usine)."""

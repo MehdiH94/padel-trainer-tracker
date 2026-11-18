@@ -20,9 +20,10 @@ import { FeedbackHost, Modal, toast, toastError } from "./feedback.jsx";
 import { guideHidden, loadGuide, newlyDone } from "./guide.js";
 import { useRoute } from "./router.js";
 import { Avatar, CategoryBadge, OfflineBar, PhoneTN, tnPhoneProblem } from "./ui.jsx";
+import { Faq, Help, PageLinks, Terms, TermsCheck } from "./Pages.jsx";
 
 function Login() {
-  const [f, setF] = useState({ email: "", password: "", name: "", phone: "" });
+  const [f, setF] = useState({ email: "", password: "", name: "", phone: "", accept_terms: false, website: "" });
   const [remember, setRemember] = useState(localStorage.getItem("remember") !== "0"); // coché par défaut
   const [mode, setMode] = useState("login");
   const [err, setErr] = useState("");
@@ -53,12 +54,14 @@ function Login() {
           <input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} /> Rester connecté sur cet appareil
         </label>
         {err && <div className="err" role="alert">{err}</div>}
+        {mode === "register" && <TermsCheck checked={f.accept_terms} onChange={(v) => setF({ ...f, accept_terms: v })} trap={f.website} onTrap={(v) => setF({ ...f, website: v })} />}
         {mode === "register" && <p className="mut small-p">Vous confirmerez votre adresse e-mail, puis un administrateur validera votre compte avant que vous puissiez commencer.</p>}
-        <button style={{ width: "100%" }} disabled={busy || (mode === "register" && !!tnPhoneProblem(f.phone))}>{busy ? "Connexion…" : mode === "login" ? "Se connecter" : "Créer mon compte coach"}</button>
+        <button style={{ width: "100%" }} disabled={busy || (mode === "register" && (!!tnPhoneProblem(f.phone) || !f.accept_terms))}>{busy ? "Connexion…" : mode === "login" ? "Se connecter" : "Créer mon compte coach"}</button>
         <button type="button" className="link center" style={{ marginTop: 10 }} onClick={() => { setMode(mode === "login" ? "register" : "login"); setErr(""); }}>
           {mode === "login" ? "Vous êtes coach ? Créer un compte" : "J'ai déjà un compte"}
         </button>
         {mode === "login" && <a className="link center" href="/inscription" style={{ display: "block", marginTop: 6 }}>Joueur ? Créer mon compte</a>}
+        <PageLinks />
       </form>
     </div>
   );
@@ -164,6 +167,7 @@ function CoachApp() {
           </button>
         )}
         <button onClick={() => setSearch(true)} title="Rechercher un joueur" aria-label="Rechercher un joueur"><Icon name="search" size={17} /></button>
+        <a className="topbtn" href="/aide" title="Aide et démos" aria-label="Aide et démos"><Icon name="help" size={17} /></a>
         <button onClick={() => go("settings")} title="Réglages" aria-label="Réglages"><Icon name="sliders" size={17} /></button>
         <button onClick={() => { setToken(null); location.hash = ""; location.reload(); }} title="Se déconnecter" aria-label="Se déconnecter"><Icon name="logout" size={17} /></button>
       </div>
@@ -275,7 +279,10 @@ function Account() {
 
 export default function App() {
   let page;
-  if (location.pathname.startsWith("/invite/")) page = <Invite token={location.pathname.split("/")[2]} />;
+  if (location.pathname.startsWith("/conditions")) page = <Terms />; // pages publiques: conditions, FAQ, aide et démos
+  else if (location.pathname.startsWith("/faq")) page = <Faq />;
+  else if (location.pathname.startsWith("/aide")) page = <Help />;
+  else if (location.pathname.startsWith("/invite/")) page = <Invite token={location.pathname.split("/")[2]} />;
   else if (location.pathname.startsWith("/inscription")) page = <Signup coachToken={location.pathname.split("/")[2] || null} />; // /inscription/<jeton> = lien d'un coach
   else if (location.pathname.startsWith("/remplacer/")) page = <Replace token={location.pathname.split("/")[2]} />;
   else if (location.pathname.startsWith("/verify/")) page = <VerifyEmail token={location.pathname.split("/")[2]} />;

@@ -48,10 +48,10 @@ def coach_pending(coach: Coach) -> bool:
 
 
 def player_pending(p: Player) -> bool:
-    """Joueur inscrit par le lien public (sans coach): rien n'est possible avant la confirmation de l'administrateur.
-    Par le lien d'un coach (personnel ou général), il utilise l'appli tout de suite; l'administrateur est quand même
-    prévenu et vérifie le niveau et les doublons après coup."""
-    return p.signup_status == "a_valider" and p.account_id is None and p.coach_id is None
+    """Plus d'attente pour les joueurs, quel que soit le lien (public, général ou personnel du coach): ils utilisent
+    l'appli tout de suite. L'administrateur est quand même prévenu et vérifie le niveau et les doublons après coup
+    (il peut encore refuser: le compte est alors fermé). Seule la confirmation de l'e-mail reste demandée."""
+    return False
 
 
 def _admin_link(base: str) -> str:

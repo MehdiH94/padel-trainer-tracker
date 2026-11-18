@@ -256,6 +256,7 @@ export default function PlayerApp() {
         <button className="bell" onClick={() => setBell(true)} title="Notifications" aria-label={`Notifications${data.notifs.unread ? ` (${data.notifs.unread} non lues)` : ""}`}>
           <Icon name="bell" size={17} />{data.notifs.unread > 0 && <b className="navbadge">{data.notifs.unread}</b>}
         </button>
+        <a className="topbtn" href="/aide" title="Aide et démos" aria-label="Aide et démos"><Icon name="help" size={17} /></a>
         <button onClick={() => { setToken(null); location.reload(); }} title="Se déconnecter" aria-label="Se déconnecter"><Icon name="logout" size={17} /></button>
       </div>
       {bell && <Notifications data={data.notifs} go={setTab} reload={load} onClose={() => { setBell(false); load(); }} />}

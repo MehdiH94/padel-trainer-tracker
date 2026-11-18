@@ -1,3 +1,5 @@
+import os
+os.environ.setdefault("ANTIBOT", "0")  # limites anti-robots coupées pendant les tests (testées à part)
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -43,7 +45,7 @@ def confirm_coach(boss, email):
 
 def register(email="a@b.tn"):
     c = TestClient(app)
-    r = c.post("/auth/register", json={"email": email, "password": "secret1", "name": "Coach Test", "phone": "22 000 111"}).json()
+    r = c.post("/auth/register", json={"accept_terms": True, "email": email, "password": "secret1", "name": "Coach Test", "phone": "22 000 111"}).json()
     return login_as(c, r["token"])
 
 
@@ -92,7 +94,7 @@ def player_client(c, **extra):
     p = mkplayer(c, **extra)
     token = c.post(f"/players/{p['id']}/invite").json()["token"]
     pc = TestClient(app)
-    r = pc.post(f"/auth/invite/{token}", json={"email": f"p{p['id']}@x.tn", "password": "secret1"}).json()
+    r = pc.post(f"/auth/invite/{token}", json={"accept_terms": True, "email": f"p{p['id']}@x.tn", "password": "secret1"}).json()
     assert r["role"] == "player"
     return p, login_as(pc, r["token"])
 
@@ -169,8 +171,8 @@ def test_invite_flow_and_roles(client):
     token = client.post(f"/players/{p['id']}/invite").json()["token"]
     anon = TestClient(app)
     assert anon.get(f"/auth/invite/{token}").json()["player_name"] == "Sami"
-    assert anon.post(f"/auth/invite/{token}", json={"email": "sami@x.tn", "password": "123"}).status_code == 422  # trop court
-    r = anon.post(f"/auth/invite/{token}", json={"email": "Sami@X.tn", "password": "secret1"}).json()
+    assert anon.post(f"/auth/invite/{token}", json={"accept_terms": True, "email": "sami@x.tn", "password": "123"}).status_code == 422  # trop court
+    r = anon.post(f"/auth/invite/{token}", json={"accept_terms": True, "email": "Sami@X.tn", "password": "secret1"}).json()
     assert r["role"] == "player"
     assert anon.get(f"/auth/invite/{token}").status_code == 404  # lien à usage unique
     assert client.get("/players").json()[0]["has_account"] is True
@@ -531,7 +533,7 @@ def test_reminders(client):
     assert again["impaye"]["last_sent"]["channel"] == "whatsapp"
     # le joueur invité n'a plus de relance « invitation »
     token = items["invitation"]["message"].rsplit("/", 1)[1].split(" ")[0]
-    TestClient(app).post(f"/auth/invite/{token}", json={"email": "sami@x.tn", "password": "secret1"})
+    TestClient(app).post(f"/auth/invite/{token}", json={"accept_terms": True, "email": "sami@x.tn", "password": "secret1"})
     assert "invitation" not in {i["kind"] for i in client.get("/reminders").json()}
 
 
@@ -620,8 +622,8 @@ def test_contact_channel_at_signup_and_first_login(client):
     p = mkplayer(client)
     token = client.post(f"/players/{p['id']}/invite").json()["token"]
     anon = TestClient(app)
-    assert anon.post(f"/auth/invite/{token}", json={"email": "s@x.tn", "password": "secret1", "contact_channel": "pigeon"}).status_code == 422
-    r = anon.post(f"/auth/invite/{token}", json={"email": "s@x.tn", "password": "secret1", "contact_channel": "whatsapp"}).json()
+    assert anon.post(f"/auth/invite/{token}", json={"accept_terms": True, "email": "s@x.tn", "password": "secret1", "contact_channel": "pigeon"}).status_code == 422
+    r = anon.post(f"/auth/invite/{token}", json={"accept_terms": True, "email": "s@x.tn", "password": "secret1", "contact_channel": "whatsapp"}).json()
     pc = login_as(TestClient(app), r["token"])
     assert pc.get("/me").json()["contact_channel"] == "whatsapp"
     assert pc.put("/me/contact", json={"contact_channel": "email"}).json()["contact_channel"] == "email"
@@ -629,7 +631,7 @@ def test_contact_channel_at_signup_and_first_login(client):
     # joueur sans choix: la question lui est posée à la première connexion
     q = mkplayer(client, phone="22 999 888", name="Nour")
     t2 = client.post(f"/players/{q['id']}/invite").json()["token"]
-    r2 = TestClient(app).post(f"/auth/invite/{t2}", json={"email": "n@x.tn", "password": "secret1"}).json()
+    r2 = TestClient(app).post(f"/auth/invite/{t2}", json={"accept_terms": True, "email": "n@x.tn", "password": "secret1"}).json()
     assert login_as(TestClient(app), r2["token"]).get("/me").json()["contact_channel"] == "email"  # version bêta: e-mail par défaut
 
 
@@ -1012,7 +1014,7 @@ def test_dp002_email_verification(client, monkeypatch):
     p = mkplayer(client)
     token = client.post(f"/players/{p['id']}/invite").json()["token"]
     anon = TestClient(app)
-    r = anon.post(f"/auth/invite/{token}", json={"email": "sami@x.tn", "password": "secret1", "base": "https://padel.example.tn"}).json()
+    r = anon.post(f"/auth/invite/{token}", json={"accept_terms": True, "email": "sami@x.tn", "password": "secret1", "base": "https://padel.example.tn"}).json()
     pc = login_as(TestClient(app), r["token"])
     # un e-mail avec le lien est parti vers l'adresse du compte
     to, subject, body = OUTBOX[-1]
@@ -1336,7 +1338,7 @@ def test_signup_link_prefilled_and_admin_validation(client, monkeypatch):
     info = anon.get(f"/auth/invite/{token}").json()
     assert (info["player_name"], info["phone"], info["category"]) == ("Sami Ben Ali", "+21622123456", "P250-")
     # le joueur complète et corrige son niveau
-    anon.post(f"/auth/invite/{token}", json={"email": "sami@x.tn", "password": "secret1", "category": "P500-"})
+    anon.post(f"/auth/invite/{token}", json={"accept_terms": True, "email": "sami@x.tn", "password": "secret1", "category": "P500-"})
     assert any(to == "boss@padel.tn" and "Sami Ben Ali" in body and "P250-" in body for to, _, body in OUTBOX)
     # doublon chez un autre coach (même téléphone)
     mkplayer(other, name="Sami B.", phone="+216 22123456")
@@ -1607,9 +1609,9 @@ def test_signup_never_fails_when_email_sending_fails(client, monkeypatch):
     assert p.status_code == 409  # e-mail du coach: refusé dès la création
     p = client.post("/players", json={"name": "Lina", "phone": "20 777 888"}).json()
     anon = TestClient(app)
-    r = anon.post(f"/auth/invite/{p['invite_path'].split('/')[-1]}", json={"email": "a@b.tn", "password": "secret1"})
+    r = anon.post(f"/auth/invite/{p['invite_path'].split('/')[-1]}", json={"accept_terms": True, "email": "a@b.tn", "password": "secret1"})
     assert r.status_code == 409 and "déjà utilisée" in r.json()["detail"]
-    r = anon.post(f"/auth/invite/{p['invite_path'].split('/')[-1]}", json={"email": "lina@x.tn", "password": "secret1"})
+    r = anon.post(f"/auth/invite/{p['invite_path'].split('/')[-1]}", json={"accept_terms": True, "email": "lina@x.tn", "password": "secret1"})
     assert r.status_code == 200 and r.json()["role"] == "player"
 
 
@@ -1665,11 +1667,11 @@ def test_errors_are_explained_in_plain_french(client):
     for body, expected in cases:
         r = client.post("/players", json=body)
         assert r.status_code == 422 and isinstance(r.json()["detail"], str) and expected in r.json()["detail"], r.json()
-    r = TestClient(app).post("/auth/register", json={"email": "nouveau@x.tn", "password": "123", "name": "Coach"})
+    r = TestClient(app).post("/auth/register", json={"accept_terms": True, "email": "nouveau@x.tn", "password": "123", "name": "Coach"})
     assert r.json()["detail"] == "Mot de passe trop court : 6 caractères minimum."
-    r = TestClient(app).post("/auth/register", json={"email": "pasunemail", "password": "secret1", "name": "Coach"})
+    r = TestClient(app).post("/auth/register", json={"accept_terms": True, "email": "pasunemail", "password": "secret1", "name": "Coach"})
     assert "nom@exemple.com" in r.json()["detail"]
-    r = TestClient(app).post("/auth/register", json={"email": "A@B.tn", "password": "secret1", "name": "Coach"})
+    r = TestClient(app).post("/auth/register", json={"accept_terms": True, "email": "A@B.tn", "password": "secret1", "name": "Coach"})
     assert r.status_code == 409 and "déjà un compte" in r.json()["detail"]
 
 
@@ -1705,13 +1707,13 @@ def test_public_signup_without_coach_then_books_a_coach(client, monkeypatch):
     monkeypatch.setenv("ADMIN_EMAILS", "boss@padel.tn")
     open_week(client)
     anon = TestClient(app)
-    assert anon.post("/auth/signup", json={"name": "Nadia", "phone": "123", "email": "nadia@x.tn", "password": "secret1"}).status_code == 422
-    assert anon.post("/auth/signup", json={"name": "Nadia", "phone": "20 444 555", "email": "a@b.tn", "password": "secret1"}).status_code == 409
-    r = anon.post("/auth/signup", json={"name": "Nadia Ben Salem", "phone": "20 444 555", "email": "Nadia@x.tn", "password": "secret1", "category": "P250-"})
+    assert anon.post("/auth/signup", json={"accept_terms": True, "name": "Nadia", "phone": "123", "email": "nadia@x.tn", "password": "secret1"}).status_code == 422
+    assert anon.post("/auth/signup", json={"accept_terms": True, "name": "Nadia", "phone": "20 444 555", "email": "a@b.tn", "password": "secret1"}).status_code == 409
+    r = anon.post("/auth/signup", json={"accept_terms": True, "name": "Nadia Ben Salem", "phone": "20 444 555", "email": "Nadia@x.tn", "password": "secret1", "category": "P250-"})
     assert r.json()["role"] == "player"
     pc = login_as(TestClient(app), r.json()["token"])
-    # rien n'est possible avant la confirmation de l'administrateur
-    assert pc.get("/me").status_code == 403 and pc.get("/auth/account").json()["pending"] is True
+    # plus d'attente: il utilise l'appli tout de suite; l'administrateur est prévenu et vérifie après coup
+    assert pc.get("/me").status_code == 200 and pc.get("/auth/account").json()["pending"] is False
     boss = register("boss@padel.tn")
     [s] = boss.get("/admin/signups").json()
     assert s["coach_name"].startswith("Sans coach")
@@ -1790,7 +1792,7 @@ def test_new_coach_waits_for_email_and_admin_then_more_admins(client, monkeypatc
     assert boss.get("/auth/account").json()["pending"] is False  # administrateur du serveur: jamais en attente
     OUTBOX.clear()
     anon = TestClient(app)
-    r = anon.post("/auth/register", json={"email": "neuf@b.tn", "password": "secret1", "name": "Coach Neuf", "phone": "22 333 444"}).json()
+    r = anon.post("/auth/register", json={"accept_terms": True, "email": "neuf@b.tn", "password": "secret1", "name": "Coach Neuf", "phone": "22 333 444"}).json()
     new = login_as(TestClient(app), r["token"])
     acc = new.get("/auth/account").json()
     assert (acc["pending"], acc["email_verified"], acc["email_required"], acc["signup_status"]) == (True, False, True, "a_valider")
@@ -1819,7 +1821,7 @@ def test_new_coach_waits_for_email_and_admin_then_more_admins(client, monkeypatc
     assert new.put(f"/admin/coaches/{boss_id}/admin", json={"admin": False}).status_code == 409  # fixé par ADMIN_EMAILS
     assert boss.put(f"/admin/coaches/{c['id']}/admin", json={"admin": False}).json()["admin"] is False
     # un coach refusé ne peut rien faire
-    r = anon.post("/auth/register", json={"email": "faux@b.tn", "password": "secret1", "name": "Faux", "phone": "22 444 555"}).json()
+    r = anon.post("/auth/register", json={"accept_terms": True, "email": "faux@b.tn", "password": "secret1", "name": "Faux", "phone": "22 444 555"}).json()
     fake = next(x for x in boss.get("/admin/coach-signups").json() if x["email"] == "faux@b.tn")
     boss.post(f"/admin/coach-signups/{fake['id']}/refuse")
     assert login_as(TestClient(app), r["token"]).get("/auth/account").json()["signup_status"] == "refusee"
@@ -1895,7 +1897,7 @@ def invited(c, email, **extra):
     """Joueur ajouté par le coach c, qui crée son compte avec cet e-mail."""
     p = mkplayer(c, **extra)
     token = c.post(f"/players/{p['id']}/invite").json()["token"]
-    r = TestClient(app).post(f"/auth/invite/{token}", json={"email": email, "password": "secret1"}).json()
+    r = TestClient(app).post(f"/auth/invite/{token}", json={"accept_terms": True, "email": email, "password": "secret1"}).json()
     return p, login_as(TestClient(app), r["token"])
 
 
@@ -2221,15 +2223,15 @@ def test_coach_signup_link_profile_and_goals(client):
     token = link.rsplit("/", 1)[1]
     assert TestClient(app).get(f"/auth/join/{token}").json()["coach_name"] == "Coach Test"
     body = {"name": "Nadia Club", "phone": "29 111 222", "email": "nadia@x.tn", "password": "secret1", "gender": "F", "category": "P100-",
-            "dominant_hand": "gaucher", "side": "deux", "goals": "Progresser techniquement · Gagner un tableau P250", "coach_token": token}
+            "dominant_hand": "gaucher", "side": "deux", "goals": "Progresser techniquement · Gagner un tableau P250", "coach_token": token, "accept_terms": True}
     pc = login_as(TestClient(app), TestClient(app).post("/auth/signup", json=body).json()["token"])
     acc = pc.get("/auth/account").json()
     assert acc["signup_status"] == "a_valider" and acc["pending"] is False  # l'administrateur vérifie après coup, sans bloquer
     assert pc.get("/me").status_code == 200
     mine = next(x for x in client.get("/players").json() if x["name"] == "Nadia Club")
     assert (mine["dominant_hand"], mine["side"], mine["goals"]) == ("gaucher", "deux", "Progresser techniquement · Gagner un tableau P250")
-    assert TestClient(app).post("/auth/signup", json={**body, "email": "x1@x.tn", "coach_token": "faux"}).status_code == 404
-    assert TestClient(app).post("/auth/signup", json={**body, "email": "x2@x.tn", "phone": "29 333 444", "side": "milieu"}).status_code == 422
+    assert TestClient(app).post("/auth/signup", json={"accept_terms": True, **body, "email": "x1@x.tn", "coach_token": "faux"}).status_code == 404
+    assert TestClient(app).post("/auth/signup", json={"accept_terms": True, **body, "email": "x2@x.tn", "phone": "29 333 444", "side": "milieu"}).status_code == 422
     # lien personnel d'un élève: son coach devient son coach favori
     p, pc2 = player_client(client)
     coach_id = next(c["id"] for c in pc2.get("/me/coaches").json() if c["mine"])
@@ -2677,12 +2679,12 @@ def test_sender_address_always_has_a_name_and_an_address(monkeypatch):
 
 def test_signup_accepts_only_tunisian_phones(client):
     anon = TestClient(app)
-    r = anon.post("/auth/register", json={"email": "sanstel@b.tn", "password": "secret1", "name": "Coach"})
+    r = anon.post("/auth/register", json={"accept_terms": True, "email": "sanstel@b.tn", "password": "secret1", "name": "Coach"})
     assert r.status_code == 422 and "tunisien" in r.json()["detail"]
-    r = anon.post("/auth/register", json={"email": "fr@b.tn", "password": "secret1", "name": "Coach", "phone": "+33 6 12 34 56 78"})
+    r = anon.post("/auth/register", json={"accept_terms": True, "email": "fr@b.tn", "password": "secret1", "name": "Coach", "phone": "+33 6 12 34 56 78"})
     assert r.status_code == 422 and "tunisien" in r.json()["detail"]
-    assert anon.post("/auth/register", json={"email": "tn@b.tn", "password": "secret1", "name": "Coach", "phone": "+216 22 333 444"}).status_code in (200, 201)
-    r = TestClient(app).post("/auth/signup", json={"name": "Joueur FR", "phone": "06 12 34 56 78", "email": "jfr@b.tn", "password": "secret1"})
+    assert anon.post("/auth/register", json={"accept_terms": True, "email": "tn@b.tn", "password": "secret1", "name": "Coach", "phone": "+216 22 333 444"}).status_code in (200, 201)
+    r = TestClient(app).post("/auth/signup", json={"accept_terms": True, "name": "Joueur FR", "phone": "06 12 34 56 78", "email": "jfr@b.tn", "password": "secret1"})
     assert r.status_code == 422 and "tunisien" in r.json()["detail"]
 
 
@@ -2818,3 +2820,20 @@ def test_prices_never_under_20_and_vip_never_above_standard(client):
     p = mkplayer(client)
     r = client.post("/sessions", json={"start": "2026-12-01T10:00:00Z", "kind": "duo", "player_ids": [p["id"]], "discount_millimes": 30000})
     assert r.status_code == 422 and "20 TND" in r.json()["detail"]  # 40 - 30 = 10: trop bas
+
+
+
+def test_signup_needs_terms_and_stops_bots(client, monkeypatch):
+    """Inscription: conditions d'utilisation obligatoires; champ piège rempli = robot; au plus 5 inscriptions par heure
+    et par appareil."""
+    from app.services import antibot
+    body = {"name": "Robot", "phone": "20 555 666", "email": "r@x.tn", "password": "secret1"}
+    anon = TestClient(app)
+    r = anon.post("/auth/signup", json=body)
+    assert r.status_code == 422 and "conditions" in r.json()["detail"]
+    assert anon.post("/auth/signup", json={**body, "accept_terms": True, "website": "http://spam"}).status_code == 400
+    monkeypatch.setenv("ANTIBOT", "1")
+    antibot._hits.clear()
+    codes = [anon.post("/auth/signup", json={**body, "accept_terms": True, "email": f"r{i}@x.tn", "phone": f"20 555 6{i:02d}"}).status_code for i in range(6)]
+    assert codes[:5] == [200] * 5 and codes[5] == 429
+    antibot._hits.clear()
