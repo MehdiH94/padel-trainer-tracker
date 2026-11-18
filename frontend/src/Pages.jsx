@@ -14,9 +14,9 @@ function Layout({ title, children }) {
         </div>
         <h1>{title}</h1>
         {children}
-        <nav className="page-links" aria-label="Pages d'aide">
+        <div className="page-links" role="navigation" aria-label="Pages d'aide">
           <a href="/aide">Aide et démos</a><a href="/faq">Questions fréquentes</a><a href="/conditions">Conditions d'utilisation</a>
-        </nav>
+        </div>
       </div>
     </div>
   );
@@ -25,9 +25,9 @@ function Layout({ title, children }) {
 // Liens en bas de la page de connexion et des inscriptions
 export function PageLinks() {
   return (
-    <nav className="page-links small" aria-label="Pages d'aide">
+    <div className="page-links small" role="navigation" aria-label="Pages d'aide">
       <a href="/aide">Aide et démos</a><a href="/faq">FAQ</a><a href="/conditions">Conditions</a>
-    </nav>
+    </div>
   );
 }
 
